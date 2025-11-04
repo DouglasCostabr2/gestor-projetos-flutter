@@ -177,16 +177,27 @@ class _MyAppState extends State<MyApp> with WindowListener {
     debugPrint('🧹 Limpando recursos antes de fechar o app...');
 
     try {
-      // 1. Limpar notificações em tempo real (cancela subscription do Supabase)
+      // 1. Limpar TaskTimerService (cancela Timer.periodic)
+      taskTimerService.dispose();
+      debugPrint('✅ TaskTimerService limpo');
+
+      // 2. Limpar notificações em tempo real (cancela subscription do Supabase)
       notificationRealtimeService.disposeAll();
+      debugPrint('✅ NotificationRealtimeService limpo');
 
-      // 2. Limpar AppState (cancela auth state listener)
+      // 3. Limpar AppState (cancela auth state listener)
       _appState.dispose();
+      debugPrint('✅ AppState limpo');
 
-      // 3. Limpar configuração do Supabase (cancela auth state listener global)
+      // 4. Limpar configuração do Supabase (cancela auth state listener global)
       await SupabaseConfig.dispose();
+      debugPrint('✅ SupabaseConfig limpo');
 
-      debugPrint('✅ Recursos limpos com sucesso');
+      // 5. Remover todos os canais Realtime do Supabase
+      SupabaseConfig.client.removeAllChannels();
+      debugPrint('✅ Canais Realtime removidos');
+
+      debugPrint('✅ Todos os recursos limpos com sucesso');
     } catch (e) {
       debugPrint('⚠️ Erro ao limpar recursos: $e');
       // Continua fechando mesmo com erro
