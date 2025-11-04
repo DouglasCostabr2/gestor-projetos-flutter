@@ -63,3 +63,6 @@ app.*.map.json
 # IDE
 .vscode/settings.json
 .vscode/launch.json
+
+# Scripts temp files
+/scripts/temp/
