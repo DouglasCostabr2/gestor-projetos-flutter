@@ -137,69 +137,52 @@ class _MyAppState extends State<MyApp> with WindowListener {
     // Verificar se há timer ativo
     if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
       final shouldClose = await TimerCloseConfirmationDialog.show(navigatorKey.currentContext!);
-      if (shouldClose == true) {
-        // Parar e salvar o timer antes de fechar com timeout de 3 segundos
-        try {
-          if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
-            debugPrint('⏹️ Parando timer antes de fechar o programa...');
-
-            // Adicionar timeout de 3 segundos para evitar travamento
-            // skipNotify=true para não tentar atualizar widgets durante fechamento
-            await taskTimerService.stop(skipNotify: true).timeout(
-              const Duration(seconds: 3),
-              onTimeout: () {
-                debugPrint('⚠️ Timeout ao parar timer - fechando mesmo assim');
-                return;
-              },
-            );
-
-            debugPrint('✅ Timer parado e salvo com sucesso');
-          }
-        } catch (e) {
-          debugPrint('❌ Erro ao parar timer: $e');
-          // Continua fechando mesmo com erro
-        }
-
-        // Limpar todos os recursos antes de fechar
-        await _cleanupBeforeClose();
-        await windowManager.destroy();
+      if (shouldClose != true) {
+        // Usuário cancelou o fechamento - não fazer nada
+        return;
       }
-    } else {
-      // Limpar todos os recursos antes de fechar
-      await _cleanupBeforeClose();
-      await windowManager.destroy();
+
+      // Usuário confirmou - parar e salvar o timer antes de fechar
+      try {
+        if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
+          // Adicionar timeout de 3 segundos para evitar travamento
+          // skipNotify=true para não tentar atualizar widgets durante fechamento
+          await taskTimerService.stop(skipNotify: true).timeout(
+            const Duration(seconds: 3),
+            onTimeout: () {
+              return;
+            },
+          );
+        }
+      } catch (e) {
+        // Continua fechando mesmo com erro
+      }
     }
+
+    // Sempre limpar todos os recursos antes de fechar
+    // (seja com timer ativo ou não)
+    await _cleanupBeforeClose();
+    await windowManager.destroy();
   }
 
   /// Limpa todos os recursos antes de fechar o app
   /// Isso garante que todas as subscriptions sejam canceladas e o app feche rapidamente
   Future<void> _cleanupBeforeClose() async {
-    debugPrint('🧹 Limpando recursos antes de fechar o app...');
-
     try {
-      // 1. Limpar TaskTimerService (cancela Timer.periodic)
-      taskTimerService.dispose();
-      debugPrint('✅ TaskTimerService limpo');
+      // Executar todas as operações de limpeza em paralelo para máxima velocidade
+      await Future.wait([
+        // Limpar configuração do Supabase (cancela auth state listener global)
+        SupabaseConfig.dispose(),
 
-      // 2. Limpar notificações em tempo real (cancela subscription do Supabase)
-      notificationRealtimeService.disposeAll();
-      debugPrint('✅ NotificationRealtimeService limpo');
-
-      // 3. Limpar AppState (cancela auth state listener)
-      _appState.dispose();
-      debugPrint('✅ AppState limpo');
-
-      // 4. Limpar configuração do Supabase (cancela auth state listener global)
-      await SupabaseConfig.dispose();
-      debugPrint('✅ SupabaseConfig limpo');
-
-      // 5. Remover todos os canais Realtime do Supabase
-      SupabaseConfig.client.removeAllChannels();
-      debugPrint('✅ Canais Realtime removidos');
-
-      debugPrint('✅ Todos os recursos limpos com sucesso');
+        // Executar operações síncronas em um Future
+        Future(() {
+          taskTimerService.dispose();
+          notificationRealtimeService.disposeAll();
+          _appState.dispose();
+          SupabaseConfig.client.removeAllChannels();
+        }),
+      ], eagerError: false); // eagerError: false para não parar se uma falhar
     } catch (e) {
-      debugPrint('⚠️ Erro ao limpar recursos: $e');
       // Continua fechando mesmo com erro
     }
   }
