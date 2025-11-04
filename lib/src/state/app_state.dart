@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthState;
 import '../../modules/modules.dart';
 import '../../modules/common/organization_context.dart';
 import '../utils/permissions_helper.dart';
+import '../../services/notification_realtime_service.dart';
 
 /// Centraliza estado da sessão, perfil/role, organização ativa e preferências de UI
 ///
@@ -18,6 +21,9 @@ class AppState extends ChangeNotifier {
 
   // Preferências de UI com ValueNotifier separado para evitar rebuilds desnecessários
   final ValueNotifier<bool> sideMenuCollapsedNotifier = ValueNotifier<bool>(false);
+
+  // Subscription para auth state changes (precisa ser cancelada no dispose)
+  StreamSubscription<AuthState>? _authStateSubscription;
 
   bool get sideMenuCollapsed => sideMenuCollapsedNotifier.value;
 
@@ -40,13 +46,18 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    debugPrint('🧹 [AppState] Limpando recursos...');
+    _authStateSubscription?.cancel();
+    _authStateSubscription = null;
     sideMenuCollapsedNotifier.dispose();
+    debugPrint('✅ [AppState] Recursos limpos');
     super.dispose();
   }
 
   Future<void> initialize() async {
     // Usando o módulo de autenticação
-    authModule.authStateChanges.listen((event) async {
+    // IMPORTANTE: Armazenar a subscription para poder cancelá-la no dispose
+    _authStateSubscription = authModule.authStateChanges.listen((event) async {
       await refreshProfile();
     });
     await refreshProfile();
@@ -63,6 +74,10 @@ class AppState extends ChangeNotifier {
       currentOrganization = null;
       myOrganizations = [];
       currentOrgRole = null;
+
+      // Cancelar subscription de notificações no logout
+      notificationRealtimeService.dispose();
+
       notifyListeners();
       return;
     }
@@ -81,6 +96,9 @@ class AppState extends ChangeNotifier {
 
       // Carregar organizações do usuário
       await refreshOrganizations();
+
+      // Inicializar subscription de notificações em tempo real após login
+      await notificationRealtimeService.initialize();
     } catch (_) {
       role = 'convidado';
       currentOrganization = null;

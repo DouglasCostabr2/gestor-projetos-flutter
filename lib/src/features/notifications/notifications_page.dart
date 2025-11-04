@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../modules/notifications/module.dart';
 import '../../../modules/notifications/models.dart' as models;
 import '../../../modules/organizations/module.dart';
@@ -13,6 +12,10 @@ import 'widgets/notification_item.dart';
 import '../organization/organization_management_page.dart';
 
 /// Página de notificações do usuário
+///
+/// IMPORTANTE: Esta página agora depende do NotificationRealtimeService global
+/// para receber atualizações em tempo real. Ela escuta eventos locais via
+/// NotificationEventBus e recarrega a lista quando necessário.
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
 
@@ -25,7 +28,6 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
   List<models.Notification> _allNotifications = [];
   List<models.Notification> _unreadNotifications = [];
   bool _loading = true;
-  RealtimeChannel? _realtimeChannel;
   int _unreadCount = 0;
 
   @override
@@ -33,14 +35,35 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadNotifications();
-    _subscribeToRealtime();
+    _subscribeToLocalEvents();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
-    _realtimeChannel?.unsubscribe();
+    notificationEventBus.events.removeListener(_handleLocalEvent);
     super.dispose();
+  }
+
+  void _subscribeToLocalEvents() {
+    notificationEventBus.events.addListener(_handleLocalEvent);
+  }
+
+  void _handleLocalEvent() {
+    final event = notificationEventBus.events.value;
+    if (event == null || !mounted) return;
+
+    // Recarregar lista quando houver mudanças
+    switch (event.type) {
+      case NotificationEventType.created:
+      case NotificationEventType.deleted:
+        _loadNotifications();
+        break;
+      case NotificationEventType.markedAsRead:
+      case NotificationEventType.markedAllAsRead:
+        // Para estes eventos, apenas atualizar o estado local sem recarregar
+        break;
+    }
   }
 
   Future<void> _loadNotifications() async {
@@ -72,61 +95,7 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
     }
   }
 
-  void _subscribeToRealtime() {
-    debugPrint('🔔 [NOTIFICATIONS PAGE] Inscrevendo em realtime...');
-    try {
-      _realtimeChannel = notificationsModule.subscribeToNotifications(
-        onInsert: (notification) {
-          debugPrint('🔔 [NOTIFICATIONS PAGE] 🆕 Nova notificação recebida via realtime!');
-          debugPrint('🔔 [NOTIFICATIONS PAGE] Type: ${notification.type}');
-          debugPrint('🔔 [NOTIFICATIONS PAGE] Title: ${notification.title}');
-          debugPrint('🔔 [NOTIFICATIONS PAGE] Org ID: ${notification.organizationId}');
-          if (mounted) {
-            setState(() {
-              _allNotifications.insert(0, notification);
-              if (!notification.isRead) {
-                _unreadNotifications.insert(0, notification);
-                _unreadCount++;
-              }
-            });
-          }
-        },
-        onUpdate: (notification) {
-          if (mounted) {
-            setState(() {
-              final allIndex = _allNotifications.indexWhere((n) => n.id == notification.id);
-              if (allIndex != -1) {
-                _allNotifications[allIndex] = notification;
-              }
 
-              final unreadIndex = _unreadNotifications.indexWhere((n) => n.id == notification.id);
-              if (notification.isRead && unreadIndex != -1) {
-                _unreadNotifications.removeAt(unreadIndex);
-                _unreadCount--;
-              } else if (!notification.isRead && unreadIndex == -1) {
-                _unreadNotifications.insert(0, notification);
-                _unreadCount++;
-              }
-            });
-          }
-        },
-        onDelete: (notification) {
-          if (mounted) {
-            setState(() {
-              _allNotifications.removeWhere((n) => n.id == notification.id);
-              _unreadNotifications.removeWhere((n) => n.id == notification.id);
-              if (!notification.isRead) {
-                _unreadCount--;
-              }
-            });
-          }
-        },
-      );
-    } catch (e) {
-      debugPrint('❌ [NOTIFICATIONS PAGE] Erro ao se inscrever em notificações em tempo real: $e');
-    }
-    debugPrint('🔔 [NOTIFICATIONS PAGE] Inscrição em realtime concluída');
-  }
 
   Future<void> _markAsRead(String notificationId) async {
     // Atualização otimista - atualizar UI imediatamente

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../modules/notifications/module.dart';
 
 /// Badge que exibe o contador de notificações não lidas
 /// Atualiza em tempo real quando novas notificações chegam
+///
+/// IMPORTANTE: Este widget agora depende do NotificationRealtimeService global
+/// para receber atualizações em tempo real. Ele apenas escuta eventos locais
+/// via NotificationEventBus.
 class NotificationBadge extends StatefulWidget {
   final Widget child;
   final bool showZero;
@@ -20,21 +23,16 @@ class NotificationBadge extends StatefulWidget {
 
 class _NotificationBadgeState extends State<NotificationBadge> {
   int _unreadCount = 0;
-  RealtimeChannel? _realtimeChannel;
-  // Cache para rastrear o estado anterior das notificações
-  final Map<String, bool> _notificationReadStatus = {};
 
   @override
   void initState() {
     super.initState();
     _loadUnreadCount();
-    _subscribeToRealtime();
     _subscribeToLocalEvents();
   }
 
   @override
   void dispose() {
-    _realtimeChannel?.unsubscribe();
     notificationEventBus.events.removeListener(_handleLocalEvent);
     super.dispose();
   }
@@ -80,66 +78,12 @@ class _NotificationBadgeState extends State<NotificationBadge> {
 
   Future<void> _loadUnreadCount() async {
     try {
-      // Carregar todas as notificações para popular o cache de status
-      final notifications = await notificationsModule.getNotifications(limit: 100);
       final count = await notificationsModule.getUnreadCount();
-
       if (mounted) {
-        // Popular o cache com o estado atual
-        for (final notification in notifications) {
-          _notificationReadStatus[notification.id] = notification.isRead;
-        }
-
         setState(() => _unreadCount = count);
       }
     } catch (e) {
       debugPrint('Erro ao carregar contador de notificações: $e');
-    }
-  }
-
-  void _subscribeToRealtime() {
-    try {
-      _realtimeChannel = notificationsModule.subscribeToNotifications(
-        onInsert: (notification) {
-          if (mounted) {
-            _notificationReadStatus[notification.id] = notification.isRead;
-            if (!notification.isRead) {
-              setState(() => _unreadCount++);
-            }
-          }
-        },
-        onUpdate: (notification) {
-          if (mounted) {
-            final wasRead = _notificationReadStatus[notification.id];
-            _notificationReadStatus[notification.id] = notification.isRead;
-
-            // Se mudou de não lida para lida, decrementar
-            if (wasRead == false && notification.isRead) {
-              setState(() {
-                if (_unreadCount > 0) _unreadCount--;
-              });
-            }
-            // Se mudou de lida para não lida, incrementar
-            else if (wasRead == true && !notification.isRead) {
-              setState(() => _unreadCount++);
-            }
-          }
-        },
-        onDelete: (notification) {
-          if (mounted) {
-            final wasRead = _notificationReadStatus[notification.id];
-            _notificationReadStatus.remove(notification.id);
-
-            if (wasRead == false) {
-              setState(() {
-                if (_unreadCount > 0) _unreadCount--;
-              });
-            }
-          }
-        },
-      );
-    } catch (e) {
-      debugPrint('Erro ao se inscrever em notificações: $e');
     }
   }
 

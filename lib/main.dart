@@ -9,6 +9,7 @@ import 'core/di/service_registration.dart';
 import 'src/app_shell.dart';
 import 'src/navigation/route_observer.dart';
 import 'services/task_timer_service.dart';
+import 'services/notification_realtime_service.dart';
 
 import 'src/features/auth/login_page.dart';
 import 'src/features/auth/reset_password_page.dart';
@@ -158,10 +159,37 @@ class _MyAppState extends State<MyApp> with WindowListener {
           debugPrint('❌ Erro ao parar timer: $e');
           // Continua fechando mesmo com erro
         }
+
+        // Limpar todos os recursos antes de fechar
+        await _cleanupBeforeClose();
         await windowManager.destroy();
       }
     } else {
+      // Limpar todos os recursos antes de fechar
+      await _cleanupBeforeClose();
       await windowManager.destroy();
+    }
+  }
+
+  /// Limpa todos os recursos antes de fechar o app
+  /// Isso garante que todas as subscriptions sejam canceladas e o app feche rapidamente
+  Future<void> _cleanupBeforeClose() async {
+    debugPrint('🧹 Limpando recursos antes de fechar o app...');
+
+    try {
+      // 1. Limpar notificações em tempo real (cancela subscription do Supabase)
+      notificationRealtimeService.disposeAll();
+
+      // 2. Limpar AppState (cancela auth state listener)
+      _appState.dispose();
+
+      // 3. Limpar configuração do Supabase (cancela auth state listener global)
+      await SupabaseConfig.dispose();
+
+      debugPrint('✅ Recursos limpos com sucesso');
+    } catch (e) {
+      debugPrint('⚠️ Erro ao limpar recursos: $e');
+      // Continua fechando mesmo com erro
     }
   }
 
