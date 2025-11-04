@@ -4,31 +4,35 @@ import 'auth_service.dart';
 import 'folder_service.dart';
 import 'file_service.dart';
 import 'upload_service.dart';
+import '../interfaces/google_drive_service_interface.dart';
 
 /// Serviço principal do Google Drive
-/// 
+///
 /// Fachada que integra todos os serviços especializados:
 /// - AuthService: Autenticação OAuth
 /// - FolderService: Gerenciamento de pastas
 /// - FileService: Gerenciamento de arquivos
 /// - UploadService: Upload de arquivos
-/// 
+///
 /// Este é o ponto de entrada principal para interagir com o Google Drive.
-/// 
+///
+/// Implementa a interface IGoogleDriveService para permitir desacoplamento
+/// e facilitar testes com mocks.
+///
 /// Exemplo de uso:
 /// ```dart
 /// final driveService = GoogleDriveService();
-/// 
+///
 /// // Autenticar
 /// final client = await driveService.getAuthedClient();
-/// 
+///
 /// // Criar estrutura de pastas
 /// final folderId = await driveService.createProjectFolder(
 ///   client: client,
 ///   clientName: 'Cliente ABC',
 ///   projectName: 'Projeto XYZ',
 /// );
-/// 
+///
 /// // Fazer upload
 /// final uploaded = await driveService.uploadFile(
 ///   client: client,
@@ -38,7 +42,7 @@ import 'upload_service.dart';
 ///   mimeType: 'application/pdf',
 /// );
 /// ```
-class GoogleDriveService {
+class GoogleDriveService implements IGoogleDriveService {
   // Serviços especializados
   final _authService = GoogleDriveAuthService();
   final _folderService = GoogleDriveFolderService();
@@ -48,25 +52,31 @@ class GoogleDriveService {
   // ========== AUTENTICAÇÃO ==========
 
   /// Obter cliente autenticado
+  @override
   Future<http.Client> getAuthedClient() => _authService.getAuthedClient();
 
   /// Salvar refresh token
+  @override
   Future<void> saveRefreshToken(String userId, String refreshToken) =>
       _authService.saveRefreshToken(userId, refreshToken);
 
   /// Verificar se tem token
+  @override
   Future<bool> hasToken() => _authService.hasToken();
 
   /// Remover token
+  @override
   Future<void> removeToken() => _authService.removeToken();
 
   // ========== PASTAS ==========
 
   /// Obter ou criar pasta raiz
+  @override
   Future<String> getOrCreateRootFolder(http.Client client) =>
       _folderService.getOrCreateRootFolder(client);
 
   /// Obter ou criar subpasta
+  @override
   Future<String> getOrCreateSubfolder({
     required http.Client client,
     required String parentFolderId,
@@ -79,6 +89,7 @@ class GoogleDriveService {
       );
 
   /// Renomear pasta
+  @override
   Future<void> renameFolder({
     required http.Client client,
     required String folderId,
@@ -91,6 +102,7 @@ class GoogleDriveService {
       );
 
   /// Deletar pasta
+  @override
   Future<void> deleteFolder({
     required http.Client client,
     required String folderId,
@@ -115,6 +127,7 @@ class GoogleDriveService {
   // ========== ARQUIVOS ==========
 
   /// Deletar arquivo
+  @override
   Future<void> deleteFile({
     required http.Client client,
     required String driveFileId,
@@ -125,6 +138,7 @@ class GoogleDriveService {
       );
 
   /// Renomear arquivo
+  @override
   Future<void> renameFile({
     required http.Client client,
     required String fileId,
@@ -137,6 +151,7 @@ class GoogleDriveService {
       );
 
   /// Listar arquivos em pasta
+  @override
   Future<List<dynamic>> listFilesInFolder({
     required http.Client client,
     required String folderId,
@@ -149,6 +164,7 @@ class GoogleDriveService {
       );
 
   /// Mover arquivo
+  @override
   Future<void> moveFile({
     required http.Client client,
     required String fileId,
@@ -177,6 +193,7 @@ class GoogleDriveService {
   // ========== UPLOAD ==========
 
   /// Fazer upload de arquivo
+  @override
   Future<UploadedFile> uploadFile({
     required http.Client client,
     required String folderId,
@@ -237,10 +254,11 @@ class GoogleDriveService {
   // ========== MÉTODOS DE ALTO NÍVEL ==========
 
   /// Criar estrutura completa de pastas para um projeto
-  /// 
+  ///
   /// Cria a hierarquia: Gestor de Projetos/Clientes/{Cliente}/{Empresa}/{Projeto}
-  /// 
+  ///
   /// Retorna: ID da pasta do projeto
+  @override
   Future<String> createProjectFolder({
     required http.Client client,
     required String clientName,

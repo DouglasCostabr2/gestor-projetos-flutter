@@ -2,15 +2,25 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:gestor_projetos_flutter/widgets/standard_dialog.dart';
-import 'package:gestor_projetos_flutter/widgets/reorderable_drag_list.dart';
-import 'package:gestor_projetos_flutter/src/features/catalog/_select_products_dialog.dart';
-import 'package:gestor_projetos_flutter/src/state/app_state_scope.dart';
-import 'package:gestor_projetos_flutter/modules/modules.dart';
-import 'package:gestor_projetos_flutter/widgets/tabs/tabs.dart';
-import 'package:gestor_projetos_flutter/widgets/dropdowns/dropdowns.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
+import 'package:my_business/ui/organisms/lists/lists.dart';
+import 'package:my_business/src/features/catalog/_select_products_dialog.dart';
+import 'package:my_business/src/features/catalog/widgets/catalog_status_badge.dart';
+import 'package:my_business/src/state/app_state_scope.dart';
+import 'package:my_business/modules/modules.dart';
+import 'package:my_business/modules/common/organization_context.dart';
+import 'package:my_business/ui/organisms/tabs/tabs.dart';
+import 'package:my_business/ui/molecules/dropdowns/dropdowns.dart';
 import 'package:image/image.dart' as img;
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import 'package:my_business/ui/organisms/tables/dynamic_paginated_table.dart';
+import 'package:my_business/ui/organisms/tables/table_search_filter_bar.dart';
+import 'package:my_business/ui/organisms/tables/reusable_data_table.dart';
+import 'package:my_business/ui/molecules/table_cells/table_cells.dart';
+import 'package:my_business/ui/molecules/inputs/mention_text_area.dart';
+import 'package:my_business/services/mentions_service.dart';
+import '../../services/permissions_service.dart';
+import '../../navigation/user_role.dart';
 
 
 class CatalogPage extends StatefulWidget {
@@ -27,24 +37,30 @@ class _CatalogPageState extends State<CatalogPage> {
   bool _depsInitialized = false;
   List<Map<String, dynamic>> _categories = [];
 
-  // Filtros/ordenacao de categorias
+  // Filtros de categorias
   String _catSearch = '';
   int _catFilter = 0; // 0=Todas, 1=Com produtos, 2=Sem produtos
-  String _catSort = 'name_asc';
-  // Filtros/ordenacao de produtos e pacotes
+
+  // Filtros de produtos
+  String _prodSearch = '';
+  String _prodFilterType = 'none'; // 'none', 'category', 'status'
+  String? _prodFilterValue; // valor do filtro selecionado
+
+  // Filtros de pacotes
+  String _packSearch = '';
+  String _packFilterType = 'none'; // 'none', 'category', 'status'
+  String? _packFilterValue; // valor do filtro selecionado
+
+  // Seleção de itens
+  Set<String> _selectedProductIds = {};
+  Set<String> _selectedPackageIds = {};
+  Set<String> _selectedCategoryIds = {};
+
   @override
   void initState() {
     super.initState();
     _reload();
   }
-
-  String _prodSearch = '';
-  String? _prodCatFilter; // categoria_id ou null para todas
-  String _prodSort = 'name_asc';
-
-  String _packSearch = '';
-  String? _packCatFilter;
-  String _packSort = 'name_asc';
 
 
 
@@ -115,6 +131,12 @@ class _CatalogPageState extends State<CatalogPage> {
       }
 
       // 5. Upload para Supabase Storage
+      // Obter organization_id da organização ativa
+      final organizationId = OrganizationContext.currentOrganizationId;
+      if (organizationId == null) {
+        throw Exception('Nenhuma organização ativa');
+      }
+
       // Sanitizar nome do produto/pacote para usar no nome do arquivo
       final sanitizedName = productName.trim().isEmpty
           ? 'produto'
@@ -125,7 +147,7 @@ class _CatalogPageState extends State<CatalogPage> {
               .replaceAll(RegExp(r'^-|-$'), '');
 
       final fileName = 'thumb-$sanitizedName.jpg';
-      final path = fileName;
+      final path = '$organizationId/$fileName';
 
       await Supabase.instance.client.storage
           .from('product-thumbnails')
@@ -203,8 +225,24 @@ class _CatalogPageState extends State<CatalogPage> {
     }
   }
 
-  String _fmt(int cents) => (cents / 100.0).toStringAsFixed(2);
+  String _fmt(int cents) => (cents / 100.0).toStringAsFixed(2).replaceAll('.', ',');
 
+  String _currencySymbol(String code) {
+    switch (code.toUpperCase()) {
+      case 'BRL':
+        return 'R\$';
+      case 'USD':
+        return '\$';
+      case 'EUR':
+        return '€';
+      case 'GBP':
+        return '£';
+      case 'JPY':
+        return '¥';
+      default:
+        return code;
+    }
+  }
 
   String _priceSummary(Map<String, dynamic> row) {
     final pm = (row['price_map'] as Map?)?.cast<String, dynamic>();
@@ -213,25 +251,37 @@ class _CatalogPageState extends State<CatalogPage> {
       final parts = <String>[];
       for (final code in order) {
         final v = pm[code];
-        if (v is int) parts.add('$code ${_fmt(v)}');
+        if (v is int) parts.add('${_currencySymbol(code)} ${_fmt(v)}');
       }
-      pm.forEach((code, v) { if (!order.contains(code) && v is int) parts.add('$code ${_fmt(v)}'); });
+      pm.forEach((code, v) { if (!order.contains(code) && v is int) parts.add('${_currencySymbol(code)} ${_fmt(v)}'); });
       return parts.isEmpty ? '-' : parts.join(' • ');
     }
     final code = (row['currency_code'] as String?) ?? 'BRL';
     final cents = (row['price_cents'] as int?) ?? 0;
-    return '$code ${_fmt(cents)}';
+    return '${_currencySymbol(code)} ${_fmt(cents)}';
   }
 
 
   Widget _productLeadingThumb(Map<String, dynamic> p) {
     final url = (p['image_thumb_url'] as String?) ?? (p['image_url'] as String?);
-    if (url == null || url.isEmpty) {
-      return const CircleAvatar(radius: 18, child: Icon(Icons.image_not_supported, size: 18));
-    }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: Image.network(url, width: 48, height: 48, fit: BoxFit.cover),
+
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: url == null || url.isEmpty
+          ? Icon(
+              Icons.image_not_supported,
+              size: 24,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            )
+          : ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.network(url, width: 48, height: 48, fit: BoxFit.cover),
+            ),
     );
   }
 
@@ -239,7 +289,7 @@ class _CatalogPageState extends State<CatalogPage> {
     String? localErr;
     bool saving = false;
     final controller = TextEditingController(text: (initial?['name'] ?? '') as String);
-    final ok = await showDialog<bool>(
+    final ok = await DialogHelper.show<bool>(
       context: context,
       builder: (_) => StatefulBuilder(builder: (context, setState) {
         Future<void> doSave() async {
@@ -249,7 +299,18 @@ class _CatalogPageState extends State<CatalogPage> {
             if (name.isEmpty) throw 'Informe o nome da categoria';
             final client = Supabase.instance.client;
             if (initial == null) {
-              await client.from('catalog_categories').insert({'name': name});
+              // Adicionar organization_id ao criar categoria
+              final orgId = OrganizationContext.currentOrganizationId;
+              if (orgId == null) throw 'Nenhuma organização ativa';
+
+              debugPrint('📁 Criando categoria: $name (org: $orgId)');
+
+              await client.from('catalog_categories').insert({
+                'name': name,
+                'organization_id': orgId,
+              });
+
+              debugPrint('✅ Categoria criada com sucesso');
             } else {
               await client.from('catalog_categories').update({'name': name}).eq('id', (initial['id'] ?? '').toString());
             }
@@ -313,7 +374,7 @@ class _CatalogPageState extends State<CatalogPage> {
   Future<void> _editPackage(Map<String, dynamic> row) => _editItem('packages', row);
 
   Future<void> _confirmDelete(String table, String id) async {
-    final ok = await showDialog<bool>(
+    final ok = await DialogHelper.show<bool>(
       context: context,
       builder: (_) => ConfirmDialog(
         title: 'Excluir Item',
@@ -340,7 +401,7 @@ class _CatalogPageState extends State<CatalogPage> {
           }
         } catch (_) {}
         if (friendly != null) {
-          await showDialog(
+          await DialogHelper.show(
             context: context,
             builder: (_) => StandardDialog(
               title: 'Exclusão bloqueada',
@@ -359,6 +420,100 @@ class _CatalogPageState extends State<CatalogPage> {
     }
   }
 
+  /// Exclusão em lote de produtos
+  Future<void> _bulkDeleteProducts() async {
+    if (_selectedProductIds.isEmpty) return;
+
+    final count = _selectedProductIds.length;
+    final ok = await DialogHelper.show<bool>(
+      context: context,
+      builder: (_) => ConfirmDialog(
+        title: 'Excluir Produtos',
+        message: 'Tem certeza que deseja excluir $count produto${count > 1 ? 's' : ''}?',
+        confirmText: 'Excluir',
+        isDestructive: true,
+      ),
+    );
+
+    if (ok == true) {
+      try {
+        await Supabase.instance.client
+            .from('products')
+            .delete()
+            .inFilter('id', _selectedProductIds.toList());
+
+        setState(() => _selectedProductIds.clear());
+        await _reload();
+      } catch (e) {
+        if (!mounted) return;
+        String? friendly;
+
+        if (e is PostgrestException && e.code == '23503') {
+          friendly = 'Não é possível excluir um ou mais produtos pois estão sendo usados em pacotes.';
+        }
+
+        if (friendly != null) {
+          await DialogHelper.show(
+            context: context,
+            builder: (_) => StandardDialog(
+              title: 'Erro ao Excluir',
+              child: Text(friendly!),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));
+        }
+      }
+    }
+  }
+
+  /// Exclusão em lote de pacotes
+  Future<void> _bulkDeletePackages() async {
+    if (_selectedPackageIds.isEmpty) return;
+
+    final count = _selectedPackageIds.length;
+    final ok = await DialogHelper.show<bool>(
+      context: context,
+      builder: (_) => ConfirmDialog(
+        title: 'Excluir Pacotes',
+        message: 'Tem certeza que deseja excluir $count pacote${count > 1 ? 's' : ''}?',
+        confirmText: 'Excluir',
+        isDestructive: true,
+      ),
+    );
+
+    if (ok == true) {
+      try {
+        await Supabase.instance.client
+            .from('packages')
+            .delete()
+            .inFilter('id', _selectedPackageIds.toList());
+
+        setState(() => _selectedPackageIds.clear());
+        await _reload();
+      } catch (e) {
+        if (!mounted) return;
+        String? friendly;
+
+        if (e is PostgrestException && e.code == '23503') {
+          friendly = 'Não é possível excluir um ou mais pacotes pois possuem itens vinculados.';
+        }
+
+        if (friendly != null) {
+          await DialogHelper.show(
+            context: context,
+            builder: (_) => StandardDialog(
+              title: 'Erro ao Excluir',
+              child: Text(friendly!),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao excluir: $e')));
+        }
+      }
+    }
+  }
+
   Future<void> _manageCategories() async {
     String? error;
     bool busy = false;
@@ -367,7 +522,7 @@ class _CatalogPageState extends State<CatalogPage> {
       final controller = TextEditingController(text: (initial?['name'] ?? '') as String);
       String? localErr;
       bool saving = false;
-      final ok = await showDialog<bool>(
+      final ok = await DialogHelper.show<bool>(
         context: context,
         builder: (_) => StatefulBuilder(builder: (context, setState) {
           Future<void> doSave() async {
@@ -377,7 +532,18 @@ class _CatalogPageState extends State<CatalogPage> {
               if (name.isEmpty) throw 'Informe o nome da categoria';
               final client = Supabase.instance.client;
               if (initial == null) {
-                await client.from('catalog_categories').insert({'name': name});
+                // Adicionar organization_id ao criar categoria
+                final orgId = OrganizationContext.currentOrganizationId;
+                if (orgId == null) throw 'Nenhuma organização ativa';
+
+                debugPrint('📁 Criando categoria: $name (org: $orgId)');
+
+                await client.from('catalog_categories').insert({
+                  'name': name,
+                  'organization_id': orgId,
+                });
+
+                debugPrint('✅ Categoria criada com sucesso');
               } else {
                 await client.from('catalog_categories').update({'name': name}).eq('id', (initial['id'] ?? '').toString());
               }
@@ -422,7 +588,7 @@ class _CatalogPageState extends State<CatalogPage> {
 
     // OBS: fluxo antigo de gerenciar lista completo foi descontinuado
     // Mantido como utilitário oculto caso seja necessário no futuro
-    await showDialog<void>(
+    await DialogHelper.show<void>(
       context: context,
       builder: (_) => StatefulBuilder(builder: (context, setState) {
         Future<void> refresh() async {
@@ -550,6 +716,7 @@ class _CatalogPageState extends State<CatalogPage> {
     bool imageCleared = false;
 
     String? categoryId = (initial?['category_id'] as String?);
+    String status = (initial?['status'] as String?) ?? 'active';
 
     String textFrom(Map<String, dynamic>? r, String code) {
       final pm = (r?['price_map'] as Map?)?.cast<String, dynamic>();
@@ -596,7 +763,7 @@ class _CatalogPageState extends State<CatalogPage> {
     String? err;
 
     if (!mounted) return;
-    final saved = await showDialog<bool>(
+    final saved = await DialogHelper.show<bool>(
       context: context,
       builder: (_) => StatefulBuilder(builder: (context, setState) {
         Future<void> doSave() async {
@@ -616,11 +783,14 @@ class _CatalogPageState extends State<CatalogPage> {
                     return null;
                   })();
 
+            final userId = authModule.currentUser?.id;
+
             final payload = <String, dynamic>{
               'name': name.text.trim(),
               'description': desc.text.trim().isEmpty ? null : desc.text.trim(),
               'category_id': categoryId,
               'category': selectedName, // fallback para compatibilidade
+              'status': status,
             };
 
             // Upload de miniatura no Supabase Storage (produtos e pacotes)
@@ -667,6 +837,7 @@ class _CatalogPageState extends State<CatalogPage> {
             }
 
             final client = Supabase.instance.client;
+            String? itemId;
             if (initial == null) {
               // CREATE: define price_map; e define currency_code/price_cents coerente
               payload['price_map'] = pm;
@@ -682,9 +853,25 @@ class _CatalogPageState extends State<CatalogPage> {
                 payload['currency_code'] = 'BRL';
                 payload['price_cents'] = 0;
               }
+              // Adicionar organization_id
+              final orgId = OrganizationContext.currentOrganizationId;
+              if (orgId == null) throw 'Nenhuma organização ativa';
+              payload['organization_id'] = orgId;
+
+              // Salvar created_by
+              if (userId != null) {
+                payload['created_by'] = userId;
+                payload['updated_by'] = userId;
+              }
+
+              debugPrint('🛍️ Criando ${table == 'products' ? 'produto' : 'pacote'}: ${payload['name']} (org: $orgId)');
+
               final ins = await client.from(table).insert(payload).select('id').single();
+              itemId = (ins['id'] ?? '').toString();
+
+              debugPrint('✅ ${table == 'products' ? 'Produto' : 'Pacote'} criado com sucesso: $itemId');
               if (table == 'packages') {
-                final newId = (ins['id'] ?? '').toString();
+                final newId = itemId;
                 if (pkgItems.isNotEmpty) {
                   final rows = List.generate(pkgItems.length, (i) { final it = pkgItems[i]; return {
                     'package_id': newId,
@@ -704,9 +891,14 @@ class _CatalogPageState extends State<CatalogPage> {
                 payload['currency_code'] = 'BRL';
                 payload['price_cents'] = pm['BRL'];
               }
-              await client.from(table).update(payload).eq('id', (initial['id'] ?? '').toString());
+              // Salvar updated_by
+              if (userId != null) {
+                payload['updated_by'] = userId;
+              }
+              itemId = (initial['id'] ?? '').toString();
+              await client.from(table).update(payload).eq('id', itemId);
               if (table == 'packages') {
-                final pkgId = (initial['id'] ?? '').toString();
+                final pkgId = itemId;
 
                 await client.from('package_items').delete().eq('package_id', pkgId);
                 if (pkgItems.isNotEmpty) {
@@ -721,6 +913,27 @@ class _CatalogPageState extends State<CatalogPage> {
                 }
               }
             }
+
+            // Salvar menções da descrição
+            final mentionsService = MentionsService();
+            try {
+              if (table == 'products') {
+                await mentionsService.saveProductMentions(
+                  productId: itemId,
+                  fieldName: 'description',
+                  content: desc.text,
+                );
+              } else if (table == 'packages') {
+                await mentionsService.savePackageMentions(
+                  packageId: itemId,
+                  fieldName: 'description',
+                  content: desc.text,
+                );
+              }
+            } catch (e) {
+              debugPrint('Erro ao salvar menções da descrição: $e');
+            }
+
             if (context.mounted) Navigator.pop(context, true);
           } catch (ex) {
             setState(() { err = ex.toString(); });
@@ -754,11 +967,15 @@ class _CatalogPageState extends State<CatalogPage> {
                   const SizedBox(height: 16),
                   TextField(controller: name, decoration: const InputDecoration(labelText: 'Nome')),
                   const SizedBox(height: 12),
-                  TextField(
+                  MentionTextArea(
                     controller: desc,
+                    labelText: 'Descrição',
+                    hintText: 'Descrição do pacote... (digite @ para mencionar)',
                     minLines: 2,
                     maxLines: 4,
-                    decoration: const InputDecoration(labelText: 'Descrição'),
+                    onMentionsChanged: (userIds) {
+                      // Menções serão salvas ao salvar o pacote
+                    },
                   ),
                   const SizedBox(height: 12),
                   Row(children: [
@@ -866,11 +1083,15 @@ class _CatalogPageState extends State<CatalogPage> {
                 if (table == 'products') ...[
                   TextField(controller: name, decoration: const InputDecoration(labelText: 'Nome')),
                   const SizedBox(height: 12),
-                  TextField(
+                  MentionTextArea(
                     controller: desc,
+                    labelText: 'Descrição',
+                    hintText: 'Descrição do produto... (digite @ para mencionar)',
                     minLines: 2,
                     maxLines: 4,
-                    decoration: const InputDecoration(labelText: 'Descrição'),
+                    onMentionsChanged: (userIds) {
+                      // Menções serão salvas ao salvar o produto
+                    },
                   ),
                   const SizedBox(height: 12),
                 ],
@@ -882,7 +1103,7 @@ class _CatalogPageState extends State<CatalogPage> {
                     alignment: Alignment.centerLeft,
                     child: FilledButton.icon(
                       onPressed: saving ? null : () async {
-                        final added = await showDialog<List<Map<String, dynamic>>>(
+                        final added = await DialogHelper.show<List<Map<String, dynamic>>>(
                           context: context,
                           builder: (_) => SelectProductsDialog(
                             products: _products,
@@ -925,8 +1146,8 @@ class _CatalogPageState extends State<CatalogPage> {
                       final pm = (prod['price_map'] as Map?)?.cast<String, dynamic>();
                       final centsBRL = pm?['BRL'] as int? ?? (prod['price_cents'] as int? ?? 0);
                       final qty = 1;
-                      final unitFmt = 'BRL ${_fmt(centsBRL)}';
-                      final totalFmt = 'BRL ${_fmt(centsBRL * qty)}';
+                      final unitFmt = '${_currencySymbol('BRL')} ${_fmt(centsBRL)}';
+                      final totalFmt = '${_currencySymbol('BRL')} ${_fmt(centsBRL * qty)}';
                       return ListTile(
                         dense: true,
                         leading: _productLeadingThumb(prod),
@@ -942,7 +1163,7 @@ class _CatalogPageState extends State<CatalogPage> {
                               tooltip: 'Adicionar comentário',
                               onPressed: () async {
                                 final controller = TextEditingController(text: (it['comment'] as String?) ?? '');
-                                final ok = await showDialog<bool>(
+                                final ok = await DialogHelper.show<bool>(
                                   context: context,
                                   builder: (_) => StandardDialog(
                                     title: 'Comentário do item',
@@ -1025,7 +1246,7 @@ class _CatalogPageState extends State<CatalogPage> {
                           alignment: Alignment.centerLeft,
                           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                             Text('Total dos produtos:', style: Theme.of(context).textTheme.bodySmall),
-                            Text('BRL $fBRL • USD $fUSD • EUR $fEUR', style: Theme.of(context).textTheme.bodySmall),
+                            Text('${_currencySymbol('BRL')} $fBRL • ${_currencySymbol('USD')} $fUSD • ${_currencySymbol('EUR')} $fEUR', style: Theme.of(context).textTheme.bodySmall),
                           ]),
                         ),
                       );
@@ -1061,6 +1282,20 @@ class _CatalogPageState extends State<CatalogPage> {
                       label: const Text('Gerenciar'),
                     ),
                   ]),
+                  const SizedBox(height: 12),
+                  // Dropdown de Status
+                  GenericDropdownField<String>(
+                    value: status,
+                    items: const [
+                      DropdownItem(value: 'active', label: 'Ativo'),
+                      DropdownItem(value: 'inactive', label: 'Inativo'),
+                      DropdownItem(value: 'discontinued', label: 'Descontinuado'),
+                      DropdownItem(value: 'coming_soon', label: 'Em breve'),
+                    ],
+                    labelText: 'Status',
+                    onChanged: (v) => setState(() => status = v ?? 'active'),
+                    enabled: !saving,
+                  ),
                   const SizedBox(height: 12),
                 ],
                 if (table == 'products') ...[
@@ -1150,19 +1385,19 @@ class _CatalogPageState extends State<CatalogPage> {
                 if ((AppStateScope.of(context).isAdmin || AppStateScope.of(context).isFinanceiro)) Row(children: [
                   Expanded(child: TextField(
                     controller: brl,
-                    decoration: const InputDecoration(labelText: 'BRL'),
+                    decoration: const InputDecoration(labelText: 'R\$'),
                     onChanged: (_) => setState(() => autoBRL = false),
                   )),
                   const SizedBox(width: 8),
                   Expanded(child: TextField(
                     controller: usd,
-                    decoration: const InputDecoration(labelText: 'USD'),
+                    decoration: const InputDecoration(labelText: '\$'),
                     onChanged: (_) => setState(() => autoUSD = false),
                   )),
                   const SizedBox(width: 8),
                   Expanded(child: TextField(
                     controller: eur,
-                    decoration: const InputDecoration(labelText: 'EUR'),
+                    decoration: const InputDecoration(labelText: '€'),
                     onChanged: (_) => setState(() => autoEUR = false),
                   )),
                 ]),
@@ -1178,10 +1413,510 @@ class _CatalogPageState extends State<CatalogPage> {
     if (saved == true) await _reload();
   }
 
+  Widget _buildCategoriesTab(appState) {
+    // Filtrar categorias
+    var filteredCategories = List<Map<String, dynamic>>.from(_categories);
+    if (_catSearch.isNotEmpty) {
+      final q = _catSearch.toLowerCase();
+      filteredCategories = filteredCategories.where((c) => ((c['name'] ?? '') as String).toLowerCase().contains(q)).toList();
+    }
+    if (_catFilter != 0) {
+      filteredCategories = filteredCategories.where((c) {
+        final n = (c['product_count'] as int?) ?? 0;
+        return _catFilter == 1 ? n > 0 : n == 0;
+      }).toList();
+    }
+
+    return Column(
+      children: [
+        // Barra de busca e filtros
+        Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 8),
+          child: TableSearchFilterBar(
+            searchHint: 'Pesquisar categoria...',
+            onSearchChanged: (v) => setState(() => _catSearch = v.trim()),
+            filterType: ['todas', 'com', 'sem'][_catFilter],
+            filterTypeLabel: 'Filtro',
+            filterTypeOptions: const [
+              FilterOption(value: 'todas', label: 'Todas'),
+              FilterOption(value: 'com', label: 'Com produtos'),
+              FilterOption(value: 'sem', label: 'Sem produtos'),
+            ],
+            onFilterTypeChanged: (v) => setState(() => _catFilter = {'todas': 0, 'com': 1, 'sem': 2}[v]!),
+            showFilters: true,
+            actionButton: FilledButton.icon(
+              onPressed: _newCategory,
+              icon: const Icon(Icons.category),
+              label: const Text('Nova Categoria'),
+            ),
+          ),
+        ),
+        // Tabela
+        Expanded(
+          child: DynamicPaginatedTable<Map<String, dynamic>>(
+            items: filteredCategories,
+            columns: const [
+              DataTableColumn(label: 'Nome', sortable: true),
+              DataTableColumn(label: 'Produtos', sortable: true),
+            ],
+            cellBuilders: [
+              (c) => Text((c['name'] ?? '') as String),
+              (c) {
+                final pc = (c['product_count'] as int?) ?? 0;
+                return Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  child: Text('$pc produtos', style: Theme.of(context).textTheme.bodySmall),
+                );
+              },
+            ],
+            sortComparators: [
+              (a, b) => ((a['name'] ?? '') as String).toLowerCase().compareTo(((b['name'] ?? '') as String).toLowerCase()),
+              (a, b) => ((a['product_count'] as int?) ?? 0).compareTo((b['product_count'] as int?) ?? 0),
+            ],
+            getId: (c) => (c['id'] ?? '').toString(),
+            itemLabel: 'categoria(s)',
+            selectedIds: _selectedCategoryIds,
+            onSelectionChanged: (ids) => setState(() => _selectedCategoryIds = ids),
+            actions: (() {
+              final userRole = UserRoleExtension.fromString(appState.role);
+              final canEdit = permissionsService.canUpdate(userRole, PermissionEntity.category);
+              final canDelete = permissionsService.canDelete(userRole, PermissionEntity.category);
+
+              final actions = <DataTableAction<Map<String, dynamic>>>[];
+              if (canEdit) {
+                actions.add(DataTableAction<Map<String, dynamic>>(
+                  icon: Icons.edit_outlined,
+                  label: 'Editar',
+                  onPressed: (c) => _editCategoryInline(initial: c),
+                ));
+              }
+              if (canDelete) {
+                actions.add(DataTableAction<Map<String, dynamic>>(
+                  icon: Icons.delete_outline,
+                  label: 'Excluir',
+                  onPressed: (c) => _confirmDelete('catalog_categories', (c['id'] ?? '').toString()),
+                ));
+              }
+              return actions.isEmpty ? null : actions;
+            })(),
+            emptyWidget: const Center(child: Text('Nenhuma categoria')),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPackagesTab(appState, bool canViewValues) {
+    // Filtrar pacotes
+    var filteredPackages = List<Map<String, dynamic>>.from(_packages);
+    if (_packSearch.isNotEmpty) {
+      final q = _packSearch.toLowerCase();
+      filteredPackages = filteredPackages.where((p) {
+        final n = ((p['name'] ?? '') as String).toLowerCase();
+        final d = ((p['description'] ?? '') as String).toLowerCase();
+        return n.contains(q) || d.contains(q);
+      }).toList();
+    }
+    // Aplicar filtro baseado no tipo selecionado
+    if (_packFilterType == 'category' && _packFilterValue != null && _packFilterValue!.isNotEmpty) {
+      filteredPackages = filteredPackages.where((p) => ((p['category_id'] ?? '') as String?) == _packFilterValue).toList();
+    } else if (_packFilterType == 'status' && _packFilterValue != null && _packFilterValue!.isNotEmpty) {
+      filteredPackages = filteredPackages.where((p) => ((p['status'] ?? 'active') as String) == _packFilterValue).toList();
+    }
+
+    return Column(
+      children: [
+        // Barra de busca e filtros
+        Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 8),
+          child: TableSearchFilterBar(
+            searchHint: 'Pesquisar pacote...',
+            onSearchChanged: (v) => setState(() => _packSearch = v.trim()),
+            filterType: _packFilterType,
+            filterTypeLabel: 'Tipo de filtro',
+            filterTypeOptions: const [
+              FilterOption(value: 'none', label: 'Nenhum'),
+              FilterOption(value: 'category', label: 'Categoria'),
+              FilterOption(value: 'status', label: 'Status'),
+            ],
+            onFilterTypeChanged: (v) => setState(() {
+              _packFilterType = v ?? 'none';
+              _packFilterValue = null; // Limpa o valor ao mudar o tipo
+            }),
+            filterValue: _packFilterValue,
+            filterValueLabel: _packFilterType == 'category' ? 'Categoria' : 'Status',
+            filterValueOptions: _packFilterType == 'category'
+                ? _categories.map((c) => (c['id'] ?? '').toString()).toList()
+                : ['active', 'inactive', 'discontinued', 'coming_soon'],
+            filterValueLabelBuilder: (v) {
+              if (_packFilterType == 'category') {
+                final cat = _categories.firstWhere(
+                  (c) => (c['id'] ?? '').toString() == v,
+                  orElse: () => {'name': v},
+                );
+                return (cat['name'] ?? v) as String;
+              } else {
+                switch (v) {
+                  case 'active': return 'Ativos';
+                  case 'inactive': return 'Inativos';
+                  case 'discontinued': return 'Descontinuados';
+                  case 'coming_soon': return 'Em breve';
+                  default: return v;
+                }
+              }
+            },
+            onFilterValueChanged: (v) => setState(() => _packFilterValue = (v == null || v.isEmpty) ? null : v),
+            showFilters: true,
+            selectedCount: _selectedPackageIds.length,
+            bulkActions: (() {
+              final userRole = UserRoleExtension.fromString(appState.role);
+              final canDelete = permissionsService.canDelete(userRole, PermissionEntity.package_);
+              return canDelete ? [
+                BulkAction(
+                  icon: Icons.delete_outline,
+                  label: 'Excluir selecionados',
+                  onPressed: () => _bulkDeletePackages(),
+                ),
+              ] : null;
+            })(),
+            actionButton: (() {
+              final userRole = UserRoleExtension.fromString(appState.role);
+              final canCreate = permissionsService.canCreate(userRole, PermissionEntity.package_);
+              return canCreate ? FilledButton.icon(
+                onPressed: _newPackage,
+                icon: const Icon(Icons.add_card),
+                label: const Text('Novo Pacote'),
+              ) : null;
+            })(),
+          ),
+        ),
+        // Tabela
+        Expanded(
+          child: DynamicPaginatedTable<Map<String, dynamic>>(
+            items: filteredPackages,
+            columns: [
+              const DataTableColumn(label: 'Nome', sortable: true),
+              if (canViewValues) const DataTableColumn(label: 'Preço', sortable: true),
+              const DataTableColumn(label: 'Categoria', sortable: true),
+              const DataTableColumn(label: 'Status', sortable: true),
+              const DataTableColumn(label: 'Atualizado', sortable: true),
+              const DataTableColumn(label: 'Criado', sortable: true),
+            ],
+            cellBuilders: [
+              (p) => Row(
+                children: [
+                  _productLeadingThumb(p),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text((p['name'] ?? '-') as String)),
+                ],
+              ),
+              if (canViewValues) (p) => Text(_priceSummary(p)),
+              (p) {
+                final id = p['category_id'] as String?;
+                final catName = _categoryNameById(id);
+                if (catName.isEmpty) return const Text('-');
+                return Text(catName);
+              },
+              (p) {
+                final status = (p['status'] ?? 'active') as String;
+                return CatalogStatusBadge(status: status);
+              },
+              (p) => TableCellUpdatedBy(
+                date: p['updated_at'],
+                profile: p['updated_by_profile'] as Map<String, dynamic>?,
+                dateFormat: TableCellDateFormat.short,
+                avatarSize: 10,
+              ),
+              (p) => TableCellUpdatedBy(
+                date: p['created_at'],
+                profile: p['created_by_profile'] as Map<String, dynamic>?,
+                dateFormat: TableCellDateFormat.short,
+                avatarSize: 10,
+              ),
+            ],
+            sortComparators: [
+              (a, b) => ((a['name'] ?? '') as String).toLowerCase().compareTo(((b['name'] ?? '') as String).toLowerCase()),
+              if (canViewValues) (a, b) {
+                int ac = 0;
+                int bc = 0;
+                final apm = (a['price_map'] as Map?)?.cast<String, dynamic>();
+                final bpm = (b['price_map'] as Map?)?.cast<String, dynamic>();
+                ac = (apm?['BRL'] as int?) ?? (a['price_cents'] as int? ?? 0);
+                bc = (bpm?['BRL'] as int?) ?? (b['price_cents'] as int? ?? 0);
+                return ac.compareTo(bc);
+              },
+              (a, b) => _categoryNameById(a['category_id'] as String?).compareTo(_categoryNameById(b['category_id'] as String?)),
+              (a, b) => ((a['status'] ?? 'active') as String).compareTo((b['status'] ?? 'active') as String),
+              (a, b) {
+                final aDate = a['updated_at'] != null ? DateTime.parse(a['updated_at'].toString()) : DateTime(1970);
+                final bDate = b['updated_at'] != null ? DateTime.parse(b['updated_at'].toString()) : DateTime(1970);
+                return bDate.compareTo(aDate); // Mais recente primeiro
+              },
+              (a, b) {
+                final aDate = a['created_at'] != null ? DateTime.parse(a['created_at'].toString()) : DateTime(1970);
+                final bDate = b['created_at'] != null ? DateTime.parse(b['created_at'].toString()) : DateTime(1970);
+                return bDate.compareTo(aDate); // Mais recente primeiro
+              },
+            ],
+            getId: (p) => (p['id'] ?? '').toString(),
+            itemLabel: 'pacote(s)',
+            selectedIds: _selectedPackageIds,
+            onSelectionChanged: (ids) => setState(() => _selectedPackageIds = ids),
+            actions: (() {
+              final userRole = UserRoleExtension.fromString(appState.role);
+              final canEdit = permissionsService.canUpdate(userRole, PermissionEntity.package_);
+              final canDelete = permissionsService.canDelete(userRole, PermissionEntity.package_);
+
+              final actions = <DataTableAction<Map<String, dynamic>>>[];
+              if (canEdit) {
+                actions.add(DataTableAction<Map<String, dynamic>>(
+                  icon: Icons.edit_outlined,
+                  label: 'Editar',
+                  onPressed: (p) => _editPackage(p),
+                ));
+              }
+              if (canDelete) {
+                actions.add(DataTableAction<Map<String, dynamic>>(
+                  icon: Icons.delete_outline,
+                  label: 'Excluir',
+                  onPressed: (p) => _confirmDelete('packages', (p['id'] ?? '').toString()),
+                ));
+              }
+              return actions.isEmpty ? null : actions;
+            })(),
+            emptyWidget: const Center(child: Text('Nenhum pacote')),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildProductsTab(appState, bool canViewValues) {
+    // Filtrar produtos
+    var filteredProducts = List<Map<String, dynamic>>.from(_products);
+    if (_prodSearch.isNotEmpty) {
+      final q = _prodSearch.toLowerCase();
+      filteredProducts = filteredProducts.where((p) {
+        final n = ((p['name'] ?? '') as String).toLowerCase();
+        final d = ((p['description'] ?? '') as String).toLowerCase();
+        return n.contains(q) || d.contains(q);
+      }).toList();
+    }
+    // Aplicar filtro baseado no tipo selecionado
+    if (_prodFilterType == 'category' && _prodFilterValue != null && _prodFilterValue!.isNotEmpty) {
+      filteredProducts = filteredProducts.where((p) => ((p['category_id'] ?? '') as String?) == _prodFilterValue).toList();
+    } else if (_prodFilterType == 'status' && _prodFilterValue != null && _prodFilterValue!.isNotEmpty) {
+      filteredProducts = filteredProducts.where((p) => ((p['status'] ?? 'active') as String) == _prodFilterValue).toList();
+    }
+
+    return Column(
+      children: [
+        // Barra de busca e filtros
+        Padding(
+          padding: const EdgeInsets.only(top: 12, bottom: 8),
+          child: TableSearchFilterBar(
+            searchHint: 'Pesquisar produto...',
+            onSearchChanged: (v) => setState(() => _prodSearch = v.trim()),
+            filterType: _prodFilterType,
+            filterTypeLabel: 'Tipo de filtro',
+            filterTypeOptions: const [
+              FilterOption(value: 'none', label: 'Nenhum'),
+              FilterOption(value: 'category', label: 'Categoria'),
+              FilterOption(value: 'status', label: 'Status'),
+            ],
+            onFilterTypeChanged: (v) => setState(() {
+              _prodFilterType = v ?? 'none';
+              _prodFilterValue = null; // Limpa o valor ao mudar o tipo
+            }),
+            filterValue: _prodFilterValue,
+            filterValueLabel: _prodFilterType == 'category' ? 'Categoria' : 'Status',
+            filterValueOptions: _prodFilterType == 'category'
+                ? _categories.map((c) => (c['id'] ?? '').toString()).toList()
+                : ['active', 'inactive', 'discontinued', 'coming_soon'],
+            filterValueLabelBuilder: (v) {
+              if (_prodFilterType == 'category') {
+                final cat = _categories.firstWhere(
+                  (c) => (c['id'] ?? '').toString() == v,
+                  orElse: () => {'name': v},
+                );
+                return (cat['name'] ?? v) as String;
+              } else {
+                switch (v) {
+                  case 'active': return 'Ativos';
+                  case 'inactive': return 'Inativos';
+                  case 'discontinued': return 'Descontinuados';
+                  case 'coming_soon': return 'Em breve';
+                  default: return v;
+                }
+              }
+            },
+            onFilterValueChanged: (v) => setState(() => _prodFilterValue = (v == null || v.isEmpty) ? null : v),
+            showFilters: true,
+            selectedCount: _selectedProductIds.length,
+            bulkActions: (() {
+              final userRole = UserRoleExtension.fromString(appState.role);
+              final canDelete = permissionsService.canDelete(userRole, PermissionEntity.product);
+              return canDelete ? [
+                BulkAction(
+                  icon: Icons.delete_outline,
+                  label: 'Excluir selecionados',
+                  onPressed: () => _bulkDeleteProducts(),
+                ),
+              ] : null;
+            })(),
+            actionButton: (() {
+              final userRole = UserRoleExtension.fromString(appState.role);
+              final canCreate = permissionsService.canCreate(userRole, PermissionEntity.product);
+              return canCreate ? FilledButton.icon(
+                onPressed: _newProduct,
+                icon: const Icon(Icons.add),
+                label: const Text('Novo Produto'),
+              ) : null;
+            })(),
+          ),
+        ),
+        // Tabela
+        Expanded(
+          child: DynamicPaginatedTable<Map<String, dynamic>>(
+            items: filteredProducts,
+            columns: [
+              const DataTableColumn(label: 'Nome', sortable: true),
+              if (canViewValues) const DataTableColumn(label: 'Preço', sortable: true),
+              const DataTableColumn(label: 'Categoria', sortable: true),
+              const DataTableColumn(label: 'Status', sortable: true),
+              const DataTableColumn(label: 'Atualizado', sortable: true),
+              const DataTableColumn(label: 'Criado', sortable: true),
+            ],
+            cellBuilders: [
+              (p) => Row(
+                children: [
+                  _productLeadingThumb(p),
+                  const SizedBox(width: 12),
+                  Expanded(child: Text((p['name'] ?? '-') as String)),
+                ],
+              ),
+              if (canViewValues) (p) => Text(_priceSummary(p)),
+              (p) {
+                final id = p['category_id'] as String?;
+                final catName = _categoryNameById(id);
+                if (catName.isEmpty) return const Text('-');
+                return Text(catName);
+              },
+              (p) {
+                final status = (p['status'] ?? 'active') as String;
+                return CatalogStatusBadge(status: status);
+              },
+              (p) => TableCellUpdatedBy(
+                date: p['updated_at'],
+                profile: p['updated_by_profile'] as Map<String, dynamic>?,
+                dateFormat: TableCellDateFormat.short,
+                avatarSize: 10,
+              ),
+              (p) => TableCellUpdatedBy(
+                date: p['created_at'],
+                profile: p['created_by_profile'] as Map<String, dynamic>?,
+                dateFormat: TableCellDateFormat.short,
+                avatarSize: 10,
+              ),
+            ],
+            sortComparators: [
+              (a, b) => ((a['name'] ?? '') as String).toLowerCase().compareTo(((b['name'] ?? '') as String).toLowerCase()),
+              if (canViewValues) (a, b) {
+                int ac = 0;
+                int bc = 0;
+                final apm = (a['price_map'] as Map?)?.cast<String, dynamic>();
+                final bpm = (b['price_map'] as Map?)?.cast<String, dynamic>();
+                ac = (apm?['BRL'] as int?) ?? (a['price_cents'] as int? ?? 0);
+                bc = (bpm?['BRL'] as int?) ?? (b['price_cents'] as int? ?? 0);
+                return ac.compareTo(bc);
+              },
+              (a, b) => _categoryNameById(a['category_id'] as String?).compareTo(_categoryNameById(b['category_id'] as String?)),
+              (a, b) => ((a['status'] ?? 'active') as String).compareTo((b['status'] ?? 'active') as String),
+              (a, b) {
+                final aDate = a['updated_at'] != null ? DateTime.parse(a['updated_at'].toString()) : DateTime(1970);
+                final bDate = b['updated_at'] != null ? DateTime.parse(b['updated_at'].toString()) : DateTime(1970);
+                return bDate.compareTo(aDate); // Mais recente primeiro
+              },
+              (a, b) {
+                final aDate = a['created_at'] != null ? DateTime.parse(a['created_at'].toString()) : DateTime(1970);
+                final bDate = b['created_at'] != null ? DateTime.parse(b['created_at'].toString()) : DateTime(1970);
+                return bDate.compareTo(aDate); // Mais recente primeiro
+              },
+            ],
+            getId: (p) => (p['id'] ?? '').toString(),
+            itemLabel: 'produto(s)',
+            selectedIds: _selectedProductIds,
+            onSelectionChanged: (ids) => setState(() => _selectedProductIds = ids),
+            actions: (() {
+              final userRole = UserRoleExtension.fromString(appState.role);
+              final canEdit = permissionsService.canUpdate(userRole, PermissionEntity.product);
+              final canDelete = permissionsService.canDelete(userRole, PermissionEntity.product);
+
+              final actions = <DataTableAction<Map<String, dynamic>>>[];
+              if (canEdit) {
+                actions.add(DataTableAction<Map<String, dynamic>>(
+                  icon: Icons.edit_outlined,
+                  label: 'Editar',
+                  onPressed: (p) => _editProduct(p),
+                ));
+              }
+              if (canDelete) {
+                actions.add(DataTableAction<Map<String, dynamic>>(
+                  icon: Icons.delete_outline,
+                  label: 'Excluir',
+                  onPressed: (p) => _confirmDelete('products', (p['id'] ?? '').toString()),
+                ));
+              }
+              return actions.isEmpty ? null : actions;
+            })(),
+            emptyWidget: const Center(child: Text('Nenhum produto')),
+          ),
+        ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final appState = AppStateScope.of(context);
+
+    // Verificar permissão: apenas Admin, Gestor e Financeiro
+    if (!appState.isAdmin && !appState.isGestor && !appState.isFinanceiro) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.lock_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Acesso Negado',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Apenas Administradores, Gestores e Financeiros podem acessar o Catálogo.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final canViewValues = appState.isAdmin || appState.isFinanceiro;
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -1189,14 +1924,6 @@ class _CatalogPageState extends State<CatalogPage> {
         Row(children: [
           Text('Catálogo', style: Theme.of(context).textTheme.titleLarge),
           const Spacer(),
-          if (!_loading && (appState.isAdmin || appState.isGestor || appState.isDesigner)) ...[
-            FilledButton.tonalIcon(onPressed: _newProduct, icon: const Icon(Icons.add), label: const Text('Novo Produto')),
-            const SizedBox(width: 8),
-            FilledButton.tonalIcon(onPressed: _newPackage, icon: const Icon(Icons.add_card), label: const Text('Novo Pacote')),
-            const SizedBox(width: 8),
-            FilledButton.tonalIcon(onPressed: _newCategory, icon: const Icon(Icons.category), label: const Text('Nova Categoria')),
-            const SizedBox(width: 8),
-          ],
           IconOnlyButton(
             tooltip: 'Recarregar',
             onPressed: _loading ? null : _reload,
@@ -1217,349 +1944,12 @@ class _CatalogPageState extends State<CatalogPage> {
                       ],
                       children: [
                         // Produtos
-                        Column(children: [
-                          // Barra de busca/filtro/ordenação de produtos
-                          Padding(
-                            padding: const EdgeInsets.only(top: 12, bottom: 8),
-                            child: Row(children: [
-                              Expanded(
-                                child: TextField(
-                                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Pesquisar produto...'),
-                                  onChanged: (v) => setState(() => _prodSearch = v.trim()),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              // Filtro por categoria
-                              SizedBox(
-                                width: 150,
-                                child: GenericDropdownField<String>(
-                                  value: _prodCatFilter ?? 'ALL',
-                                  items: [
-                                    const DropdownItem(value: 'ALL', label: 'Todas'),
-                                    ..._categories.map((c) => DropdownItem<String>(
-                                          value: (c['id'] ?? '').toString(),
-                                          label: (c['name'] ?? '') as String,
-                                        )),
-                                  ],
-                                  onChanged: (v) => setState(() => _prodCatFilter = (v == null || v == 'ALL') ? null : v),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              // Ordenação
-                              SizedBox(
-                                width: 150,
-                                child: GenericDropdownField<String>(
-                                  value: _prodSort,
-                                  items: const [
-                                    DropdownItem(value: 'name_asc', label: 'Nome A→Z'),
-                                    DropdownItem(value: 'name_desc', label: 'Nome Z→A'),
-                                    DropdownItem(value: 'price_asc', label: 'Preço ↑'),
-                                    DropdownItem(value: 'price_desc', label: 'Preço ↓'),
-                                  ],
-                                  onChanged: (v) => setState(() => _prodSort = v ?? 'name_asc'),
-                                ),
-                              ),
-                            ]),
-                          ),
-                          Expanded(
-                            child: Builder(builder: (context) {
-                              var list = List<Map<String, dynamic>>.from(_products);
-                              if (_prodSearch.isNotEmpty) {
-                                final q = _prodSearch.toLowerCase();
-                                list = list.where((p) {
-                                  final n = ((p['name'] ?? '') as String).toLowerCase();
-                                  final d = ((p['description'] ?? '') as String).toLowerCase();
-                                  return n.contains(q) || d.contains(q);
-                                }).toList();
-                              }
-                              if (_prodCatFilter != null) {
-                                final sel = _prodCatFilter;
-                                list = list.where((p) => ((p['category_id'] ?? '') as String?) == sel).toList();
-                              }
-                              list.sort((a, b) {
-                                if (_prodSort.startsWith('price')) {
-                                  int ac = 0;
-                                  int bc = 0;
-                                  final apm = (a['price_map'] as Map?)?.cast<String, dynamic>();
-                                  final bpm = (b['price_map'] as Map?)?.cast<String, dynamic>();
-                                  ac = (apm?['BRL'] as int?) ?? (a['price_cents'] as int? ?? 0);
-                                  bc = (bpm?['BRL'] as int?) ?? (b['price_cents'] as int? ?? 0);
-                                  return _prodSort == 'price_desc' ? bc.compareTo(ac) : ac.compareTo(bc);
-                                }
-                                final an = ((a['name'] ?? '') as String).toLowerCase();
-                                final bn = ((b['name'] ?? '') as String).toLowerCase();
-                                return _prodSort == 'name_desc' ? bn.compareTo(an) : an.compareTo(bn);
-                              });
-                              if (list.isEmpty) return const Center(child: Text('Nenhum produto'));
-                              return ListView.separated(
-                                itemCount: list.length,
-                                separatorBuilder: (_, __) => const Divider(height: 1),
-                                itemBuilder: (context, i) {
-                                  final p = list[i];
-                                  final name = (p['name'] ?? '-') as String;
-                                  final desc = (p['description'] ?? '') as String;
-                                  final catName = (() {
-                                    final id = p['category_id'] as String?;
-                                    final byId = _categoryNameById(id);
-                                    if (byId.isNotEmpty) return byId;
-                                    return (p['category'] as String?) ?? '';
-                                  })();
-                                  return ListTile(
-                                    leading: _productLeadingThumb(p),
-                                    title: Row(children: [
-                                      Expanded(child: Text(name)),
-                                      if (catName.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.only(left: 8),
-                                          child: Chip(
-                                            label: Text(catName),
-                                            visualDensity: VisualDensity.compact,
-                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                            padding: EdgeInsets.zero,
-                                          ),
-                                        ),
-                                    ]),
-                                    subtitle: canViewValues
-                                        ? Text(desc.isNotEmpty ? '${_priceSummary(p)}\n$desc' : _priceSummary(p))
-                                        : (desc.isNotEmpty ? Text(desc) : null),
-                                    isThreeLine: canViewValues ? desc.isNotEmpty : false,
-                                    trailing: (appState.isAdmin || appState.isGestor || appState.isDesigner)
-                                        ? Row(mainAxisSize: MainAxisSize.min, children: [
-                                            IconOnlyButton(icon: Icons.edit_outlined, tooltip: 'Editar', onPressed: () => _editProduct(p)),
-                                            IconOnlyButton(icon: Icons.delete_outline, tooltip: 'Excluir', onPressed: () => _confirmDelete('products', (p['id'] ?? '').toString())),
-                                          ])
-                                        : null,
-                                  );
-                                },
-                              );
-                            }),
-                          ),
-                        ]),
+                        _buildProductsTab(appState, canViewValues),
                         // Pacotes
-                        Column(children: [
-                          // Barra de busca/filtro/ordenação de pacotes
-                          Padding(
-                            padding: const EdgeInsets.only(top: 12, bottom: 8),
-                            child: Row(children: [
-                              Expanded(
-                                child: TextField(
-                                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Pesquisar pacote...'),
-                                  onChanged: (v) => setState(() => _packSearch = v.trim()),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              // Filtro por categoria
-                              SizedBox(
-                                width: 150,
-                                child: GenericDropdownField<String>(
-                                  value: _packCatFilter ?? 'ALL',
-                                  items: [
-                                    const DropdownItem(value: 'ALL', label: 'Todas'),
-                                    ..._categories.map((c) => DropdownItem<String>(
-                                          value: (c['id'] ?? '').toString(),
-                                          label: (c['name'] ?? '') as String,
-                                        )),
-                                  ],
-                                  onChanged: (v) => setState(() => _packCatFilter = (v == null || v == 'ALL') ? null : v),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              // Ordenação
-                              SizedBox(
-                                width: 150,
-                                child: GenericDropdownField<String>(
-                                  value: _packSort,
-                                  items: const [
-                                    DropdownItem(value: 'name_asc', label: 'Nome A→Z'),
-                                    DropdownItem(value: 'name_desc', label: 'Nome Z→A'),
-                                    DropdownItem(value: 'price_asc', label: 'Preço ↑'),
-                                    DropdownItem(value: 'price_desc', label: 'Preço ↓'),
-                                  ],
-                                  onChanged: (v) => setState(() => _packSort = v ?? 'name_asc'),
-                                ),
-                              ),
-                            ]),
-                          ),
-                          Expanded(
-                            child: Builder(builder: (context) {
-                              var list = List<Map<String, dynamic>>.from(_packages);
-                              if (_packSearch.isNotEmpty) {
-                                final q = _packSearch.toLowerCase();
-                                list = list.where((p) {
-                                  final n = ((p['name'] ?? '') as String).toLowerCase();
-                                  final d = ((p['description'] ?? '') as String).toLowerCase();
-                                  return n.contains(q) || d.contains(q);
-                                }).toList();
-                              }
-                              if (_packCatFilter != null) {
-                                final sel = _packCatFilter;
-                                list = list.where((p) => ((p['category_id'] ?? '') as String?) == sel).toList();
-                              }
-                              list.sort((a, b) {
-                                if (_packSort.startsWith('price')) {
-                                  int ac = 0;
-                                  int bc = 0;
-                                  final apm = (a['price_map'] as Map?)?.cast<String, dynamic>();
-                                  final bpm = (b['price_map'] as Map?)?.cast<String, dynamic>();
-                                  ac = (apm?['BRL'] as int?) ?? (a['price_cents'] as int? ?? 0);
-                                  bc = (bpm?['BRL'] as int?) ?? (b['price_cents'] as int? ?? 0);
-                                  return _packSort == 'price_desc' ? bc.compareTo(ac) : ac.compareTo(bc);
-                                }
-                                final an = ((a['name'] ?? '') as String).toLowerCase();
-                                final bn = ((b['name'] ?? '') as String).toLowerCase();
-                                return _packSort == 'name_desc' ? bn.compareTo(an) : an.compareTo(bn);
-                              });
-                              if (list.isEmpty) return const Center(child: Text('Nenhum pacote'));
-                              return ListView.separated(
-                                itemCount: list.length,
-                                separatorBuilder: (_, __) => const Divider(height: 1),
-                                itemBuilder: (context, i) {
-                                  final p = list[i];
-                                  final name = (p['name'] ?? '-') as String;
-                                  final desc = (p['description'] ?? '') as String;
-                                  final catName = (() {
-                                    final id = p['category_id'] as String?;
-                                    final byId = _categoryNameById(id);
-                                    if (byId.isNotEmpty) return byId;
-                                    return (p['category'] as String?) ?? '';
-                                  })();
-                                  return ListTile(
-                                    leading: _productLeadingThumb(p),
-                                    title: Row(children: [
-                                      Expanded(child: Text(name)),
-                                      if (catName.isNotEmpty)
-                                        Padding(
-                                          padding: const EdgeInsets.only(left: 8),
-                                          child: Chip(
-                                            label: Text(catName),
-                                            visualDensity: VisualDensity.compact,
-                                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                            padding: EdgeInsets.zero,
-                                          ),
-                                        ),
-                                    ]),
-                                    subtitle: canViewValues
-                                        ? Text(desc.isNotEmpty ? '${_priceSummary(p)}\n$desc' : _priceSummary(p))
-                                        : (desc.isNotEmpty ? Text(desc) : null),
-                                    isThreeLine: desc.isNotEmpty,
-                                    trailing: (appState.isAdmin || appState.isGestor || appState.isDesigner)
-                                        ? Row(mainAxisSize: MainAxisSize.min, children: [
-                                            IconOnlyButton(icon: Icons.edit_outlined, tooltip: 'Editar', onPressed: () => _editPackage(p)),
-                                            IconOnlyButton(icon: Icons.delete_outline, tooltip: 'Excluir', onPressed: () => _confirmDelete('packages', (p['id'] ?? '').toString())),
-                                          ])
-                                        : null,
-                                  );
-                                },
-                              );
-                            }),
-                          ),
-                        ]),
+                        _buildPackagesTab(appState, canViewValues),
 
                         // Categorias
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Barra de busca, filtro e ordenação
-                            Padding(
-                              padding: const EdgeInsets.only(top: 12, bottom: 8),
-                              child: Row(children: [
-                                // Busca
-                                Expanded(
-                                  child: TextField(
-                                    decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Pesquisar categoria...'),
-                                    onChanged: (v) => setState(() => _catSearch = v.trim()),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                // Filtro
-                                SizedBox(
-                                  width: 150,
-                                  child: GenericDropdownField<String>(
-                                    value: ['todas','com','sem'][_catFilter],
-                                    items: const [
-                                      DropdownItem(value: 'todas', label: 'Todas'),
-                                      DropdownItem(value: 'com', label: 'Com produtos'),
-                                      DropdownItem(value: 'sem', label: 'Sem produtos'),
-                                    ],
-                                    onChanged: (v) => setState(() => _catFilter = {'todas':0,'com':1,'sem':2}[v]!),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                // Ordenação
-                                SizedBox(
-                                  width: 150,
-                                  child: GenericDropdownField<String>(
-                                    value: _catSort,
-                                    items: const [
-                                      DropdownItem(value: 'name_asc', label: 'Nome A→Z'),
-                                      DropdownItem(value: 'name_desc', label: 'Nome Z→A'),
-                                    ],
-                                    onChanged: (v) => setState(() => _catSort = v ?? 'name_asc'),
-                                  ),
-                                ),
-                              ]),
-                            ),
-
-                            Expanded(
-                              child: Builder(builder: (context) {
-                                // Aplica busca/filtro/ordenacao
-                                List<Map<String, dynamic>> list = List.of(_categories);
-                                if (_catSearch.isNotEmpty) {
-                                  final q = _catSearch.toLowerCase();
-                                  list = list.where((c) => ((c['name'] ?? '') as String).toLowerCase().contains(q)).toList();
-                                }
-                                if (_catFilter != 0) {
-                                  list = list.where((c) {
-                                    final n = (c['product_count'] as int?) ?? 0;
-                                    return _catFilter == 1 ? n > 0 : n == 0;
-                                  }).toList();
-                                }
-                                list.sort((a,b){
-                                  final an = ((a['name'] ?? '') as String).toLowerCase();
-                                  final bn = ((b['name'] ?? '') as String).toLowerCase();
-                                  return _catSort == 'name_desc' ? bn.compareTo(an) : an.compareTo(bn);
-                                });
-
-                                if (list.isEmpty) return const Center(child: Text('Nenhuma categoria'));
-                                return ListView.separated(
-                                  itemCount: list.length,
-                                  separatorBuilder: (_, __) => const Divider(height: 1),
-                                  itemBuilder: (context, i) {
-                                    final c = list[i];
-                                    final name = (c['name'] ?? '') as String;
-                                    final id = (c['id'] ?? '').toString();
-                                    final pc = (c['product_count'] as int?) ?? 0;
-                                    return ListTile(
-                                      title: Row(children: [
-                                        Expanded(child: Text(name)),
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          decoration: BoxDecoration(
-                                            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                          child: Text('$pc produtos', style: Theme.of(context).textTheme.bodySmall),
-                                        ),
-                                      ]),
-                                      subtitle: null,
-                                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                                        IconOnlyButton(
-                                          icon: Icons.edit_outlined, tooltip: 'Editar',
-                                          onPressed: () => _editCategoryInline(initial: c),
-                                        ),
-                                        IconOnlyButton(
-                                          icon: Icons.delete_outline, tooltip: 'Excluir',
-                                          onPressed: () => _confirmDelete('catalog_categories', id),
-                                        ),
-                                      ]),
-                                    );
-                                  },
-                                );
-                              }),
-                            ),
-                          ],
-                        ),
+                        _buildCategoriesTab(appState),
                       ],
                     ),
         ),

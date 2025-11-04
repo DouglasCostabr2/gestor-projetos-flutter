@@ -9,12 +9,12 @@ class GoogleOAuthConfig {
   static const clientId = String.fromEnvironment(
     'GOOGLE_OAUTH_CLIENT_ID',
     // Caso não passe via --dart-define, usa o valor abaixo
-    defaultValue: '1037991993095-9quki2u0t7qhju7h713jca9arqnatd7h.apps.googleusercontent.com',
+    defaultValue: '785385154853-mi7bsh7nbf5tgbufebv1k66qr67uph9u.apps.googleusercontent.com',
   );
   static const clientSecret = String.fromEnvironment(
     'GOOGLE_OAUTH_CLIENT_SECRET',
     // Caso não passe via --dart-define, usa o valor abaixo
-    defaultValue: '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',
+    defaultValue: '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',
   );
 
   /// Scopes: create/upload files and read metadata + read user's email for status

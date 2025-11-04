@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../../services/google_drive_oauth_service.dart';
 import '../auth/module.dart';
+import '../common/organization_context.dart';
 import 'contract.dart';
 
 /// Implementação do contrato de empresas
@@ -11,8 +12,19 @@ class CompaniesRepository implements CompaniesContract {
 
   @override
   Future<List<Map<String, dynamic>>> getCompanies(String clientId) async {
+    debugPrint('═══════════════════════════════════════════════════════');
+    debugPrint('🔍🔍🔍 [CompaniesRepository] getCompanies() CHAMADO!');
+    debugPrint('🔍 clientId: $clientId');
+    debugPrint('═══════════════════════════════════════════════════════');
+
     try {
-      debugPrint('Buscando empresas do cliente: $clientId');
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
+        return [];
+      }
+
+      debugPrint('🔍 organizationId: $orgId');
 
       // Tentar primeiro com o join
       try {
@@ -23,10 +35,21 @@ class CompaniesRepository implements CompaniesContract {
               updated_by_profile:profiles!companies_updated_by_fkey(full_name, email, avatar_url)
             ''')
             .eq('client_id', clientId)
+            .eq('organization_id', orgId)
             .order('created_at', ascending: false);
 
         debugPrint('✅ Resposta do Supabase para empresas (com join): $response');
-        return List<Map<String, dynamic>>.from(response);
+
+        // Log detalhado dos dados fiscais/bancários
+        final companies = List<Map<String, dynamic>>.from(response);
+        for (var company in companies) {
+          debugPrint('🔍 Empresa: ${company['name']}');
+          debugPrint('🔍   fiscal_data do Supabase: ${company['fiscal_data']}');
+          debugPrint('🔍   bank_data do Supabase: ${company['bank_data']}');
+          debugPrint('🔍   fiscal_country do Supabase: ${company['fiscal_country']}');
+        }
+
+        return companies;
       } catch (joinError) {
         debugPrint('⚠️ Erro no join, tentando sem join: $joinError');
 
@@ -35,6 +58,7 @@ class CompaniesRepository implements CompaniesContract {
             .from('companies')
             .select('*')
             .eq('client_id', clientId)
+            .eq('organization_id', orgId)
             .order('created_at', ascending: false);
 
         final companies = List<Map<String, dynamic>>.from(response);
@@ -105,16 +129,37 @@ class CompaniesRepository implements CompaniesContract {
     String? website,
     String? notes,
     String status = 'active',
+    String? taxId,
+    String? taxIdType,
+    String? legalName,
+    String? stateRegistration,
+    String? municipalRegistration,
   }) async {
     final user = authModule.currentUser;
     if (user == null) throw Exception('Usuário não autenticado');
 
-    // A tabela companies tem apenas: client_id, name, owner_id, status, created_at, updated_at, custom_platforms
-    // Os outros campos (email, phone, etc.) não existem na tabela
+    final orgId = OrganizationContext.currentOrganizationId;
+    if (orgId == null) throw Exception('Nenhuma organização ativa');
+
+    // Agora a tabela companies tem campos completos para invoicing
     final companyData = <String, dynamic>{
       'client_id': clientId,
       'name': name.trim(),
       'owner_id': user.id,
+      'organization_id': orgId,
+      if (email != null) 'email': email.trim(),
+      if (phone != null) 'phone': phone.trim(),
+      if (address != null) 'address': address.trim(),
+      if (city != null) 'city': city.trim(),
+      if (state != null) 'state': state.trim(),
+      if (zipCode != null) 'zip_code': zipCode.trim(),
+      if (country != null) 'country': country.trim(),
+      if (website != null) 'website': website.trim(),
+      if (taxId != null) 'tax_id': taxId.trim(),
+      if (taxIdType != null) 'tax_id_type': taxIdType.trim(),
+      if (legalName != null) 'legal_name': legalName.trim(),
+      if (stateRegistration != null) 'state_registration': stateRegistration.trim(),
+      if (municipalRegistration != null) 'municipal_registration': municipalRegistration.trim(),
     };
 
     try {
@@ -145,6 +190,11 @@ class CompaniesRepository implements CompaniesContract {
     String? website,
     String? notes,
     String? status,
+    String? taxId,
+    String? taxIdType,
+    String? legalName,
+    String? stateRegistration,
+    String? municipalRegistration,
   }) async {
     // Buscar nome antigo e cliente se o nome está sendo alterado
     String? oldName;
@@ -164,10 +214,22 @@ class CompaniesRepository implements CompaniesContract {
       }
     }
 
-    // A tabela companies tem apenas: client_id, name, owner_id, status, created_at, updated_at, custom_platforms
-    // Os outros campos (email, phone, etc.) não existem na tabela
+    // Agora a tabela companies tem campos completos para invoicing
     final updateData = <String, dynamic>{};
     if (name != null) updateData['name'] = name.trim();
+    if (email != null) updateData['email'] = email.trim();
+    if (phone != null) updateData['phone'] = phone.trim();
+    if (address != null) updateData['address'] = address.trim();
+    if (city != null) updateData['city'] = city.trim();
+    if (state != null) updateData['state'] = state.trim();
+    if (zipCode != null) updateData['zip_code'] = zipCode.trim();
+    if (country != null) updateData['country'] = country.trim();
+    if (website != null) updateData['website'] = website.trim();
+    if (taxId != null) updateData['tax_id'] = taxId.trim();
+    if (taxIdType != null) updateData['tax_id_type'] = taxIdType.trim();
+    if (legalName != null) updateData['legal_name'] = legalName.trim();
+    if (stateRegistration != null) updateData['state_registration'] = stateRegistration.trim();
+    if (municipalRegistration != null) updateData['municipal_registration'] = municipalRegistration.trim();
 
     // Adicionar updated_by e updated_at
     final user = authModule.currentUser;
@@ -293,6 +355,47 @@ class CompaniesRepository implements CompaniesContract {
     } catch (e) {
       debugPrint('❌ Erro ao buscar projetos com stats: $e');
       return [];
+    }
+  }
+
+  @override
+  Future<void> updateFiscalBankData({
+    required String companyId,
+    String? fiscalCountry,
+    Map<String, dynamic>? fiscalData,
+    Map<String, dynamic>? bankData,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{};
+
+      if (fiscalCountry != null) {
+        updateData['fiscal_country'] = fiscalCountry;
+      }
+
+      if (fiscalData != null) {
+        updateData['fiscal_data'] = fiscalData;
+      }
+
+      if (bankData != null) {
+        updateData['bank_data'] = bankData;
+      }
+
+      // Adicionar updated_by e updated_at
+      final user = authModule.currentUser;
+      if (user != null) {
+        updateData['updated_by'] = user.id;
+      }
+      updateData['updated_at'] = DateTime.now().toIso8601String();
+
+      await _client
+          .from('companies')
+          .update(updateData)
+          .eq('id', companyId);
+
+      debugPrint('✅ Dados fiscais/bancários da empresa atualizados: $companyId');
+    } catch (e) {
+      debugPrint('❌ Erro ao atualizar dados fiscais/bancários da empresa: $e');
+      rethrow;
     }
   }
 }

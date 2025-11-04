@@ -7,16 +7,20 @@ import 'features/catalog/catalog_page.dart';
 import 'features/finance/finance_page.dart';
 import 'features/admin/admin_page.dart';
 import 'features/monitoring/user_monitoring_page.dart';
+import 'features/notifications/notifications_page.dart';
+import 'features/settings/configuracoes_page.dart';
 import 'features/settings/settings_page.dart';
+import 'features/organization/organization_page.dart';
 
 import 'features/auth/login_page.dart';
 import 'state/app_state.dart';
 import 'navigation/user_role.dart';
 import 'navigation/tab_item.dart';
-import 'navigation/tab_manager.dart';
+import 'navigation/interfaces/tab_manager_interface.dart';
 import 'navigation/tab_manager_scope.dart';
-import '../widgets/side_menu/side_menu.dart';
-import '../widgets/tab_bar/tab_bar_widget.dart';
+import '../core/di/service_locator.dart';
+import '../ui/organisms/navigation/side_menu.dart';
+import '../ui/organisms/navigation/tab_bar_widget.dart';
 import '../modules/modules.dart';
 
 class AppShell extends StatefulWidget {
@@ -30,13 +34,15 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   late int _selectedIndex;
-  late TabManager _tabManager;
+  late ITabManager _tabManager;
 
   @override
   void initState() {
     super.initState();
     _selectedIndex = widget.initialIndex;
-    _tabManager = TabManager();
+
+    // Obter TabManager do Service Locator
+    _tabManager = serviceLocator.get<ITabManager>();
 
     // Adiciona a primeira aba com a página inicial
     _addTabForPage(_selectedIndex);
@@ -60,11 +66,12 @@ class _AppShellState extends State<AppShell> {
   @override
   void dispose() {
     _tabManager.removeListener(_onTabChanged);
-    _tabManager.dispose();
+    // NÃO descartar o TabManager pois é um singleton compartilhado no Service Locator
     super.dispose();
   }
 
   Widget _getPageForIndex(int index) {
+    debugPrint('📄 [AppShell] _getPageForIndex: $index');
     switch (index) {
       case 0:
         return const HomePage();
@@ -82,6 +89,15 @@ class _AppShellState extends State<AppShell> {
         return const AdminPage();
       case 7:
         return const UserMonitoringPage();
+      case 8:
+        return const NotificationsPage();
+      case 9:
+        return const ConfiguracoesPage();
+      case 10:
+        return const SettingsPage();
+      case 11:
+        debugPrint('🏢 [AppShell] Carregando OrganizationPage');
+        return const OrganizationPage();
       default:
         return const HomePage();
     }
@@ -105,6 +121,14 @@ class _AppShellState extends State<AppShell> {
         return 'Admin';
       case 7:
         return 'Monitoramento';
+      case 8:
+        return 'Notificações';
+      case 9:
+        return 'Configurações';
+      case 10:
+        return 'Perfil';
+      case 11:
+        return 'Organização';
       default:
         return 'Home';
     }
@@ -128,6 +152,14 @@ class _AppShellState extends State<AppShell> {
         return Icons.admin_panel_settings;
       case 7:
         return Icons.monitor_heart;
+      case 8:
+        return Icons.notifications;
+      case 9:
+        return Icons.settings;
+      case 10:
+        return Icons.person;
+      case 11:
+        return Icons.business;
       default:
         return Icons.home;
     }
@@ -161,8 +193,12 @@ class _AppShellState extends State<AppShell> {
     return AnimatedBuilder(
       animation: widget.appState,
       builder: (context, _) {
-        // Cliente: bloquear Clientes e Catálogo; manter Home/Projetos/Tarefas
-        if (widget.appState.isCliente && (_selectedIndex == 1 || _selectedIndex == 3)) {
+        // Clientes: apenas admin, gestor ou financeiro
+        if (!(widget.appState.isAdmin || widget.appState.isGestor || widget.appState.isFinanceiro) && _selectedIndex == 1) {
+          _selectedIndex = 0; // Home
+        }
+        // Catálogo: apenas admin, gestor ou financeiro
+        if (!(widget.appState.isAdmin || widget.appState.isGestor || widget.appState.isFinanceiro) && _selectedIndex == 3) {
           _selectedIndex = 0; // Home
         }
         // Financeiro: apenas admin, gestor ou financeiro
@@ -200,25 +236,27 @@ class _AppShellState extends State<AppShell> {
                             collapsed: collapsed,
                             selectedIndex: _selectedIndex,
                             onSelect: (i) {
+                              debugPrint('🎯 [AppShell] onSelect chamado com índice: $i');
                               setState(() => _selectedIndex = i);
 
-                              debugPrint('🖱️ SideMenu.onSelect: índice $i');
+                              debugPrint('🖱️ [AppShell] SideMenu.onSelect: índice $i');
 
                               final pageId = 'page_$i';
                               final currentTab = _tabManager.currentTab;
 
-                              debugPrint('   Aba atual: ${currentTab?.id}');
-                              debugPrint('   Página desejada: $pageId');
+                              debugPrint('   [AppShell] Aba atual: ${currentTab?.id}');
+                              debugPrint('   [AppShell] Página desejada: $pageId');
 
                               // Se a aba atual já é a página desejada, não faz nada
                               if (currentTab?.id == pageId) {
-                                debugPrint('   ✅ Já está na página correta!');
+                                debugPrint('   ✅ [AppShell] Já está na página correta!');
                                 return;
                               }
 
                               // Sempre atualizar a aba atual em vez de criar uma nova
                               if (currentTab != null) {
-                                debugPrint('   🔄 Atualizando aba de "${currentTab.id}" para "$pageId"');
+                                debugPrint('   🔄 [AppShell] Atualizando aba de "${currentTab.id}" para "$pageId"');
+                                debugPrint('   🔄 [AppShell] Chamando _getPageForIndex($i)...');
                                 final updatedTab = currentTab.copyWith(
                                   id: pageId,
                                   page: _getPageForIndex(i),
@@ -226,16 +264,20 @@ class _AppShellState extends State<AppShell> {
                                   icon: _getIconForIndex(i),
                                   selectedMenuIndex: i, // Atualiza o índice do menu selecionado
                                 );
+                                debugPrint('   🔄 [AppShell] Chamando updateTab...');
                                 _tabManager.updateTab(_tabManager.currentIndex, updatedTab);
+                                debugPrint('   ✅ [AppShell] Tab atualizada!');
                               } else {
                                 // Se não há aba atual, criar uma nova
-                                debugPrint('   ➕ Criando nova aba "$pageId"');
+                                debugPrint('   ➕ [AppShell] Criando nova aba "$pageId"');
                                 _addTabForPage(i);
                               }
                             },
                             onToggle: () => widget.appState.toggleSideMenu(),
                             onLogout: () async {
                               final navigator = Navigator.of(context);
+                              // Limpar todas as abas antes do logout
+                              _tabManager.clearAllTabs();
                               await authModule.signOut();
                               if (!mounted) return;
                               navigator.pushAndRemoveUntil(
@@ -243,14 +285,9 @@ class _AppShellState extends State<AppShell> {
                                 (route) => false,
                               );
                             },
-                            onProfileTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => const SettingsPage()),
-                              );
-                            },
                             userRole: UserRoleExtension.fromString(widget.appState.role),
                             profile: widget.appState.profile,
+                            appState: widget.appState,
                           );
                         },
                       ),

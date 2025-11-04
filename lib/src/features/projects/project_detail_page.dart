@@ -1,27 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:googleapis_auth/auth_io.dart' as auth;
 import '../../state/app_state_scope.dart';
 import '../../navigation/tab_manager_scope.dart';
 import '../../navigation/tab_item.dart';
 import '../shared/quick_forms.dart';
-import '../../widgets/dynamic_paginated_table.dart';
-import '../../../widgets/user_avatar_name.dart';
-import '../../../widgets/standard_dialog.dart';
-import '../tasks/task_detail_page.dart';
-import '../tasks/widgets/task_status_badge.dart';
-import '../tasks/widgets/task_priority_badge.dart';
-import 'package:gestor_projetos_flutter/modules/modules.dart';
-import '../../../widgets/reusable_data_table.dart';
-import '../../../widgets/table_search_filter_bar.dart';
-import 'widgets/project_status_badge.dart';
-import '../../../services/google_drive_oauth_service.dart';
+import 'package:my_business/ui/organisms/tables/dynamic_paginated_table.dart';
+import 'package:my_business/modules/modules.dart';
+import 'package:my_business/ui/organisms/tables/reusable_data_table.dart';
+import 'package:my_business/ui/organisms/tables/table_search_filter_bar.dart';
+import 'widgets/project_info_card_items.dart';
+import 'widgets/task_table_helpers.dart';
+import 'widgets/task_table_actions.dart';
 import 'widgets/project_finance_tabs.dart';
+import '../../utils/task_helpers.dart';
+import '../../utils/table_comparators.dart';
+import '../../utils/navigation_helpers.dart';
 import 'project_form_dialog.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/loaders/loaders.dart';
+import 'package:my_business/ui/organisms/cards/cards.dart';
 import 'project_members_dialog.dart';
 import '../../../constants/task_status.dart';
 import 'projects_page.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
+import 'package:my_business/ui/theme/ui_constants.dart';
 
 class ProjectDetailPage extends StatefulWidget {
   final String projectId;
@@ -32,6 +34,11 @@ class ProjectDetailPage extends StatefulWidget {
 }
 
 class _ProjectDetailPageState extends State<ProjectDetailPage> {
+  // ========== CONSTANTES DE LAYOUT ==========
+  static const double _tableHeight = 600.0;
+  static const double _loadingHeight = 200.0;
+
+  // ========== ESTADO ==========
   late Future<Map<String, dynamic>?> _projectFuture;
   List<Map<String, dynamic>> _tasks = [];
   List<Map<String, dynamic>> _filteredTasks = [];
@@ -41,6 +48,8 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   bool _subTasksLoading = true;
   final Set<String> _selectedTasks = <String>{};
   final Set<String> _selectedSubTasks = <String>{};
+  bool _isFavorite = false;
+  bool _favoriteLoading = false;
 
   // Busca e filtros para tasks
   String _searchQueryTasks = '';
@@ -55,13 +64,13 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   // Lista de usuários para o filtro de responsável
   List<Map<String, dynamic>> _allUsers = [];
 
-  // Ordenação para tasks
-  int? _sortColumnIndexTasks = 0;
-  bool _sortAscendingTasks = true;
+  // Ordenação para tasks - padrão por "Criado" (coluna 5) decrescente
+  int? _sortColumnIndexTasks = 5;
+  bool _sortAscendingTasks = false;
 
-  // Ordenação para subtasks
-  int? _sortColumnIndexSubTasks = 0;
-  bool _sortAscendingSubTasks = true;
+  // Ordenação para subtasks - padrão por "Criado" (coluna 6) decrescente
+  int? _sortColumnIndexSubTasks = 6;
+  bool _sortAscendingSubTasks = false;
 
   @override
   void initState() {
@@ -69,30 +78,102 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     _projectFuture = _loadProject();
     _reloadTasks();
     _reloadSubTasks();
+    _loadFavoriteStatus();
   }
 
   Future<Map<String, dynamic>?> _loadProject() async {
     return await projectsModule.getProjectWithDetails(widget.projectId);
   }
 
-  String _fmtDateShort(dynamic v) {
-    DateTime? dt;
-    if (v is DateTime) {
-      dt = v;
-    } else if (v is String) {
-      dt = DateTime.tryParse(v);
+  Future<void> _loadFavoriteStatus() async {
+    try {
+      final isFav = await favoritesModule.isFavorite(
+        itemType: 'project',
+        itemId: widget.projectId,
+      );
+      if (mounted) {
+        setState(() => _isFavorite = isFav);
+      }
+    } catch (e) {
+      debugPrint('Erro ao carregar status de favorito: $e');
     }
-    if (dt == null) return '-';
-    final d = dt.day.toString().padLeft(2, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final y = dt.year.toString();
-    final hh = dt.hour.toString().padLeft(2, '0');
-    final mm = dt.minute.toString().padLeft(2, '0');
-    return '$d/$m/$y $hh:$mm';
   }
 
-  Widget _projectStatusChip(BuildContext context, String status) {
-    return ProjectStatusBadge(status: status);
+  Future<void> _toggleFavorite() async {
+    setState(() => _favoriteLoading = true);
+    try {
+      final wasAdded = await favoritesModule.toggleFavorite(
+        itemType: 'project',
+        itemId: widget.projectId,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isFavorite = wasAdded;
+          _favoriteLoading = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(wasAdded ? 'Projeto adicionado aos favoritos' : 'Projeto removido dos favoritos'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _favoriteLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao atualizar favorito: $e')),
+        );
+      }
+    }
+  }
+
+  /// Constrói os cards de informações do projeto (similar ao design da task detail page)
+  Widget _buildProjectInfoCards({
+    required BuildContext context,
+    required Map<String, dynamic> project,
+  }) {
+    final appState = AppStateScope.of(context);
+    final canAccessClientPage = appState.isAdmin || appState.isGestor;
+
+    // Card esquerdo: Nome do Projeto + Cliente + Status
+    final leftCardItems = <InfoCardItem>[
+      ProjectInfoCardItems.buildProjectNameItem(context, project),
+      ProjectInfoCardItems.buildClientItem(
+        context,
+        project['client_id'] as String?,
+        project['clients']?['name'] ?? '-',
+        project['clients']?['avatar_url'] as String?,
+        canNavigate: canAccessClientPage,
+      ),
+      ProjectInfoCardItems.buildStatusItem(context, project),
+    ];
+
+    // Card direito: Descrição
+    final rightCardItems = <InfoCardItem>[
+      ProjectInfoCardItems.buildDescriptionItem(context, project),
+    ];
+
+    return InfoCardsSection(
+      leftCard: InfoCard(
+        items: leftCardItems,
+        minWidth: 120,
+        minHeight: 104,
+        totalItems: 4, // Forçar uso de Wrap (mesmo padrão da task detail page)
+        debugEmoji: '📁',
+        debugDescription: 'Nome do Projeto/Cliente/Status',
+      ),
+      rightCard: InfoCard(
+        items: rightCardItems,
+        minWidth: 120,
+        minHeight: 104,
+        totalItems: 4, // Forçar uso de Wrap (mesmo padrão da task detail page)
+        debugEmoji: '📊',
+        debugDescription: 'Descrição',
+      ),
+    );
   }
 
   Future<void> _reloadTasks() async {
@@ -102,45 +183,21 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     await tasksModule.updateTasksPriorityByDueDate();
 
     final res = await tasksModule.getProjectMainTasks(widget.projectId);
-
-    // Buscar informações dos usuários que fizeram a última atualização
-    final updatedByIds = res.map((t) => t['updated_by']).whereType<String>().toSet();
-    Map<String, Map<String, dynamic>> usersMap = {};
-
-    if (updatedByIds.isNotEmpty) {
-      try {
-        final users = await Supabase.instance.client
-            .from('profiles')
-            .select('id, full_name, email, avatar_url')
-            .inFilter('id', updatedByIds.toList());
-
-        for (final user in users) {
-          usersMap[user['id']] = user;
-        }
-      } catch (e) {
-        debugPrint('Erro ao buscar perfis de usuários: $e');
-      }
-    }
-
-    // Adicionar informações do usuário aos dados
     final tasks = List<Map<String, dynamic>>.from(res);
-    for (final task in tasks) {
-      final updatedBy = task['updated_by'];
-      if (updatedBy != null && usersMap.containsKey(updatedBy)) {
-        task['updated_by_profile'] = usersMap[updatedBy];
-      }
-    }
+
+    // Enriquecer tarefas com perfis de updated_by
+    await enrichWithUpdatedByProfiles(tasks);
+
+    // Enriquecer tarefas com perfis de responsáveis
+    await enrichTasksWithAssignees(tasks);
 
     // Buscar todos os usuários para o filtro de responsável
-    final usersRes = await Supabase.instance.client
-        .from('profiles')
-        .select('id, full_name, email, avatar_url')
-        .order('full_name', ascending: true);
+    final usersRes = await fetchAllProfiles();
 
     if (!mounted) return;
     setState(() {
       _tasks = tasks;
-      _allUsers = List<Map<String, dynamic>>.from(usersRes);
+      _allUsers = usersRes;
       _tasksLoading = false;
     });
     _applyFiltersTasks();
@@ -195,14 +252,16 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     });
   }
 
-  List<String> _getFilterOptionsTasks() {
-    switch (_filterTypeTasks) {
+  // ========== MÉTODOS GENÉRICOS PARA FILTROS ==========
+
+  /// Retorna as opções de filtro baseado no tipo de filtro
+  List<String> _getFilterOptions(String filterType) {
+    switch (filterType) {
       case 'status':
         return TaskStatus.values;
       case 'priority':
         return ['low', 'medium', 'high', 'urgent'];
       case 'assignee':
-        // Retorna IDs dos usuários
         return _allUsers.map((u) => u['id'] as String).toList();
       case 'none':
         return [];
@@ -211,8 +270,9 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     }
   }
 
-  String _getFilterLabelTasks() {
-    switch (_filterTypeTasks) {
+  /// Retorna o label do filtro baseado no tipo
+  String _getFilterLabel(String filterType) {
+    switch (filterType) {
       case 'status':
         return 'Filtrar por status';
       case 'priority':
@@ -226,8 +286,9 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     }
   }
 
-  String _getFilterValueLabelTasks(String value) {
-    switch (_filterTypeTasks) {
+  /// Retorna o label do valor do filtro baseado no tipo e valor
+  String _getFilterValueLabel(String filterType, String value) {
+    switch (filterType) {
       case 'status':
         return TaskStatus.getLabel(value);
       case 'priority':
@@ -244,7 +305,6 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
             return value;
         }
       case 'assignee':
-        // Buscar o nome do usuário pelo ID
         final user = _allUsers.firstWhere(
           (u) => u['id'] == value,
           orElse: () => {'full_name': value},
@@ -255,6 +315,11 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     }
   }
 
+  // Wrappers para Tasks (mantém compatibilidade)
+  List<String> _getFilterOptionsTasks() => _getFilterOptions(_filterTypeTasks);
+  String _getFilterLabelTasks() => _getFilterLabel(_filterTypeTasks);
+  String _getFilterValueLabelTasks(String value) => _getFilterValueLabel(_filterTypeTasks, value);
+
   Future<void> _reloadSubTasks() async {
     setState(() => _subTasksLoading = true);
 
@@ -262,34 +327,13 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     await tasksModule.updateTasksPriorityByDueDate();
 
     final res = await tasksModule.getProjectSubTasks(widget.projectId);
-
-    // Buscar informações dos usuários que fizeram a última atualização
-    final updatedByIds = res.map((t) => t['updated_by']).whereType<String>().toSet();
-    Map<String, Map<String, dynamic>> usersMap = {};
-
-    if (updatedByIds.isNotEmpty) {
-      try {
-        final users = await Supabase.instance.client
-            .from('profiles')
-            .select('id, full_name, email, avatar_url')
-            .inFilter('id', updatedByIds.toList());
-
-        for (final user in users) {
-          usersMap[user['id']] = user;
-        }
-      } catch (e) {
-        debugPrint('Erro ao buscar perfis de usuários: $e');
-      }
-    }
-
-    // Adicionar informações do usuário aos dados
     final subTasks = List<Map<String, dynamic>>.from(res);
-    for (final task in subTasks) {
-      final updatedBy = task['updated_by'];
-      if (updatedBy != null && usersMap.containsKey(updatedBy)) {
-        task['updated_by_profile'] = usersMap[updatedBy];
-      }
-    }
+
+    // Enriquecer tarefas com perfis de updated_by
+    await enrichWithUpdatedByProfiles(subTasks);
+
+    // Enriquecer tarefas com perfis de responsáveis
+    await enrichTasksWithAssignees(subTasks);
 
     if (!mounted) return;
     setState(() {
@@ -348,65 +392,10 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     });
   }
 
-  List<String> _getFilterOptionsSubTasks() {
-    switch (_filterTypeSubTasks) {
-      case 'status':
-        return TaskStatus.values;
-      case 'priority':
-        return ['low', 'medium', 'high', 'urgent'];
-      case 'assignee':
-        // Retorna IDs dos usuários
-        return _allUsers.map((u) => u['id'] as String).toList();
-      case 'none':
-        return [];
-      default:
-        return [];
-    }
-  }
-
-  String _getFilterLabelSubTasks() {
-    switch (_filterTypeSubTasks) {
-      case 'status':
-        return 'Filtrar por status';
-      case 'priority':
-        return 'Filtrar por prioridade';
-      case 'assignee':
-        return 'Filtrar por responsável';
-      case 'none':
-        return 'Sem filtro';
-      default:
-        return 'Filtrar';
-    }
-  }
-
-  String _getFilterValueLabelSubTasks(String value) {
-    switch (_filterTypeSubTasks) {
-      case 'status':
-        return TaskStatus.getLabel(value);
-      case 'priority':
-        switch (value) {
-          case 'low':
-            return 'Baixa';
-          case 'medium':
-            return 'Média';
-          case 'high':
-            return 'Alta';
-          case 'urgent':
-            return 'Urgente';
-          default:
-            return value;
-        }
-      case 'assignee':
-        // Buscar o nome do usuário pelo ID
-        final user = _allUsers.firstWhere(
-          (u) => u['id'] == value,
-          orElse: () => {'full_name': value},
-        );
-        return user['full_name'] ?? value;
-      default:
-        return value;
-    }
-  }
+  // Wrappers para SubTasks (mantém compatibilidade)
+  List<String> _getFilterOptionsSubTasks() => _getFilterOptions(_filterTypeSubTasks);
+  String _getFilterLabelSubTasks() => _getFilterLabel(_filterTypeSubTasks);
+  String _getFilterValueLabelSubTasks(String value) => _getFilterValueLabel(_filterTypeSubTasks, value);
 
   // ========== FUNÇÕES AUXILIARES PARA TASKS ==========
 
@@ -414,7 +403,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   Future<void> _bulkDeleteTasks() async {
     final count = _selectedTasks.length;
 
-    final confirm = await showDialog<bool>(
+    final confirm = await DialogHelper.show<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmar exclusão'),
@@ -461,48 +450,13 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   // Comparadores para ordenação de tasks
   List<int Function(Map<String, dynamic>, Map<String, dynamic>)> _getSortComparatorsTasks() {
     return [
-      // Título
-      (a, b) => (a['title'] ?? '').toString().toLowerCase()
-          .compareTo((b['title'] ?? '').toString().toLowerCase()),
-      // Status
-      (a, b) => (a['status'] ?? '').toString()
-          .compareTo((b['status'] ?? '').toString()),
-      // Prioridade
-      (a, b) {
-        const priorities = {'low': 0, 'medium': 1, 'high': 2, 'urgent': 3};
-        final priorityA = priorities[a['priority']] ?? 0;
-        final priorityB = priorities[b['priority']] ?? 0;
-        return priorityA.compareTo(priorityB);
-      },
-      // Responsável
-      (a, b) => 0, // Não ordenável
-      // Data de conclusão
-      (a, b) {
-        final dateA = a['due_date'] != null ? DateTime.tryParse(a['due_date']) : null;
-        final dateB = b['due_date'] != null ? DateTime.tryParse(b['due_date']) : null;
-        if (dateA == null && dateB == null) return 0;
-        if (dateA == null) return 1;
-        if (dateB == null) return -1;
-        return dateA.compareTo(dateB);
-      },
-      // Criado em
-      (a, b) {
-        final dateA = a['created_at'] != null ? DateTime.tryParse(a['created_at']) : null;
-        final dateB = b['created_at'] != null ? DateTime.tryParse(b['created_at']) : null;
-        if (dateA == null && dateB == null) return 0;
-        if (dateA == null) return 1;
-        if (dateB == null) return -1;
-        return dateA.compareTo(dateB);
-      },
-      // Última atualização
-      (a, b) {
-        final dateA = a['updated_at'] != null ? DateTime.tryParse(a['updated_at']) : null;
-        final dateB = b['updated_at'] != null ? DateTime.tryParse(b['updated_at']) : null;
-        if (dateA == null && dateB == null) return 0;
-        if (dateA == null) return 1;
-        if (dateB == null) return -1;
-        return dateA.compareTo(dateB);
-      },
+      compareByTitle,
+      compareByStatus,
+      compareByPriority,
+      (a, b) => 0, // Responsável - não ordenável
+      compareByDueDate,
+      compareByCreatedAt,
+      compareByUpdatedAt,
     ];
   }
 
@@ -512,7 +466,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
   Future<void> _bulkDeleteSubTasks() async {
     final count = _selectedSubTasks.length;
 
-    final confirm = await showDialog<bool>(
+    final confirm = await DialogHelper.show<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmar exclusão'),
@@ -556,54 +510,59 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
     }
   }
 
-  // Comparadores para ordenação de subtasks
+  /// Retorna comparadores de ordenação para a tabela de SubTasks
+  /// Usa comparadores reutilizáveis de table_comparators.dart
   List<int Function(Map<String, dynamic>, Map<String, dynamic>)> _getSortComparatorsSubTasks() {
     return [
-      // Título
-      (a, b) => (a['title'] ?? '').toString().toLowerCase()
-          .compareTo((b['title'] ?? '').toString().toLowerCase()),
-      // Tarefa Principal (não ordenável)
-      (a, b) => 0,
-      // Status
-      (a, b) => (a['status'] ?? '').toString()
-          .compareTo((b['status'] ?? '').toString()),
-      // Prioridade
-      (a, b) {
-        const priorities = {'low': 0, 'medium': 1, 'high': 2, 'urgent': 3};
-        final priorityA = priorities[a['priority']] ?? 0;
-        final priorityB = priorities[b['priority']] ?? 0;
-        return priorityA.compareTo(priorityB);
-      },
-      // Data de conclusão
-      (a, b) {
-        final dateA = a['due_date'] != null ? DateTime.tryParse(a['due_date']) : null;
-        final dateB = b['due_date'] != null ? DateTime.tryParse(b['due_date']) : null;
-        if (dateA == null && dateB == null) return 0;
-        if (dateA == null) return 1;
-        if (dateB == null) return -1;
-        return dateA.compareTo(dateB);
-      },
-      // Responsável (não ordenável)
-      (a, b) => 0,
-      // Criado em
-      (a, b) {
-        final dateA = a['created_at'] != null ? DateTime.tryParse(a['created_at']) : null;
-        final dateB = b['created_at'] != null ? DateTime.tryParse(b['created_at']) : null;
-        if (dateA == null && dateB == null) return 0;
-        if (dateA == null) return 1;
-        if (dateB == null) return -1;
-        return dateA.compareTo(dateB);
-      },
-      // Última atualização
-      (a, b) {
-        final dateA = a['updated_at'] != null ? DateTime.tryParse(a['updated_at']) : null;
-        final dateB = b['updated_at'] != null ? DateTime.tryParse(b['updated_at']) : null;
-        if (dateA == null && dateB == null) return 0;
-        if (dateA == null) return 1;
-        if (dateB == null) return -1;
-        return dateA.compareTo(dateB);
-      },
+      compareByTitle,           // Título
+      compareByStatus,          // Status
+      compareByPriority,        // Prioridade
+      compareByDueDate,         // Data de conclusão
+      (a, b) => 0,              // Responsável (não ordenável)
+      compareByCreatedAt,       // Criado em
+      compareByUpdatedAt,       // Última atualização
     ];
+  }
+
+  /// Constrói skeleton loading para a página de detalhes do projeto
+  Widget _buildProjectDetailSkeleton() {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Título skeleton
+          SkeletonLoader.text(width: 250),
+          const SizedBox(height: 24),
+
+          // Card de informações skeleton
+          InfoCardSkeleton(itemCount: 6, minHeight: 120),
+          const SizedBox(height: 24),
+
+          // Tabs skeleton
+          Row(
+            children: [
+              SkeletonLoader.box(width: 100, height: 40, borderRadius: 8),
+              const SizedBox(width: 8),
+              SkeletonLoader.box(width: 100, height: 40, borderRadius: 8),
+              const SizedBox(width: 8),
+              SkeletonLoader.box(width: 100, height: 40, borderRadius: 8),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Tabela skeleton
+          Expanded(
+            child: Column(
+              children: List.generate(
+                8,
+                (index) => TableRowSkeleton(columnCount: 6, height: 52),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -613,7 +572,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
               future: _projectFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState != ConnectionState.done) {
-                  return const Center(child: CircularProgressIndicator());
+                  return _buildProjectDetailSkeleton();
                 }
                 if (snapshot.hasError) {
                   return Center(child: Text('Erro ao carregar projeto'));
@@ -679,33 +638,31 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                             },
                           ),
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text((project['name'] ?? 'Projeto').toString(),
-                                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600)),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Criado por ${((project['created_by_profile']?['full_name'] ?? project['created_by_profile']?['email'] ?? '-') as String)} em ${_fmtDateShort(project['created_at'])} • Atualizado por ${((project['updated_by_profile']?['full_name'] ?? project['updated_by_profile']?['email'] ?? '-') as String)} em ${_fmtDateShort(project['updated_at'])}',
-                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
-                                ),
-                              ],
-                            ),
+                            child: Text('Projeto',
+                                style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600)),
                           ),
                           const SizedBox(width: 12),
-                          _projectStatusChip(context, (project['status'] ?? 'active').toString()),
-                          const SizedBox(width: 8),
                           Builder(builder: (context) {
+                            // Apenas Admin, Gestor e Financeiro podem ver os botões de Membros e Editar
+                            final canAccessButtons = appState.isAdmin || appState.isGestor || appState.isFinanceiro;
+
+                            if (!canAccessButtons) {
+                              return const SizedBox.shrink();
+                            }
+
                             final current = Supabase.instance.client.auth.currentUser;
                             final isOwner = current != null && project['owner_id'] == current.id;
                             final canManage = appState.isAdmin || isOwner;
-                            final canEdit = appState.isAdmin || appState.isDesigner;
+
+                            // Usar novo sistema de permissões
+                            final canEdit = appState.permissions.canEditProjects;
+
                             return Row(children: [
                               IconOnlyButton(
                                 icon: Icons.group,
                                 tooltip: 'Membros',
                                 onPressed: canManage ? () async {
-                                  await showDialog(
+                                  await DialogHelper.show(
                                     context: context,
                                     builder: (context) => ProjectMembersDialog(
                                       projectId: (project['id'] as String),
@@ -718,7 +675,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                 icon: Icons.edit,
                                 tooltip: 'Editar',
                                 onPressed: canEdit ? () async {
-                                  final changed = await showDialog<bool>(
+                                  final changed = await DialogHelper.show<bool>(
                                     context: context,
                                     builder: (context) => ProjectFormDialog(fixedClientId: project['client_id'] as String, initial: project),
                                   );
@@ -727,23 +684,22 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                               ),
                             ]);
                           }),
+                          // Botão de Favorito (disponível para todos os usuários)
+                          IconOnlyButton(
+                            icon: _isFavorite ? Icons.star : Icons.star_border,
+                            tooltip: _isFavorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
+                            iconColor: _isFavorite ? UIConst.favoriteColor : null,
+                            isLoading: _favoriteLoading,
+                            onPressed: _toggleFavorite,
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Wrap(
-                            spacing: 24,
-                            runSpacing: 8,
-                            children: [
-                              _Info('Nome', project['name'] ?? ''),
-                              _Info('Cliente', project['clients']?['name'] ?? '-'),
-                              _Info('Status', (project['status'] ?? 'active').toString()),
-                              _Info('Descrição', project['description'] ?? '-'),
-                            ],
-                          ),
-                        ),
+                      const SizedBox(height: 16),
+
+                      // Cards de informações do projeto
+                      _buildProjectInfoCards(
+                        context: context,
+                        project: project,
                       ),
                       const SizedBox(height: 16),
 
@@ -760,55 +716,56 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                               ],
                             ),
                             // Usar altura dinâmica baseada no conteúdo
-                            LayoutBuilder(
-                              builder: (context, constraints) {
-                                return SizedBox(
-                                  height: 1700, // Altura suficiente para 2 tabelas + espaçamentos + controles de paginação
-                                  child: TabBarView(
+                            SizedBox(
+                              height: 1300, // Altura ajustada para 2 tabelas sem espaço extra
+                              child: TabBarView(
                                 children: [
                                   // Aba de Tarefas
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const SizedBox(height: 16),
-                                      // Tarefas do projeto
-                                      Row(
-                                        children: [
-                                          Text('Tarefas do projeto', style: Theme.of(context).textTheme.titleMedium),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      if (_tasksLoading)
-                                        const SizedBox(
-                                          height: 200,
-                                          child: Center(child: CircularProgressIndicator()),
-                                        )
-                                      else
-                                        SizedBox(
-                                          height: 600,
-                                          child: _buildTasksTable(appState),
+                                  SingleChildScrollView(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const SizedBox(height: 16),
+                                        // Tarefas do projeto
+                                        Row(
+                                          children: [
+                                            Text('Tarefas do projeto', style: Theme.of(context).textTheme.titleMedium),
+                                          ],
                                         ),
-                                      const SizedBox(height: 12),
+                                        const SizedBox(height: 8),
+                                        if (_tasksLoading)
+                                          const SizedBox(
+                                            height: _loadingHeight,
+                                            child: Center(child: CircularProgressIndicator()),
+                                          )
+                                        else
+                                          SizedBox(
+                                            height: _tableHeight,
+                                            child: _buildTasksTable(appState),
+                                          ),
+                                        const SizedBox(height: 12),
 
-                                      // Subtarefas do projeto
-                                      Row(
-                                        children: [
-                                          Text('Subtarefas', style: Theme.of(context).textTheme.titleMedium),
-                                          const Spacer(),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      if (_subTasksLoading)
-                                        const SizedBox(
-                                          height: 200,
-                                          child: Center(child: CircularProgressIndicator()),
-                                        )
-                                      else
-                                        SizedBox(
-                                          height: 600,
-                                          child: _buildSubTasksTable(appState),
+                                        // Subtarefas do projeto
+                                        Row(
+                                          children: [
+                                            Text('Subtarefas', style: Theme.of(context).textTheme.titleMedium),
+                                            const Spacer(),
+                                          ],
                                         ),
-                                    ],
+                                        const SizedBox(height: 8),
+                                        if (_subTasksLoading)
+                                          const SizedBox(
+                                            height: _loadingHeight,
+                                            child: Center(child: CircularProgressIndicator()),
+                                          )
+                                        else
+                                          SizedBox(
+                                            height: _tableHeight,
+                                            child: _buildSubTasksTable(appState),
+                                          ),
+                                        const SizedBox(height: 16), // Espaçamento final
+                                      ],
+                                    ),
                                   ),
 
                                   // Aba Financeiro
@@ -820,9 +777,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                                       ),
                                   ),
                                 ],
-                                  ),
-                                );
-                              },
+                              ),
                             ),
                           ],
                         ),
@@ -882,7 +837,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
           ] : null,
           actionButton: (appState.isAdmin || appState.isDesigner) ? FilledButton.icon(
             onPressed: () async {
-              final created = await showDialog<bool>(
+              final created = await DialogHelper.show<bool>(
                 context: context,
                 builder: (context) => QuickTaskForm(projectId: widget.projectId),
               );
@@ -920,278 +875,31 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                 style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
             ),
+            dimCompletedTasks: true,
+            getStatus: (t) => t['status'] as String?,
             columns: const [
               DataTableColumn(label: 'Título', sortable: true),
               DataTableColumn(label: 'Status', sortable: true),
               DataTableColumn(label: 'Prioridade', sortable: true),
-              DataTableColumn(label: 'Data de Conclusão', sortable: true),
+              DataTableColumn(label: 'Vencimento', sortable: true),
               DataTableColumn(label: 'Responsável', sortable: false),
-              DataTableColumn(label: 'Criado em', sortable: true),
-              DataTableColumn(label: 'Última Atualização', sortable: true),
+              DataTableColumn(label: 'Criado', sortable: true),
+              DataTableColumn(label: 'Atualizado', sortable: true),
             ],
             sortComparators: _getSortComparatorsTasks(),
-      cellBuilders: [
-        // Título
-        (t) {
-          final title = t['title'] ?? 'Sem título';
-          final status = t['status'] as String?;
-
-          // Se está aguardando, mostrar ícone
-          if (tasksModule.isWaitingStatus(status)) {
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.hourglass_empty,
-                  size: 16,
-                  color: Colors.orange.shade700,
-                ),
-                const SizedBox(width: 6),
-                Expanded(child: Text(title)),
-              ],
-            );
-          }
-
-          return Text(title);
-        },
-
-        // Status
-        (t) {
-          final status = t['status'] ?? 'todo';
-          return TaskStatusBadge(status: status);
-        },
-
-        // Prioridade
-        (t) {
-          final priority = t['priority'] ?? 'medium';
-          return TaskPriorityBadge(priority: priority);
-        },
-
-        // Data de Conclusão
-        (t) {
-          final dueDate = t['due_date'];
-          if (dueDate == null) return const Text('-');
-          try {
-            final date = DateTime.parse(dueDate);
-            return Text('${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}');
-          } catch (e) {
-            return const Text('-');
-          }
-        },
-
-        // Responsável
-        (t) {
-          final assignee = t['profiles'] as Map<String, dynamic>?;
-          if (assignee == null) return const Text('-');
-          final assigneeName = assignee['full_name'] ?? assignee['email'] ?? '-';
-          final avatarUrl = assignee['avatar_url'] as String?;
-          return UserAvatarName(
-            avatarUrl: avatarUrl,
-            name: assigneeName as String,
-            size: 20,
-          );
-        },
-
-        // Criado em
-        (t) {
-          final createdAt = t['created_at'];
-          if (createdAt == null) return const Text('-');
-          try {
-            final date = DateTime.parse(createdAt);
-            return Text('${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}');
-          } catch (e) {
-            return const Text('-');
-          }
-        },
-
-        // Última Atualização
-        (t) {
-          final updatedAt = t['updated_at'];
-          final updatedByProfile = t['updated_by_profile'] as Map<String, dynamic>?;
-
-          if (updatedAt == null) return const Text('-');
-
-          try {
-            final date = DateTime.parse(updatedAt);
-            final dateStr = '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
-
-            // Se não tem informação do usuário, mostra só a data
-            if (updatedByProfile == null) {
-              return Text(dateStr);
-            }
-
-            final userName = updatedByProfile['full_name'] as String? ?? updatedByProfile['email'] as String? ?? 'Usuário';
-            final avatarUrl = updatedByProfile['avatar_url'] as String?;
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(dateStr, style: const TextStyle(fontSize: 12)),
-                const SizedBox(height: 4),
-                UserAvatarName(
-                  avatarUrl: avatarUrl,
-                  name: userName,
-                  size: 16,
-                ),
-              ],
-            );
-          } catch (e) {
-            return const Text('-');
-          }
-        },
-      ],
+            cellBuilders: TaskTableHelpers.getTaskCellBuilders(),
       getId: (t) => t['id'] as String,
       onRowTap: (t) {
-        // Atualiza a aba atual com os detalhes da tarefa
-        final tabManager = TabManagerScope.maybeOf(context);
-        if (tabManager != null) {
-          final taskId = t['id'].toString();
-          final taskTitle = t['title'] as String? ?? 'Tarefa';
-          final tabId = 'task_$taskId';
-
-          // Atualiza a aba atual em vez de criar uma nova
-          final currentIndex = tabManager.currentIndex;
-          final currentTab = tabManager.currentTab;
-          final updatedTab = TabItem(
-            id: tabId,
-            title: taskTitle,
-            icon: Icons.task,
-            page: TaskDetailPage(
-              key: ValueKey('task_$taskId'),
-              taskId: taskId,
-            ),
-            canClose: true,
-            selectedMenuIndex: currentTab?.selectedMenuIndex ?? 0, // Preserva o índice do menu
-          );
-          tabManager.updateTab(currentIndex, updatedTab);
-        }
+        final taskId = t['id'].toString();
+        final taskTitle = t['title'] as String? ?? 'Tarefa';
+        NavigationHelpers.navigateToTaskDetail(context, taskId, taskTitle);
       },
-      actions: [
-        DataTableAction<Map<String, dynamic>>(
-          icon: Icons.edit,
-          label: 'Editar',
-          onPressed: (t) async {
-            final currentId = Supabase.instance.client.auth.currentUser?.id;
-            final canAdmin = appState.isAdmin;
-            final canOwner = currentId != null && t['created_by'] == currentId;
-            final canEdit = canAdmin || canOwner;
-
-            if (!canEdit) return;
-
-            final changed = await showDialog<bool>(
-              context: context,
-              builder: (context) => QuickTaskForm(projectId: widget.projectId, initial: t),
-            );
-            if (changed == true) _reloadTasks();
-          },
-        ),
-        DataTableAction<Map<String, dynamic>>(
-          icon: Icons.content_copy,
-          label: 'Duplicar',
-          onPressed: (t) async {
-            final currentId = Supabase.instance.client.auth.currentUser?.id;
-            final canAdmin = appState.isAdmin;
-            final canEdit = canAdmin || t['assigned_to'] == currentId;
-
-            if (!canEdit) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Você não tem permissão para duplicar esta task')),
-              );
-              return;
-            }
-
-            try {
-              final formData = Map<String, dynamic>.from(t);
-              formData.remove('id');
-              formData.remove('created_at');
-              formData.remove('updated_at');
-              // Remover campos de relacionamento que vêm dos joins
-              formData.remove('assignee_profile');
-              formData.remove('assigned_to_profile');
-              formData.remove('created_by_profile');
-              formData.remove('updated_by_profile');
-              formData.remove('creator_profile');
-              formData.remove('projects');
-              if (formData['title'] != null) {
-                formData['title'] = '${formData['title']} (Cópia)';
-              }
-
-              // Garantir que project_id está presente
-              formData['project_id'] = widget.projectId;
-
-              await Supabase.instance.client.from('tasks').insert(formData);
-
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Task duplicada com sucesso')),
-                );
-                _reloadTasks();
-              }
-            } catch (e) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Erro ao duplicar: $e')),
-                );
-              }
-            }
-          },
-        ),
-        DataTableAction<Map<String, dynamic>>(
-          icon: Icons.delete,
-          label: 'Excluir',
-          onPressed: (t) async {
-            final currentId = Supabase.instance.client.auth.currentUser?.id;
-            final canAdmin = appState.isAdmin;
-            final canOwner = currentId != null && t['created_by'] == currentId;
-            final canDelete = canAdmin || canOwner;
-
-            if (!canDelete) return;
-
-            final ok = await showDialog<bool>(
-              context: context,
-              builder: (_) => ConfirmDialog(
-                title: 'Excluir Tarefa',
-                message: 'Tem certeza que deseja excluir esta tarefa?',
-                confirmText: 'Excluir',
-                isDestructive: true,
-              ),
-            );
-            if (ok == true) {
-              // Deletar do banco de dados
-              await Supabase.instance.client
-                  .from('tasks')
-                  .delete()
-                  .eq('id', t['id']);
-
-              // Deletar pasta do Google Drive (best-effort)
-              try {
-                final clientName = (t['projects']?['clients']?['name'] ?? 'Cliente').toString();
-                final projectName = (t['projects']?['name'] ?? 'Projeto').toString();
-                final taskTitle = (t['title'] ?? 'Tarefa').toString();
-                final drive = GoogleDriveOAuthService();
-                auth.AuthClient? authed;
-                try { authed = await drive.getAuthedClient(); } catch (_) {}
-                if (authed != null) {
-                  await drive.deleteTaskFolder(
-                    client: authed,
-                    clientName: clientName,
-                    projectName: projectName,
-                    taskName: taskTitle,
-                  );
-                  debugPrint('✅ Pasta da tarefa deletada do Google Drive: $taskTitle');
-                } else {
-                  debugPrint('⚠️ Drive delete skipped: not authenticated');
-                }
-              } catch (e) {
-                debugPrint('⚠️ Drive delete failed (ignored): $e');
-              }
-
-              if (mounted) _reloadTasks();
-            }
-          },
-        ),
-            ],
+      actions: TaskTableActions.getTaskActions(
+        context: context,
+        projectId: widget.projectId,
+        appState: appState,
+        onTaskChanged: _reloadTasks,
+      ),
           ),
         ),
       ],
@@ -1269,187 +977,33 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
                 style: TextStyle(fontSize: 16, color: Colors.grey),
               ),
             ),
+            dimCompletedTasks: true,
+            getStatus: (t) => t['status'] as String?,
             columns: const [
               DataTableColumn(label: 'Título', sortable: true),
-              DataTableColumn(label: 'Tarefa Principal', sortable: false),
               DataTableColumn(label: 'Status', sortable: true),
               DataTableColumn(label: 'Prioridade', sortable: true),
-              DataTableColumn(label: 'Data de Conclusão', sortable: true),
+              DataTableColumn(label: 'Vencimento', sortable: true),
               DataTableColumn(label: 'Responsável', sortable: false),
-                      DataTableColumn(label: 'Criado em', sortable: true),
-                      DataTableColumn(label: 'Última Atualização', sortable: true),
+                      DataTableColumn(label: 'Criado', sortable: true),
+                      DataTableColumn(label: 'Atualizado', sortable: true),
                     ],
                     sortComparators: _getSortComparatorsSubTasks(),
-                    cellBuilders: [
-        // Título
-        (t) {
-          final title = t['title'] ?? 'Sem título';
-          final status = t['status'] as String?;
-
-          // Se está aguardando, mostrar ícone
-          if (tasksModule.isWaitingStatus(status)) {
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.hourglass_empty,
-                  size: 16,
-                  color: Colors.orange.shade700,
-                ),
-                const SizedBox(width: 6),
-                Expanded(child: Text(title)),
-              ],
-            );
-          }
-
-          return Text(title);
-        },
-
-        // Tarefa Principal
-        (t) {
-          final parentTaskId = t['parent_task_id'];
-          if (parentTaskId == null) return const Text('-');
-          // Buscar o título da tarefa principal
-          final parentTask = _tasks.firstWhere(
-            (task) => task['id'] == parentTaskId,
-            orElse: () => {'title': 'Tarefa não encontrada'},
-          );
-          return Text(parentTask['title'] ?? '-');
-        },
-
-        // Status
-        (t) {
-          final status = t['status'] ?? 'todo';
-          return TaskStatusBadge(status: status);
-        },
-
-        // Prioridade
-        (t) {
-          final priority = t['priority'] ?? 'medium';
-          return TaskPriorityBadge(priority: priority);
-        },
-
-        // Data de Conclusão
-        (t) {
-          final dueDate = t['due_date'];
-          if (dueDate == null) return const Text('-');
-          try {
-            final date = DateTime.parse(dueDate);
-            return Text('${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}');
-          } catch (e) {
-            return const Text('-');
-          }
-        },
-
-        // Responsável
-        (t) {
-          final assignee = t['profiles'] as Map<String, dynamic>?;
-          if (assignee == null) return const Text('-');
-          final assigneeName = assignee['full_name'] ?? assignee['email'] ?? '-';
-          final avatarUrl = assignee['avatar_url'] as String?;
-          return UserAvatarName(
-            avatarUrl: avatarUrl,
-            name: assigneeName as String,
-            size: 20,
-          );
-        },
-
-        // Criado em
-        (t) {
-          final createdAt = t['created_at'];
-          if (createdAt == null) return const Text('-');
-          try {
-            final date = DateTime.parse(createdAt);
-            return Text('${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}');
-          } catch (e) {
-            return const Text('-');
-          }
-        },
-
-        // Última Atualização
-        (t) {
-          final updatedAt = t['updated_at'];
-          final updatedByProfile = t['updated_by_profile'] as Map<String, dynamic>?;
-
-          if (updatedAt == null) return const Text('-');
-
-          try {
-            final date = DateTime.parse(updatedAt);
-            final dateStr = '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
-
-            // Se não tem informação do usuário, mostra só a data
-            if (updatedByProfile == null) {
-              return Text(dateStr);
-            }
-
-            final userName = updatedByProfile['full_name'] as String? ?? updatedByProfile['email'] as String? ?? 'Usuário';
-            final avatarUrl = updatedByProfile['avatar_url'] as String?;
-
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(dateStr, style: const TextStyle(fontSize: 12)),
-                const SizedBox(height: 4),
-                UserAvatarName(
-                  avatarUrl: avatarUrl,
-                  name: userName,
-                  size: 16,
-                ),
-              ],
-            );
-          } catch (e) {
-            return const Text('-');
-          }
-        },
-      ],
+                    cellBuilders: TaskTableHelpers.getSubTaskCellBuilders(_tasks),
       getId: (t) => t['id'] as String,
       onRowTap: (t) {
-        // Atualiza a aba atual com os detalhes da subtarefa
-        final tabManager = TabManagerScope.maybeOf(context);
-        if (tabManager != null) {
-          final taskId = t['id'].toString();
-          final taskTitle = t['title'] as String? ?? 'Subtarefa';
-          final tabId = 'task_$taskId';
-
-          // Atualiza a aba atual em vez de criar uma nova
-          final currentIndex = tabManager.currentIndex;
-          final currentTab = tabManager.currentTab;
-          final updatedTab = TabItem(
-            id: tabId,
-            title: taskTitle,
-            icon: Icons.task,
-            page: TaskDetailPage(
-              key: ValueKey('task_$taskId'),
-              taskId: taskId,
-            ),
-            canClose: true,
-            selectedMenuIndex: currentTab?.selectedMenuIndex ?? 0, // Preserva o índice do menu
-          );
-          tabManager.updateTab(currentIndex, updatedTab);
-        }
+        final taskId = t['id'].toString();
+        final taskTitle = t['title'] as String? ?? 'Subtarefa';
+        NavigationHelpers.navigateToTaskDetail(context, taskId, taskTitle);
       },
-            actions: [],
+      actions: TaskTableActions.getTaskActions(
+        context: context,
+        projectId: widget.projectId,
+        appState: appState,
+        onTaskChanged: _reloadSubTasks,
+      ),
           ),
         ),
-      ],
-    );
-  }
-}
-
-class _Info extends StatelessWidget {
-  final String label;
-  final String value;
-  const _Info(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.labelSmall),
-        const SizedBox(height: 4),
-        Text(value, style: Theme.of(context).textTheme.bodyMedium),
       ],
     );
   }

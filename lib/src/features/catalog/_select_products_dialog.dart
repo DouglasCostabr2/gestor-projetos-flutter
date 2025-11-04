@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../../widgets/standard_dialog.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import '../../../ui/organisms/dialogs/standard_dialog.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 
 class SelectProductsDialog extends StatefulWidget {
   const SelectProductsDialog({

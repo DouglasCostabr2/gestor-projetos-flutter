@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../state/app_state_scope.dart';
 import '../projects/project_detail_page.dart';
-import '../../../widgets/standard_dialog.dart';
+import '../../../ui/organisms/dialogs/dialogs.dart';
 import '../../../modules/modules.dart';
 import '../../navigation/tab_manager_scope.dart';
 import '../../navigation/tab_item.dart';
@@ -291,7 +291,7 @@ class _ClientFinanceCard extends StatelessWidget {
       // Capturar TabManager ANTES de abrir o dialog
       final tabManager = TabManagerScope.maybeOf(context);
 
-      showDialog(
+      DialogHelper.show(
         context: context,
         builder: (dialogContext) => StandardDialog(
           title: 'Valores Pendentes - ${client['name']} ($currency)',
@@ -365,7 +365,7 @@ class _ClientFinanceCard extends StatelessWidget {
     // Capturar TabManager ANTES de abrir o dialog
     final tabManager = TabManagerScope.maybeOf(context);
 
-    showDialog(
+    DialogHelper.show(
       context: context,
       builder: (dialogContext) => StandardDialog(
         title: 'Pagamentos de ${client['name']} ($currency)',
@@ -797,7 +797,7 @@ class _EmployeeFinanceCard extends StatelessWidget {
     // Capturar TabManager ANTES de abrir o dialog
     final tabManager = TabManagerScope.maybeOf(context);
 
-    showDialog(
+    DialogHelper.show(
       context: context,
       builder: (dialogContext) => StandardDialog(
         title: 'Pagamentos $statusLabel - ${employee['full_name']} ($currency)',

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
 
 /// Classe centralizada para tratamento de erros.
 /// 
@@ -168,6 +169,9 @@ class ErrorHandler {
       if (message.contains('email')) {
         return 'Este email já está cadastrado.';
       }
+      if (message.contains('full_name') || message.contains('profiles_full_name_unique')) {
+        return 'Este nome já está em uso por outro usuário. Por favor, escolha um nome diferente.';
+      }
       if (message.contains('name')) {
         return 'Este nome já está em uso.';
       }
@@ -250,7 +254,7 @@ class ErrorHandler {
     dynamic error,
     String userMessage,
   ) {
-    showDialog(
+    DialogHelper.show(
       context: context,
       builder: (context) => AlertDialog(
         title: const Row(

@@ -3,9 +3,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app_shell.dart';
 import '../../state/app_state_scope.dart';
 import '../../navigation/user_role.dart';
-import '../../../widgets/side_menu.dart';
-import '../settings/settings_page.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import '../../../ui/organisms/navigation/side_menu.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import '../../../core/di/service_locator.dart';
+import '../../navigation/interfaces/tab_manager_interface.dart';
 
 import 'widgets/client_financial_section.dart';
 
@@ -16,6 +17,40 @@ class ClientFinancialPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final appState = AppStateScope.of(context);
+
+    // Verificar permissão: apenas Admin, Gestor e Financeiro
+    if (!appState.isAdmin && !appState.isGestor && !appState.isFinanceiro) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.lock_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Acesso Negado',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Apenas Administradores, Gestores e Financeiros podem acessar as informações financeiras do cliente.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       body: Row(
         children: [
@@ -31,6 +66,9 @@ class ClientFinancialPage extends StatelessWidget {
             onToggle: () => appState.toggleSideMenu(),
             onLogout: () async {
               final navigator = Navigator.of(context);
+              // Limpar todas as abas antes do logout
+              final tabManager = serviceLocator.get<ITabManager>();
+              tabManager.clearAllTabs();
               await Supabase.instance.client.auth.signOut();
               if (!navigator.mounted) return;
               navigator.pushAndRemoveUntil(
@@ -38,14 +76,9 @@ class ClientFinancialPage extends StatelessWidget {
                 (route) => false,
               );
             },
-            onProfileTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsPage()),
-              );
-            },
             userRole: UserRoleExtension.fromString(appState.role),
             profile: appState.profile,
+            appState: appState,
           ),
           Expanded(
             child: Padding(

@@ -1,14 +1,14 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:gestor_projetos_flutter/src/utils/money.dart';
+import 'package:my_business/src/utils/money.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:googleapis_auth/auth_io.dart' as auth;
 import '../../../../services/google_drive_oauth_service.dart';
-import '../../../../widgets/drive_connect_dialog.dart';
+import 'package:my_business/ui/organisms/dialogs/drive_connect_dialog.dart';
 import '../../../state/app_state_scope.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 
 class ProjectFinancialSection extends StatefulWidget {
   final String projectId;
@@ -27,6 +27,7 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
   int _receivedCents = 0;
   String _projectName = 'Projeto';
   String _clientName = 'Cliente';
+  String? _companyName;
   List<Map<String, dynamic>> _payments = [];
 
   @override
@@ -39,15 +40,20 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
     setState(() { _loading = true; _error = null; });
     try {
       final client = Supabase.instance.client;
+
+      // Buscar dados do projeto
       final proj = await client
           .from('projects')
-          .select('value_cents, name, clients(name)')
+          .select('value_cents, name, company_id, clients(name, company), companies(name)')
           .eq('id', widget.projectId)
           .single();
+
       _baseCents = (proj['value_cents'] as int?) ?? 0;
       _projectName = (proj['name'] as String?) ?? 'Projeto';
       _clientName = (proj['clients']?['name'] as String?) ?? 'Cliente';
 
+      // Buscar empresa: primeiro da tabela companies, depois do campo company do cliente
+      _companyName = (proj['companies']?['name'] as String?) ?? (proj['clients']?['company'] as String?);
 
       final pays = await client
           .from('payments')
@@ -139,6 +145,7 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
                     currency: widget.currencyCode,
                     clientName: _clientName,
                     projectName: _projectName,
+                    companyName: _companyName,
                   ),
                 );
                 if (added == true) _reload();
@@ -491,7 +498,8 @@ class _PaymentDialog extends StatefulWidget {
   final String currency;
   final String? clientName;
   final String? projectName;
-  const _PaymentDialog({required this.projectId, required this.currency, this.clientName, this.projectName});
+  final String? companyName;
+  const _PaymentDialog({required this.projectId, required this.currency, this.clientName, this.projectName, this.companyName});
   @override
   State<_PaymentDialog> createState() => _PaymentDialogState();
 }
@@ -615,6 +623,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                             final projectName = widget.projectName ?? 'Projeto';
                             final dot = original.lastIndexOf('.');
                             final ext = dot >= 0 ? original.substring(dot) : '';
+                            final companyName = widget.companyName;
                             final newName = 'Comprovante-${safe(clientName)}-${safe(projectName)}-$d-$m-$yy$ext';
                             final up = await _drive.uploadToProjectSubfolder(
                               client: client,
@@ -623,6 +632,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                               subfolderName: 'Financeiro',
                               filename: newName,
                               bytes: bytes,
+                              companyName: companyName,
                             );
                             url = up.publicViewUrl;
                             setState(() { _receiptUrl = url; });
@@ -632,14 +642,30 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                         }
                       }
 
+                      // Obter organization_id do projeto
+                      final userId = Supabase.instance.client.auth.currentUser?.id;
+                      String? organizationId;
+                      try {
+                        final project = await Supabase.instance.client
+                            .from('projects')
+                            .select('organization_id')
+                            .eq('id', widget.projectId)
+                            .maybeSingle();
+                        organizationId = project?['organization_id'] as String?;
+                      } catch (e) {
+                        // Silently fail - organization_id is optional for backward compatibility
+                      }
+
                       final payload = {
                         'project_id': widget.projectId,
                         'amount_cents': _parseCents(_amountText.text),
                         'method': _method.text.trim().isEmpty ? null : _method.text.trim(),
                         'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
-                        'created_by': Supabase.instance.client.auth.currentUser?.id,
+                        'created_by': userId,
+                        if (organizationId != null) 'organization_id': organizationId,
                         if (url != null) 'receipt_url': url,
                       };
+
                       try {
                         await Supabase.instance.client.from('payments').insert(payload);
                       } catch (e) {

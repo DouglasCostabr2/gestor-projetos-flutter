@@ -14,7 +14,15 @@ class TaskFilesRepository {
     String? category, // e.g., 'final', 'briefing', 'assets', 'comment'
     String? commentId,
   }) async {
+    debugPrint('🟢 [TaskFilesRepo] saveFile INICIADO');
+    debugPrint('   📋 Task ID: $taskId');
+    debugPrint('   📄 Filename: $filename');
+    debugPrint('   📦 Size: $sizeBytes bytes');
+    debugPrint('   🏷️ Category: $category');
+
     final user = Supabase.instance.client.auth.currentUser;
+    debugPrint('   👤 User ID: ${user?.id}');
+
     final data = <String, dynamic>{
       'task_id': taskId,
       'filename': filename,
@@ -26,9 +34,13 @@ class TaskFilesRepository {
       if (category != null) 'category': category,
       if (commentId != null) 'comment_id': commentId,
     };
+
+    debugPrint('🟢 [TaskFilesRepo] Inserindo no Supabase...');
     try {
       await _client.from('task_files').insert(data);
+      debugPrint('✅ [TaskFilesRepo] Arquivo salvo com sucesso no banco');
     } catch (e) {
+      debugPrint('❌ [TaskFilesRepo] Erro ao inserir: $e');
       final msg = e.toString();
       final looksLikeMissingCols =
           msg.contains("PGRST204") ||
@@ -36,15 +48,19 @@ class TaskFilesRepository {
           msg.contains('category') ||
           msg.contains('comment_id');
       if (looksLikeMissingCols) {
+        debugPrint('⚠️ [TaskFilesRepo] Coluna ausente detectada, tentando fallback...');
         debugPrint('task_files: coluna ausente (category/comment_id). Aplicar migração. Tentando salvar sem essas colunas. Erro: $msg');
         final fallback = Map<String, dynamic>.from(data)
           ..remove('category')
           ..remove('comment_id');
         await _client.from('task_files').insert(fallback);
+        debugPrint('✅ [TaskFilesRepo] Arquivo salvo com fallback (sem category/comment_id)');
       } else {
+        debugPrint('❌ [TaskFilesRepo] Erro não relacionado a colunas, relançando...');
         rethrow;
       }
     }
+    debugPrint('✅ [TaskFilesRepo] saveFile CONCLUÍDO');
   }
 
   Future<List<Map<String, dynamic>>> listByTask(String taskId) async {
@@ -68,6 +84,21 @@ class TaskFilesRepository {
         return List<Map<String, dynamic>>.from(res);
       }
       rethrow;
+    }
+  }
+
+  /// Lista arquivos anexados a um comentário específico
+  Future<List<Map<String, dynamic>>> listByComment(String commentId) async {
+    try {
+      final res = await _client
+          .from('task_files')
+          .select('id, filename, mime_type, size_bytes, drive_file_id, drive_file_url, category, comment_id, created_by, created_at')
+          .eq('comment_id', commentId)
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(res);
+    } catch (e) {
+      debugPrint('❌ Erro ao listar arquivos do comentário: $e');
+      return [];
     }
   }
 

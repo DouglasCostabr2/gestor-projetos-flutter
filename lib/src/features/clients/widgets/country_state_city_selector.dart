@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:country_state_city/country_state_city.dart' as csc;
+import 'package:world_countries/world_countries.dart';
+import 'package:my_business/ui/molecules/dropdowns/dropdowns.dart';
 
 /// Widget reutilizável para seleção de País, Estado e Cidade
-/// Gerencia automaticamente o carregamento e dependências entre os campos
+/// Usa world_countries para países (com tradução PT-BR) e country_state_city para estados/cidades
 class CountryStateCitySelector extends StatefulWidget {
   final csc.Country? initialCountry;
   final csc.State? initialState;
@@ -26,7 +28,6 @@ class CountryStateCitySelector extends StatefulWidget {
 }
 
 class _CountryStateCitySelectorState extends State<CountryStateCitySelector> {
-  List<csc.Country> _countries = [];
   List<csc.State> _states = [];
   List<csc.City> _cities = [];
 
@@ -34,13 +35,15 @@ class _CountryStateCitySelectorState extends State<CountryStateCitySelector> {
   csc.State? _selectedState;
   csc.City? _selectedCity;
 
-  bool _loadingCountries = true;
   bool _loadingStates = false;
   bool _loadingCities = false;
+  bool _loadingCountries = false;
 
-  final TextEditingController _countryController = TextEditingController();
-  final TextEditingController _stateController = TextEditingController();
-  final TextEditingController _cityController = TextEditingController();
+  // Cache ESTÁTICO GLOBAL da lista de países traduzidos (compartilhado entre todas as instâncias)
+  static List<DropdownItem<String>>? _globalCachedCountryItems;
+
+  // Lista local de países (será preenchida após carregamento assíncrono)
+  List<DropdownItem<String>> _countryItems = [];
 
   @override
   void initState() {
@@ -49,53 +52,62 @@ class _CountryStateCitySelectorState extends State<CountryStateCitySelector> {
     _selectedState = widget.initialState;
     _selectedCity = widget.initialCity;
 
-    // Inicializar controllers com valores iniciais
-    if (_selectedCountry != null) {
-      _countryController.text = _selectedCountry!.name;
-    }
-    if (_selectedState != null) {
-      _stateController.text = _selectedState!.name;
-    }
-    if (_selectedCity != null) {
-      _cityController.text = _selectedCity!.name;
-    }
-
-    debugPrint('🔵 CountryStateCitySelector initState:');
-    debugPrint('   País inicial: ${_selectedCountry?.name}');
-    debugPrint('   Estado inicial: ${_selectedState?.name}');
-    debugPrint('   Cidade inicial: ${_selectedCity?.name}');
-
+    // Carregar lista de países de forma assíncrona
     _loadCountries();
-  }
 
-  @override
-  void dispose() {
-    _countryController.dispose();
-    _stateController.dispose();
-    _cityController.dispose();
-    super.dispose();
+    // Carregar estados e cidades se país/estado inicial existir
+    if (_selectedCountry != null) {
+      _loadStates(_selectedCountry!.isoCode);
+
+      if (_selectedState != null) {
+        _loadCities(_selectedCountry!.isoCode, _selectedState!.isoCode);
+      }
+    }
   }
 
   Future<void> _loadCountries() async {
-    setState(() => _loadingCountries = true);
-    try {
-      final countries = await csc.getAllCountries();
+    // Se já tem cache global, usar imediatamente
+    if (_globalCachedCountryItems != null) {
       setState(() {
-        _countries = countries;
+        _countryItems = _globalCachedCountryItems!;
         _loadingCountries = false;
       });
+      return;
+    }
 
-      // Se tem país inicial, carregar estados
-      if (_selectedCountry != null) {
-        await _loadStates(_selectedCountry!.isoCode);
-        
-        // Se tem estado inicial, carregar cidades
-        if (_selectedState != null) {
-          await _loadCities(_selectedCountry!.isoCode, _selectedState!.isoCode);
-        }
-      }
+    // Caso contrário, carregar de forma assíncrona
+    setState(() => _loadingCountries = true);
+
+    try {
+      // Obter todos os países do world_countries
+      final allCountries = WorldCountry.list;
+
+      // Obter locale tipado do contexto (fornecido pelo TypedLocaleDelegate)
+      final typedLocale = context.maybeLocale;
+
+      // Converter para DropdownItem com nomes traduzidos
+      final countryItems = allCountries.map((country) {
+        final translatedName = typedLocale != null
+            ? (country.maybeCommonNameFor(typedLocale) ?? country.name.common)
+            : country.name.common;
+
+        return DropdownItem<String>(
+          value: country.codeShort,
+          label: translatedName,
+        );
+      }).toList();
+
+      // Ordenar por nome traduzido
+      countryItems.sort((a, b) => a.label.compareTo(b.label));
+
+      // Cachear globalmente e localmente
+      _globalCachedCountryItems = countryItems;
+
+      setState(() {
+        _countryItems = countryItems;
+        _loadingCountries = false;
+      });
     } catch (e) {
-      debugPrint('Erro ao carregar países: $e');
       setState(() => _loadingCountries = false);
     }
   }
@@ -109,7 +121,6 @@ class _CountryStateCitySelectorState extends State<CountryStateCitySelector> {
         _loadingStates = false;
       });
     } catch (e) {
-      debugPrint('Erro ao carregar estados: $e');
       setState(() => _loadingStates = false);
     }
   }
@@ -123,126 +134,143 @@ class _CountryStateCitySelectorState extends State<CountryStateCitySelector> {
         _loadingCities = false;
       });
     } catch (e) {
-      debugPrint('Erro ao carregar cidades: $e');
       setState(() => _loadingCities = false);
     }
   }
 
+
+
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Column(
-          children: [
-            // País
-            DropdownMenu<csc.Country>(
-              controller: _countryController,
-              initialSelection: _selectedCountry,
-              label: const Text('País'),
-              hintText: _loadingCountries ? 'Carregando...' : 'Digite para buscar...',
-              enableFilter: true,
-              enableSearch: true,
-              requestFocusOnTap: true,
-              enabled: !_loadingCountries,
-              width: constraints.maxWidth,
-              dropdownMenuEntries: _countries.map((country) {
-                return DropdownMenuEntry<csc.Country>(
-                  value: country,
-                  label: country.name,
-                );
-              }).toList(),
-              onSelected: (country) async {
-                setState(() {
-                  _selectedCountry = country;
-                  _selectedState = null;
-                  _selectedCity = null;
-                  _states = [];
-                  _cities = [];
-                  _stateController.clear();
-                  _cityController.clear();
-                });
-                widget.onCountryChanged(country);
-                widget.onStateChanged(null);
-                widget.onCityChanged(null);
-
-                if (country != null) {
-                  await _loadStates(country.isoCode);
-                }
-              },
+    // Mostrar loading enquanto carrega países
+    if (_loadingCountries) {
+      return const Column(
+        children: [
+          SizedBox(
+            height: 200,
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Carregando países...'),
+                ],
+              ),
             ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        // País (usando world_countries com tradução)
+        GenericDropdownField<String>(
+          value: _selectedCountry?.isoCode,
+          items: _countryItems,
+          onChanged: (isoCode) async {
+            // Encontrar o país correspondente no csc para manter compatibilidade
+            final cscCountries = await csc.getAllCountries();
+            final country = isoCode != null
+                ? cscCountries.firstWhere(
+                    (c) => c.isoCode == isoCode,
+                    orElse: () => csc.Country(
+                      name: isoCode,
+                      isoCode: isoCode,
+                      phoneCode: '',
+                      flag: '',
+                      currency: '',
+                      latitude: '',
+                      longitude: '',
+                    ),
+                  )
+                : null;
+
+            setState(() {
+              _selectedCountry = country;
+              _selectedState = null;
+              _selectedCity = null;
+              _states = [];
+              _cities = [];
+            });
+            widget.onCountryChanged(country);
+            widget.onStateChanged(null);
+            widget.onCityChanged(null);
+
+            if (country != null) {
+              await _loadStates(country.isoCode);
+            }
+          },
+          labelText: 'País',
+          hintText: 'Selecione um país',
+        ),
         const SizedBox(height: 16),
 
-            // Estado
-            DropdownMenu<csc.State>(
-              controller: _stateController,
-              initialSelection: _selectedState,
-              label: const Text('Estado'),
-              hintText: _loadingStates
-                  ? 'Carregando...'
-                  : _selectedCountry == null
-                      ? 'Selecione um país primeiro'
-                      : 'Digite para buscar...',
-              enableFilter: true,
-              enableSearch: true,
-              requestFocusOnTap: true,
-              enabled: !_loadingStates && _selectedCountry != null,
-              width: constraints.maxWidth,
-              dropdownMenuEntries: _states.map((state) {
-                return DropdownMenuEntry<csc.State>(
-                  value: state,
-                  label: state.name,
-                );
-              }).toList(),
-              onSelected: _selectedCountry == null
-                  ? null
-                  : (state) async {
-                      setState(() {
-                        _selectedState = state;
-                        _selectedCity = null;
-                        _cities = [];
-                        _cityController.clear();
-                      });
-                      widget.onStateChanged(state);
-                      widget.onCityChanged(null);
+        // Estado
+        if (_loadingStates)
+          const LinearProgressIndicator()
+        else
+          GenericDropdownField<String?>(
+            value: _selectedState?.isoCode,
+            items: _states.map((state) {
+              return DropdownItem<String?>(
+                value: state.isoCode,
+                label: state.name,
+              );
+            }).toList(),
+            onChanged: (isoCode) async {
+              final state = isoCode != null
+                  ? _states.firstWhere((s) => s.isoCode == isoCode)
+                  : null;
 
-                      if (state != null && _selectedCountry != null) {
-                        await _loadCities(_selectedCountry!.isoCode, state.isoCode);
-                      }
-                    },
-            ),
-            const SizedBox(height: 16),
+              setState(() {
+                _selectedState = state;
+                _selectedCity = null;
+                _cities = [];
+              });
+              widget.onStateChanged(state);
+              widget.onCityChanged(null);
 
-            // Cidade
-            DropdownMenu<csc.City>(
-              controller: _cityController,
-              initialSelection: _selectedCity,
-              label: const Text('Cidade'),
-              hintText: _loadingCities
-                  ? 'Carregando...'
-                  : _selectedState == null
-                      ? 'Selecione um estado primeiro'
-                      : 'Digite para buscar...',
-              enableFilter: true,
-              enableSearch: true,
-              requestFocusOnTap: true,
-              enabled: !_loadingCities && _selectedState != null,
-              width: constraints.maxWidth,
-              dropdownMenuEntries: _cities.map((city) {
-                return DropdownMenuEntry<csc.City>(
-                  value: city,
-                  label: city.name,
-                );
-              }).toList(),
-              onSelected: _selectedState == null
-                  ? null
-                  : (city) {
-                      setState(() => _selectedCity = city);
-                      widget.onCityChanged(city);
-                    },
-            ),
-          ],
-        );
-      },
+              if (state != null && _selectedCountry != null) {
+                await _loadCities(_selectedCountry!.isoCode, state.isoCode);
+              }
+            },
+            labelText: 'Estado',
+            hintText: _selectedCountry == null
+                ? 'Selecione um país primeiro'
+                : 'Selecione um estado',
+            enabled: !_loadingStates && _selectedCountry != null,
+          ),
+        const SizedBox(height: 16),
+
+        // Cidade
+        if (_loadingCities)
+          const LinearProgressIndicator()
+        else
+          GenericDropdownField<String?>(
+            value: _selectedCity?.name,
+            items: _cities.map((city) {
+              return DropdownItem<String?>(
+                value: city.name,
+                label: city.name,
+              );
+            }).toList(),
+            onChanged: (cityName) {
+              final city = cityName != null
+                  ? _cities.firstWhere((c) => c.name == cityName)
+                  : null;
+
+              setState(() => _selectedCity = city);
+              widget.onCityChanged(city);
+            },
+            labelText: 'Cidade',
+            hintText: _selectedState == null
+                ? 'Selecione um estado primeiro'
+                : 'Selecione uma cidade',
+            enabled: !_loadingCities && _selectedState != null,
+          ),
+      ],
     );
   }
 }

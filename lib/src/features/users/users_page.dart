@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../widgets/user_avatar_name.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import '../../../ui/molecules/user_avatar_name.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 
 class UsersPage extends StatefulWidget {
   const UsersPage({super.key});
@@ -13,8 +13,8 @@ class UsersPage extends StatefulWidget {
 class _UsersPageState extends State<UsersPage> {
   bool _loading = true;
   List<Map<String, dynamic>> _data = [];
-  // Lista de cargos disponíveis na UI (mapear 'funcionario' -> 'designer')
-  final List<String> _roles = const ['admin', 'gestor', 'designer', 'financeiro', 'cliente', 'convidado'];
+  // Lista de cargos disponíveis na UI
+  final List<String> _roles = const ['admin', 'gestor', 'designer', 'financeiro', 'cliente', 'usuario', 'convidado'];
 
   @override
   void initState() {
@@ -75,9 +75,7 @@ class _UsersPageState extends State<UsersPage> {
                 ],
                 rows: _data.map((u) {
                   final id = u['id'] as String?;
-                  final rawRole = (u['role'] as String? ?? '').toLowerCase();
-                  // Exibir 'designer' para registros antigos com 'funcionario'
-                  final displayRole = rawRole == 'funcionario' ? 'designer' : rawRole;
+                  final displayRole = (u['role'] as String? ?? '').toLowerCase();
                   final avatarUrl = u['avatar_url'] as String?;
                   final name = u['full_name'] ?? '-';
                   return DataRow(cells: [
@@ -93,7 +91,7 @@ class _UsersPageState extends State<UsersPage> {
                       id == null
                           ? const Text('-')
                           : DropdownButton<String>(
-                              value: _roles.contains(displayRole) ? displayRole : 'convidado',
+                              value: _roles.contains(displayRole) ? displayRole : 'usuario',
                               items: _roles.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
                               onChanged: (v) async {
                                     if (v == null) return;

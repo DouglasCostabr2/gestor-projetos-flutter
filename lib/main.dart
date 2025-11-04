@@ -1,18 +1,84 @@
 // New Flutter desktop app entrypoint with Supabase initialization and routing
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart' show debugPrintThrottled, kDebugMode;
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:window_manager/window_manager.dart';
+import 'package:world_countries/world_countries.dart';
 import 'config/supabase_config.dart';
+import 'core/di/service_registration.dart';
 import 'src/app_shell.dart';
 import 'src/navigation/route_observer.dart';
+import 'services/task_timer_service.dart';
 
 import 'src/features/auth/login_page.dart';
+import 'src/features/auth/reset_password_page.dart';
 import 'src/state/app_state.dart';
 import 'src/state/app_state_scope.dart';
 import 'src/theme/app_theme.dart';
+import 'src/features/tasks/widgets/timer_close_confirmation_dialog.dart';
+import 'services/update_service.dart';
+import 'widgets/update_dialog.dart';
+
+// Global navigator key para acessar o contexto de qualquer lugar
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+// Limitador de logs para erros de Tooltip/Ticker (evita spam no console)
+DateTime? _lastTooltipTickerErrorPrintedAt;
 
 Future<void> main() async {
+  // Silencia logs de debug globais; habilite definindo kVerboseLogs = true
+  bool kVerboseLogs = false;
+  debugPrint = (String? message, {int? wrapWidth}) {
+    // ignore: dead_code
+    if (kDebugMode && kVerboseLogs) {
+      debugPrintThrottled(message, wrapWidth: wrapWidth);
+    }
+  };
+
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicializar window_manager
+  await windowManager.ensureInitialized();
+
+  // Configurar para prevenir fechamento automático
+  WindowOptions windowOptions = const WindowOptions(
+    skipTaskbar: false,
+  );
+  windowManager.waitUntilReadyToShow(windowOptions, () async {
+    await windowManager.setPreventClose(true);
+    await windowManager.show();
+    await windowManager.focus();
+  });
+
+  // Inicializar Supabase
   await SupabaseConfig.initialize();
+
+  // Registrar services no Service Locator (Dependency Injection)
+  registerServices();
+
+  // Inicializar TaskTimerService para restaurar estado do timer
+  await taskTimerService.initialize();
+
+  // Capturar exceções e reduzir spam específico de Tooltip/Ticker
+  FlutterError.onError = (FlutterErrorDetails details) {
+    final msg = details.exception.toString();
+    if (msg.contains('TooltipState') || msg.contains('tickers were created')) {
+      final now = DateTime.now();
+      final shouldLog = _lastTooltipTickerErrorPrintedAt == null ||
+          now.difference(_lastTooltipTickerErrorPrintedAt!).inSeconds >= 5;
+      if (shouldLog) {
+        _lastTooltipTickerErrorPrintedAt = now;
+        debugPrint('\n🔎 Capturado erro relacionado a Tooltip/Ticker (mostrando detalhes, limitado)');
+        // Mostra os detalhes completos apenas de tempos em tempos
+        FlutterError.presentError(details);
+      }
+      // Suprime repetições para evitar travamentos/lag por excesso de logs
+      return;
+    }
+    // Outros erros são apresentados normalmente
+    FlutterError.presentError(details);
+  };
+
   runApp(const MyApp());
 }
 
@@ -24,13 +90,79 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WindowListener {
   final AppState _appState = AppState();
 
   @override
   void initState() {
     super.initState();
     _appState.initialize();
+    windowManager.addListener(this);
+    _checkForUpdates();
+  }
+
+  /// Verifica se há atualizações disponíveis
+  Future<void> _checkForUpdates() async {
+    // Aguardar um pouco para garantir que a UI está pronta
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    try {
+      final updateService = UpdateService();
+      final update = await updateService.checkForUpdates();
+
+      if (update != null && mounted) {
+        // Mostrar diálogo de atualização
+        await UpdateDialog.show(
+          navigatorKey.currentContext ?? context,
+          update,
+          updateService,
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Erro ao verificar atualizações: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  Future<void> onWindowClose() async {
+    // Verificar se há timer ativo
+    if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
+      final shouldClose = await TimerCloseConfirmationDialog.show(navigatorKey.currentContext!);
+      if (shouldClose == true) {
+        // Parar e salvar o timer antes de fechar com timeout de 3 segundos
+        try {
+          if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
+            debugPrint('⏹️ Parando timer antes de fechar o programa...');
+
+            // Adicionar timeout de 3 segundos para evitar travamento
+            // skipNotify=true para não tentar atualizar widgets durante fechamento
+            await taskTimerService.stop(skipNotify: true).timeout(
+              const Duration(seconds: 3),
+              onTimeout: () {
+                debugPrint('⚠️ Timeout ao parar timer - fechando mesmo assim');
+                return;
+              },
+            );
+
+            debugPrint('✅ Timer parado e salvo com sucesso');
+          }
+        } catch (e) {
+          debugPrint('❌ Erro ao parar timer: $e');
+          // Continua fechando mesmo com erro
+        }
+        await windowManager.destroy();
+      }
+    } else {
+      await windowManager.destroy();
+    }
   }
 
   @override
@@ -41,13 +173,29 @@ class _MyAppState extends State<MyApp> {
         return AppStateScope(
           appState: _appState,
           child: MaterialApp(
-            title: 'Gestor de Projetos',
+            navigatorKey: navigatorKey,
+            title: 'My Business',
             theme: AppTheme.light(),
             darkTheme: AppTheme.dark(),
             themeMode: ThemeMode.dark,
             navigatorObservers: [routeObserver],
             debugShowCheckedModeBanner: false,
+            // Localização para português brasileiro
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              TypedLocaleDelegate(), // Para traduções do world_countries
+            ],
+            supportedLocales: const [
+              Locale('pt', 'BR'), // Português do Brasil
+              Locale('en', 'US'), // Inglês (fallback)
+            ],
+            locale: const Locale('pt', 'BR'),
             home: _buildHome(),
+            routes: {
+              '/reset-password': (context) => const ResetPasswordPage(),
+            },
           ),
         );
       },
@@ -61,8 +209,10 @@ class _MyAppState extends State<MyApp> {
       );
     }
 
-    final session = Supabase.instance.client.auth.currentSession;
-    if (session == null) {
+    // Usar o estado do AppState em vez de verificar a sessão do Supabase diretamente
+    // Isso garante que a navegação seja sincronizada com o estado da aplicação
+    final user = _appState.profile;
+    if (user == null) {
       return LoginPage(onLoggedIn: _appState.refreshProfile);
     }
     return AppShell(appState: _appState);

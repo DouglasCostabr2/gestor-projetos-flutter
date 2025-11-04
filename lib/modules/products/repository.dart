@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
+import '../common/organization_context.dart';
 import 'contract.dart';
 
 /// Implementação do contrato de produtos e pacotes
@@ -10,9 +11,16 @@ class ProductsRepository implements ProductsContract {
   @override
   Future<List<Map<String, dynamic>>> getProductsByCurrency(String currencyCode) async {
     try {
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
+        return [];
+      }
+
       final response = await _client
           .from('products')
           .select('id, name, price_cents, currency_code')
+          .eq('organization_id', orgId)
           .eq('currency_code', currencyCode)
           .order('name');
       return List<Map<String, dynamic>>.from(response);
@@ -72,12 +80,16 @@ class ProductsRepository implements ProductsContract {
     required String currencyCode,
     String? description,
   }) async {
+    final orgId = OrganizationContext.currentOrganizationId;
+    if (orgId == null) throw Exception('Nenhuma organização ativa');
+
     final response = await _client
         .from('products')
         .insert({
           'name': name,
           'price_cents': priceCents,
           'currency_code': currencyCode,
+          'organization_id': orgId,
           if (description != null) 'description': description,
         })
         .select()
@@ -92,12 +104,16 @@ class ProductsRepository implements ProductsContract {
     required String currencyCode,
     String? description,
   }) async {
+    final orgId = OrganizationContext.currentOrganizationId;
+    if (orgId == null) throw Exception('Nenhuma organização ativa');
+
     final response = await _client
         .from('packages')
         .insert({
           'name': name,
           'price_cents': priceCents,
           'currency_code': currencyCode,
+          'organization_id': orgId,
           if (description != null) 'description': description,
         })
         .select()

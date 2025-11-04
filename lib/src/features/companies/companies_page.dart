@@ -1,17 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app_shell.dart';
 import '../../state/app_state_scope.dart';
 import '../../navigation/user_role.dart';
-import '../../../widgets/side_menu.dart';
+import '../../../ui/organisms/navigation/side_menu.dart';
 import 'company_detail_page.dart';
-import '../../widgets/dynamic_paginated_table.dart';
-import '../../../widgets/reusable_data_table.dart';
-import '../../../widgets/user_avatar_name.dart';
-import '../../../widgets/standard_dialog.dart';
-import '../../../widgets/table_search_filter_bar.dart';
+import '../../../ui/organisms/tables/dynamic_paginated_table.dart';
+import '../../../ui/organisms/tables/reusable_data_table.dart';
+import 'package:my_business/ui/molecules/user_avatar_name.dart';
+import '../../../ui/organisms/dialogs/standard_dialog.dart';
+import '../../../ui/organisms/tables/table_search_filter_bar.dart';
 import '../../../modules/modules.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import '../../../ui/molecules/table_cells/table_cells.dart';
+import '../../../core/di/service_locator.dart';
+import '../../navigation/interfaces/tab_manager_interface.dart';
+import 'package:my_business/ui/molecules/inputs/mention_text_area.dart';
+import 'package:my_business/services/mentions_service.dart';
+import '../../utils/project_helpers.dart';
+import 'package:my_business/ui/atoms/inputs/inputs.dart';
+import 'widgets/company_fiscal_bank_widget.dart';
 
 class CompaniesPage extends StatefulWidget {
   final String clientId;
@@ -76,6 +85,18 @@ class _CompaniesPageState extends State<CompaniesPage> {
       final updatedBy = company['updated_by'];
       if (updatedBy != null && usersMap.containsKey(updatedBy)) {
         company['updated_by_profile'] = usersMap[updatedBy];
+      }
+    }
+
+    // OTIMIZAÇÃO: Usar helper para enriquecer empresas com responsáveis
+    // Isso substitui ~70 linhas de código duplicado!
+    try {
+      await ProjectAssigneesHelper.enrichCompaniesWithAssignees(result);
+    } catch (e) {
+      debugPrint('Erro ao enriquecer empresas com responsáveis: $e');
+      // Em caso de erro, adicionar valores padrão
+      for (final company in result) {
+        company['task_people'] = [];
       }
     }
 
@@ -197,6 +218,16 @@ class _CompaniesPageState extends State<CompaniesPage> {
         return dateA.compareTo(dateB);
       },
       (a, b) => 0, // Atualizado por não ordenável
+      (a, b) => 0, // Pessoas não ordenável
+      (a, b) => ((a['projects_count'] as int?) ?? 0).compareTo((b['projects_count'] as int?) ?? 0), // Projetos ordenável
+      (a, b) {
+        final dateA = a['created_at'] != null ? DateTime.tryParse(a['created_at']) : null;
+        final dateB = b['created_at'] != null ? DateTime.tryParse(b['created_at']) : null;
+        if (dateA == null && dateB == null) return 0;
+        if (dateA == null) return 1;
+        if (dateB == null) return -1;
+        return dateA.compareTo(dateB);
+      }, // Criado ordenável
     ];
   }
 
@@ -236,11 +267,30 @@ class _CompaniesPageState extends State<CompaniesPage> {
   }
 
   Future<void> _openForm({Map<String, dynamic>? initial}) async {
+    Map<String, dynamic>? freshData = initial;
+
+    // Se estamos editando, recarregar dados frescos do banco
+    if (initial != null && initial['id'] != null) {
+      try {
+        final companies = await companiesModule.getCompanies(widget.clientId);
+        freshData = companies.firstWhere(
+          (c) => c['id'] == initial['id'],
+          orElse: () => initial,
+        );
+      } catch (e) {
+        debugPrint('❌ Erro ao recarregar dados da empresa: $e');
+        freshData = initial;
+      }
+    }
+
+    if (!mounted) return;
+
     final saved = await showDialog<bool>(
       context: context,
       builder: (context) => CompanyFormDialog(
+        key: ValueKey(freshData?['id'] ?? 'new'),
         clientId: widget.clientId,
-        initial: initial,
+        initial: freshData,
       ),
     );
     if (saved == true) {
@@ -292,7 +342,12 @@ class _CompaniesPageState extends State<CompaniesPage> {
   @override
   Widget build(BuildContext context) {
     final appState = AppStateScope.of(context);
-    final canEdit = appState.isAdminOrGestor;
+    // Usar novo sistema de permissões baseado em organização
+    final permissions = appState.permissions;
+    final canEdit = permissions.canEditCompanies;
+    final canDelete = permissions.canDeleteCompanies;
+    final canCreate = permissions.canCreateCompanies;
+    final canDuplicate = permissions.canEditCompanies;
 
     return Scaffold(
       body: Row(
@@ -309,6 +364,9 @@ class _CompaniesPageState extends State<CompaniesPage> {
             onToggle: () => appState.toggleSideMenu(),
             onLogout: () async {
               final navigator = Navigator.of(context);
+              // Limpar todas as abas antes do logout
+              final tabManager = serviceLocator.get<ITabManager>();
+              tabManager.clearAllTabs();
               // Usando o módulo de autenticação
               await authModule.signOut();
               if (!navigator.mounted) return;
@@ -319,6 +377,7 @@ class _CompaniesPageState extends State<CompaniesPage> {
             },
             userRole: UserRoleExtension.fromString(appState.role),
             profile: appState.profile,
+            appState: appState,
           ),
           Expanded(
             child: SingleChildScrollView(
@@ -369,7 +428,7 @@ class _CompaniesPageState extends State<CompaniesPage> {
                         _applyFilters();
                       },
                       selectedCount: _selected.length,
-                      bulkActions: canEdit ? [
+                      bulkActions: canDelete ? [
                         BulkAction(
                           icon: Icons.delete,
                           label: 'Excluir selecionados',
@@ -377,7 +436,7 @@ class _CompaniesPageState extends State<CompaniesPage> {
                           onPressed: _bulkDelete,
                         ),
                       ] : null,
-                      actionButton: canEdit ? FilledButton.icon(
+                      actionButton: canCreate ? FilledButton.icon(
                         onPressed: () => _openForm(),
                         icon: const Icon(Icons.add),
                         label: const Text('Nova Empresa'),
@@ -399,8 +458,11 @@ class _CompaniesPageState extends State<CompaniesPage> {
                           DataTableColumn(label: 'Nome', sortable: true),
                           DataTableColumn(label: 'Site', sortable: true),
                           DataTableColumn(label: 'Rede Social', sortable: true),
-                          DataTableColumn(label: 'Última Atualização', sortable: true),
+                          DataTableColumn(label: 'Atualizado', sortable: true),
                           DataTableColumn(label: 'Atualizado por'),
+                          DataTableColumn(label: 'Pessoas'),
+                          DataTableColumn(label: 'Projetos', sortable: true, fixedWidth: 120),
+                          DataTableColumn(label: 'Criado', sortable: true),
                         ],
                         sortComparators: _getSortComparators(),
                         onSort: (columnIndex, ascending) {
@@ -426,16 +488,7 @@ class _CompaniesPageState extends State<CompaniesPage> {
                             if (c['tiktok_login'] != null && c['tiktok_login'].toString().isNotEmpty) socials.add('TT');
                             return Text(socials.isEmpty ? '-' : socials.join(', '));
                           },
-                          (c) {
-                            final updatedAt = c['updated_at'];
-                            if (updatedAt == null) return const Text('-');
-                            try {
-                              final date = DateTime.parse(updatedAt);
-                              return Text('${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}');
-                            } catch (e) {
-                              return const Text('-');
-                            }
-                          },
+                          (c) => TableCellDate(date: c['updated_at']),
                           (c) {
                             final updatedByProfile = c['updated_by_profile'] as Map<String, dynamic>?;
                             if (updatedByProfile == null) return const Text('-');
@@ -447,6 +500,17 @@ class _CompaniesPageState extends State<CompaniesPage> {
                               size: 16,
                             );
                           },
+                          (c) => TableCellAvatarList(
+                            people: c['task_people'] ?? [],
+                            maxVisible: 3,
+                            avatarSize: 10, // Consistente com outras tabelas
+                          ),
+                          (c) => TableCellCounter(
+                            count: c['projects_count'] as int?,
+                            icon: Icons.folder,
+                            hideZero: false,
+                          ),
+                          (c) => TableCellDate(date: c['created_at']),
                         ],
                         getId: (c) => c['id'] as String,
                         onRowTap: (c) {
@@ -457,44 +521,47 @@ class _CompaniesPageState extends State<CompaniesPage> {
                             ),
                           );
                         },
-                        actions: canEdit ? [
-                          DataTableAction<Map<String, dynamic>>(
-                            icon: Icons.edit,
-                            label: 'Editar',
-                            onPressed: (c) => _openForm(initial: c),
-                          ),
-                          DataTableAction<Map<String, dynamic>>(
-                            icon: Icons.content_copy,
-                            label: 'Duplicar',
-                            onPressed: (c) => _duplicate(c),
-                          ),
-                          DataTableAction<Map<String, dynamic>>(
-                            icon: Icons.delete,
-                            label: 'Excluir',
-                            onPressed: (c) async {
-                              final confirm = await showDialog<bool>(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: const Text('Confirmar exclusão'),
-                                  content: const Text('Deseja realmente excluir esta empresa?'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context, false),
-                                      child: const Text('Cancelar'),
-                                    ),
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(context, true),
-                                      child: const Text('Excluir'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (confirm == true) {
-                                await _delete(c['id']);
-                              }
-                            },
-                          ),
-                        ] : [],
+                        actions: [
+                          if (canEdit)
+                            DataTableAction<Map<String, dynamic>>(
+                              icon: Icons.edit,
+                              label: 'Editar',
+                              onPressed: (c) => _openForm(initial: c),
+                            ),
+                          if (canDuplicate)
+                            DataTableAction<Map<String, dynamic>>(
+                              icon: Icons.content_copy,
+                              label: 'Duplicar',
+                              onPressed: (c) => _duplicate(c),
+                            ),
+                          if (canDelete)
+                            DataTableAction<Map<String, dynamic>>(
+                              icon: Icons.delete,
+                              label: 'Excluir',
+                              onPressed: (c) async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Confirmar exclusão'),
+                                    content: const Text('Deseja realmente excluir esta empresa?'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, false),
+                                        child: const Text('Cancelar'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context, true),
+                                        child: const Text('Excluir'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  await _delete(c['id']);
+                                }
+                              },
+                            ),
+                        ],
                       ),
                     ),
                   ],
@@ -526,6 +593,7 @@ class CompanyFormDialog extends StatefulWidget {
 class _CompanyFormDialogState extends State<CompanyFormDialog> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
+  final _notes = TextEditingController();
 
   // Instagram
   final _instagramLogin = TextEditingController();
@@ -556,7 +624,22 @@ class _CompanyFormDialogState extends State<CompanyFormDialog> {
   // Plataformas Personalizadas
   List<_CustomPlatform> _customPlatforms = [];
 
+  // Address fields
+  final _address = TextEditingController();
+  final _city = TextEditingController();
+  final _state = TextEditingController();
+  final _zipCode = TextEditingController();
+  final _country = TextEditingController();
+
+  // Contact fields
+  final _email = TextEditingController();
+  final _phone = TextEditingController();
+  final _website = TextEditingController();
+
   bool _saving = false;
+
+  // Chave global para acessar o widget de dados fiscais/bancários
+  final GlobalKey<CompanyFiscalBankWidgetState> _fiscalBankKey = GlobalKey<CompanyFiscalBankWidgetState>();
 
   @override
   void initState() {
@@ -564,6 +647,19 @@ class _CompanyFormDialogState extends State<CompanyFormDialog> {
     final i = widget.initial;
     if (i != null) {
       _name.text = i['name'] ?? '';
+      _notes.text = i['notes'] ?? '';
+
+      // Address fields
+      _address.text = i['address'] ?? '';
+      _city.text = i['city'] ?? '';
+      _state.text = i['state'] ?? '';
+      _zipCode.text = i['zip_code'] ?? '';
+      _country.text = i['country'] ?? '';
+
+      // Contact fields
+      _email.text = i['email'] ?? '';
+      _phone.text = i['phone'] ?? '';
+      _website.text = i['website'] ?? '';
 
       // Instagram
       if (i['instagram_login'] != null) _instagramLogin.text = i['instagram_login'];
@@ -605,6 +701,15 @@ class _CompanyFormDialogState extends State<CompanyFormDialog> {
   @override
   void dispose() {
     _name.dispose();
+    _notes.dispose();
+    _address.dispose();
+    _city.dispose();
+    _state.dispose();
+    _zipCode.dispose();
+    _country.dispose();
+    _email.dispose();
+    _phone.dispose();
+    _website.dispose();
     _instagramLogin.dispose();
     _instagramPassword.dispose();
     _facebookLogin.dispose();
@@ -629,16 +734,43 @@ class _CompanyFormDialogState extends State<CompanyFormDialog> {
     try {
       if (widget.initial == null) {
         // Criar nova empresa usando o módulo
-        await companiesModule.createCompany(
+        final newCompany = await companiesModule.createCompany(
           clientId: widget.clientId,
           name: _name.text.trim(),
+          address: _address.text.trim().isEmpty ? null : _address.text.trim(),
+          city: _city.text.trim().isEmpty ? null : _city.text.trim(),
+          state: _state.text.trim().isEmpty ? null : _state.text.trim(),
+          zipCode: _zipCode.text.trim().isEmpty ? null : _zipCode.text.trim(),
+          country: _country.text.trim().isEmpty ? null : _country.text.trim(),
+          email: _email.text.trim().isEmpty ? null : _email.text.trim(),
+          phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+          website: _website.text.trim().isEmpty ? null : _website.text.trim(),
         );
+
+        // Atualizar campos de redes sociais separadamente
+        await _updateSocialMediaFields(newCompany['id']);
       } else {
         // Atualizar empresa existente usando o módulo
         await companiesModule.updateCompany(
           companyId: widget.initial!['id'],
           name: _name.text.trim(),
+          address: _address.text.trim().isEmpty ? null : _address.text.trim(),
+          city: _city.text.trim().isEmpty ? null : _city.text.trim(),
+          state: _state.text.trim().isEmpty ? null : _state.text.trim(),
+          zipCode: _zipCode.text.trim().isEmpty ? null : _zipCode.text.trim(),
+          country: _country.text.trim().isEmpty ? null : _country.text.trim(),
+          email: _email.text.trim().isEmpty ? null : _email.text.trim(),
+          phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+          website: _website.text.trim().isEmpty ? null : _website.text.trim(),
         );
+
+        // Atualizar campos de redes sociais separadamente
+        await _updateSocialMediaFields(widget.initial!['id']);
+
+        // Salvar dados fiscais e bancários se o widget existir
+        if (_fiscalBankKey.currentState != null) {
+          await _fiscalBankKey.currentState!.saveFiscalBankData();
+        }
       }
       if (mounted) navigator.pop(true);
     } catch (e) {
@@ -649,12 +781,99 @@ class _CompanyFormDialogState extends State<CompanyFormDialog> {
     }
   }
 
+  Future<void> _updateSocialMediaFields(String companyId) async {
+    final updateData = <String, dynamic>{};
+
+    // Notas
+    if (_notes.text.trim().isNotEmpty) {
+      updateData['notes'] = _notes.text.trim();
+    }
+
+    // Instagram
+    if (_instagramLogin.text.trim().isNotEmpty) {
+      updateData['instagram_login'] = _instagramLogin.text.trim();
+    }
+    if (_instagramPassword.text.trim().isNotEmpty) {
+      updateData['instagram_password'] = _instagramPassword.text.trim();
+    }
+
+    // Facebook
+    if (_facebookLogin.text.trim().isNotEmpty) {
+      updateData['facebook_login'] = _facebookLogin.text.trim();
+    }
+    if (_facebookPassword.text.trim().isNotEmpty) {
+      updateData['facebook_password'] = _facebookPassword.text.trim();
+    }
+
+    // LinkedIn
+    if (_linkedinLogin.text.trim().isNotEmpty) {
+      updateData['linkedin_login'] = _linkedinLogin.text.trim();
+    }
+    if (_linkedinPassword.text.trim().isNotEmpty) {
+      updateData['linkedin_password'] = _linkedinPassword.text.trim();
+    }
+
+    // TikTok
+    if (_tiktokLogin.text.trim().isNotEmpty) {
+      updateData['tiktok_login'] = _tiktokLogin.text.trim();
+    }
+    if (_tiktokPassword.text.trim().isNotEmpty) {
+      updateData['tiktok_password'] = _tiktokPassword.text.trim();
+    }
+
+    // Site
+    if (_websiteUrl.text.trim().isNotEmpty) {
+      updateData['website_url'] = _websiteUrl.text.trim();
+    }
+    if (_websiteLogin.text.trim().isNotEmpty) {
+      updateData['website_login'] = _websiteLogin.text.trim();
+    }
+    if (_websitePassword.text.trim().isNotEmpty) {
+      updateData['website_password'] = _websitePassword.text.trim();
+    }
+
+    // Plataformas personalizadas
+    if (_customPlatforms.isNotEmpty) {
+      final platformsJson = _customPlatforms
+          .where((p) => p.platformName.trim().isNotEmpty)
+          .map((p) => {
+                'platform_name': p.platformName.trim(),
+                'login': p.login.trim(),
+                'password': p.password.trim(),
+              })
+          .toList();
+      updateData['custom_platforms'] = platformsJson;
+    }
+
+    // Atualizar no banco se houver dados
+    if (updateData.isNotEmpty) {
+      await Supabase.instance.client
+          .from('companies')
+          .update(updateData)
+          .eq('id', companyId);
+    }
+
+    // Salvar menções das notas
+    if (_notes.text.trim().isNotEmpty) {
+      final mentionsService = MentionsService();
+      try {
+        await mentionsService.saveCompanyMentions(
+          companyId: companyId,
+          fieldName: 'notes',
+          content: _notes.text,
+        );
+      } catch (e) {
+        debugPrint('Erro ao salvar menções das notas: $e');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return StandardDialog(
       title: widget.initial == null ? 'Nova Empresa' : 'Editar Empresa',
-      width: StandardDialog.widthMedium,
-      height: StandardDialog.heightMedium,
+      width: StandardDialog.widthLarge,
+      height: StandardDialog.heightLarge,
       showCloseButton: false,
       isLoading: _saving,
       actions: [
@@ -669,17 +888,176 @@ class _CompanyFormDialogState extends State<CompanyFormDialog> {
       ],
       child: Form(
         key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-                      TextFormField(
-                        controller: _name,
-                        decoration: const InputDecoration(labelText: 'Nome *'),
-                        validator: (v) => v == null || v.trim().isEmpty ? 'Informe o nome' : null,
-                      ),
-                      const SizedBox(height: 16),
+        child: DefaultTabController(
+          length: 3,
+          child: Column(
+            children: [
+              // Tab Bar
+              TabBar(
+                tabs: const [
+                  Tab(icon: Icon(Icons.info_outline), text: 'Informações Gerais'),
+                  Tab(icon: Icon(Icons.share), text: 'Redes Sociais'),
+                  Tab(icon: Icon(Icons.account_balance), text: 'Dados Fiscais e Bancários'),
+                ],
+                labelColor: Theme.of(context).colorScheme.primary,
+                unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
+                indicatorColor: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 16),
+              // Tab Views
+              SizedBox(
+                height: 500, // Altura fixa para evitar conflito com SingleChildScrollView
+                child: TabBarView(
+                  children: [
+                    _buildGeneralInfoTab(),
+                    _buildSocialMediaTab(),
+                    _buildFiscalBankTab(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-                      // Instagram
+  // Aba 1: Informações Gerais
+  Widget _buildGeneralInfoTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            controller: _name,
+            decoration: const InputDecoration(labelText: 'Nome *'),
+            validator: (v) => v == null || v.trim().isEmpty ? 'Informe o nome' : null,
+          ),
+          const SizedBox(height: 16),
+
+          // Notas/Observações
+          MentionTextArea(
+            controller: _notes,
+            labelText: 'Notas/Observações',
+            hintText: 'Adicione notas sobre a empresa... (digite @ para mencionar)',
+            minLines: 3,
+            maxLines: 6,
+            enabled: !_saving,
+            onMentionsChanged: (userIds) {
+              // Menções serão salvas ao salvar a empresa
+            },
+          ),
+          const SizedBox(height: 24),
+
+          // Seção de Endereço
+          Text(
+            '📍 Endereço da Empresa',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Address
+          GenericTextField(
+            controller: _address,
+            labelText: 'Endereço Completo',
+            hintText: 'Rua, número, complemento',
+            enabled: !_saving,
+          ),
+          const SizedBox(height: 16),
+
+          // City
+          GenericTextField(
+            controller: _city,
+            labelText: 'Cidade',
+            hintText: 'Nome da cidade',
+            enabled: !_saving,
+          ),
+          const SizedBox(height: 16),
+
+          // State
+          GenericTextField(
+            controller: _state,
+            labelText: 'Estado/Província',
+            hintText: 'Ex: SP, California, etc.',
+            enabled: !_saving,
+          ),
+          const SizedBox(height: 16),
+
+          // Zip Code
+          GenericTextField(
+            controller: _zipCode,
+            labelText: 'CEP/Código Postal',
+            hintText: 'Ex: 01234-567, 90210, etc.',
+            enabled: !_saving,
+          ),
+          const SizedBox(height: 16),
+
+          // Country
+          GenericTextField(
+            controller: _country,
+            labelText: 'País',
+            hintText: 'Ex: Brasil, United States, etc.',
+            enabled: !_saving,
+          ),
+          const SizedBox(height: 24),
+
+          // Seção de Contato
+          Text(
+            '📞 Contato da Empresa',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Email
+          GenericEmailField(
+            controller: _email,
+            labelText: 'Email Corporativo',
+            hintText: 'contato@empresa.com',
+          ),
+          const SizedBox(height: 16),
+
+          // Phone
+          GenericPhoneField(
+            controller: _phone,
+            labelText: 'Telefone',
+            hintText: '+55 (11) 1234-5678',
+          ),
+          const SizedBox(height: 16),
+
+          // Website
+          GenericTextField(
+            controller: _website,
+            labelText: 'Website',
+            hintText: 'https://www.empresa.com',
+            enabled: !_saving,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Aba 2: Redes Sociais
+  Widget _buildSocialMediaTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Seção de Redes Sociais
+          Text(
+            '🔐 Credenciais de Redes Sociais',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Instagram
                       ExpansionTile(
                         leading: const FaIcon(FontAwesomeIcons.instagram, size: 20),
                         title: const Text('Instagram'),
@@ -951,9 +1329,100 @@ class _CompanyFormDialogState extends State<CompanyFormDialog> {
                           ),
                         ],
                       ),
+        ],
+      ),
+    );
+  }
+
+  // Aba 3: Dados Fiscais e Bancários (JSONB Multi-país)
+  Widget _buildFiscalBankTab() {
+    // Mensagem para criar a empresa primeiro
+    if (widget.initial == null) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Informação sobre a nova funcionalidade
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '🌍 Dados Fiscais e Bancários Multi-país',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Esta funcionalidade avançada permite gerenciar dados fiscais e bancários para múltiplos países. '
+                          'Salve a empresa primeiro e depois edite para configurar esses dados.',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            Center(
+              child: Column(
+                children: [
+                  Icon(
+                    Icons.account_balance,
+                    size: 64,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Salve a empresa primeiro',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Os dados fiscais e bancários avançados podem ser\nconfigurados após criar a empresa.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
-      ),
+      );
+    }
+
+    // Interface completa de dados fiscais e bancários para empresas existentes
+    return CompanyFiscalBankWidget(
+      key: _fiscalBankKey,
+      companyId: widget.initial!['id'] as String,
+      initialFiscalData: widget.initial!['fiscal_data'] as Map<String, dynamic>?,
+      initialBankData: widget.initial!['bank_data'] as Map<String, dynamic>?,
+      initialFiscalCountry: widget.initial!['fiscal_country'] as String?,
+      showSaveButton: false, // Não mostrar botão de salvar na aba
     );
   }
 }

@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
-import 'widgets/task_priority_badge.dart';
-import 'widgets/task_status_badge.dart';
-import 'widgets/task_due_date_badge.dart';
 import '../../state/app_state_scope.dart';
-import 'task_detail_page.dart';
 import '../../navigation/route_observer.dart';
-import '../../navigation/tab_manager_scope.dart';
-import '../../navigation/tab_item.dart';
-import '../../../widgets/reusable_data_table.dart';
-import '../../../widgets/standard_dialog.dart';
-import '../../../widgets/table_search_filter_bar.dart';
+import 'package:my_business/ui/organisms/tables/reusable_data_table.dart';
+import '../../../ui/organisms/dialogs/standard_dialog.dart';
+import 'package:my_business/ui/organisms/tables/table_search_filter_bar.dart';
 import '../../../modules/modules.dart';
 import '../../mixins/table_state_mixin.dart';
-import '../../utils/table_utils.dart';
-import '../../widgets/dynamic_paginated_table.dart';
+import 'package:my_business/ui/organisms/tables/dynamic_paginated_table.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../utils/task_helpers.dart';
+import '../../utils/table_comparators.dart';
+import '../../utils/navigation_helpers.dart';
+import '../projects/widgets/task_table_helpers.dart';
 
 
 class TasksPage extends StatefulWidget {
@@ -29,6 +27,9 @@ class _TasksPageState extends State<TasksPage>
   @override
   void initState() {
     super.initState();
+    // Configurar ordenação padrão por "Criado" (coluna 6) em ordem decrescente
+    sortColumnIndex = 6;
+    sortAscending = false;
     _initData();
   }
 
@@ -69,7 +70,12 @@ class _TasksPageState extends State<TasksPage>
 
   @override
   Future<List<Map<String, dynamic>>> fetchData() async {
-    return await tasksModule.getTasks(offset: 0, limit: 1000);
+    final tasks = await tasksModule.getTasks(offset: 0, limit: 1000);
+
+    // Enriquecer tarefas com perfis de responsáveis
+    await enrichTasksWithAssignees(tasks);
+
+    return tasks;
   }
 
   @override
@@ -77,20 +83,14 @@ class _TasksPageState extends State<TasksPage>
 
   @override
   List<int Function(Map<String, dynamic>, Map<String, dynamic>)> get sortComparators => [
-    TableUtils.textComparator('title'),
-    TableUtils.textComparator('projects.name'),
-    (a, b) {
-      const statusOrder = ['pending', 'in_progress', 'completed', 'cancelled'];
-      final indexA = statusOrder.indexOf(a['status'] ?? 'pending');
-      final indexB = statusOrder.indexOf(b['status'] ?? 'pending');
-      return indexA.compareTo(indexB);
-    },
-    (a, b) {
-      const priorities = ['low', 'medium', 'high', 'urgent'];
-      return priorities.indexOf(a['priority'] ?? 'medium').compareTo(priorities.indexOf(b['priority'] ?? 'medium'));
-    },
-    TableUtils.dateComparator('due_date'),
+    compareByTitle,
+    compareByProjectName,
+    compareByStatus,
+    compareByPriority,
+    compareByDueDate,
     (a, b) => 0, // Responsável não ordenável
+    compareByCreatedAt,
+    compareByUpdatedAt,
   ];
 
   @override
@@ -221,7 +221,8 @@ class _TasksPageState extends State<TasksPage>
   @override
   Widget build(BuildContext context) {
     final appState = AppStateScope.of(context);
-    final canEdit = appState.isAdminOrGestor || appState.isDesigner;
+    final permissions = appState.permissions;
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
 
     return Column(
       children: [
@@ -254,26 +255,31 @@ class _TasksPageState extends State<TasksPage>
                   filterValueLabelBuilder: _getFilterValueLabel,
                   onFilterValueChanged: updateFilterValue,
                   selectedCount: selectedIds.length,
-                  bulkActions: canEdit ? [
-                    BulkAction(
-                      icon: Icons.delete,
-                      label: 'Excluir selecionadas',
-                      color: Colors.red,
-                      onPressed: _bulkDelete,
-                    ),
-                  ] : null,
-                  actionButton: canEdit ? FilledButton.icon(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Funcionalidade de criar tarefa será implementada em breve'),
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.add),
-                    label: const Text('Nova Tarefa'),
-                  ) : null,
+                  bulkActions: (() {
+                    // Apenas admin e gestor podem excluir tasks em lote
+                    return permissions.canDeleteTasks ? [
+                      BulkAction(
+                        icon: Icons.delete,
+                        label: 'Excluir selecionadas',
+                        color: Colors.red,
+                        onPressed: _bulkDelete,
+                      ),
+                    ] : null;
+                  })(),
+                  actionButton: (() {
+                    return permissions.canCreateTasks ? FilledButton.icon(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Funcionalidade de criar tarefa será implementada em breve'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.add),
+                      label: const Text('Nova Tarefa'),
+                    ) : null;
+                  })(),
                 ),
 
                 const SizedBox(height: 16),
@@ -284,51 +290,40 @@ class _TasksPageState extends State<TasksPage>
                     itemLabel: 'tarefa(s)',
                     selectedIds: selectedIds,
                     onSelectionChanged: updateSelection,
+                    dimCompletedTasks: true,
+                    getStatus: (t) => t['status'] as String?,
                     columns: const [
                       DataTableColumn(label: 'Título', sortable: true, flex: 2),
                       DataTableColumn(label: 'Projeto', sortable: true),
                       DataTableColumn(label: 'Status', sortable: true),
                       DataTableColumn(label: 'Prioridade', sortable: true),
-                      DataTableColumn(label: 'Prazo', sortable: true),
-                      DataTableColumn(label: 'Responsável'),
+                      DataTableColumn(label: 'Vencimento', sortable: true),
+                      DataTableColumn(label: 'Responsável', sortable: false),
+                      DataTableColumn(label: 'Criado', sortable: true),
+                      DataTableColumn(label: 'Atualizado', sortable: true),
                     ],
-                    cellBuilders: [
-                      (t) => Text(t['title'] ?? '', overflow: TextOverflow.ellipsis),
-                      (t) => Text(t['projects']?['name'] ?? '-', overflow: TextOverflow.ellipsis),
-                      (t) => TaskStatusBadge(status: t['status'] ?? 'pending'),
-                      (t) => TaskPriorityBadge(priority: t['priority'] ?? 'medium'),
-                      (t) => TaskDueDateBadge(dueDate: t['due_date'], status: t['status'] ?? 'pending'),
-                      (t) {
-                        final assignee = t['users'];
-                        if (assignee == null) return const Text('-');
-                        return Text(assignee['username'] ?? assignee['email'] ?? '-', overflow: TextOverflow.ellipsis);
-                      },
-                    ],
+                    cellBuilders: TaskTableHelpers.getTasksPageCellBuilders(),
                     getId: (t) => t['id'] as String,
                     onSort: updateSorting,
                     externalSortColumnIndex: sortColumnIndex,
                     externalSortAscending: sortAscending,
                     sortComparators: sortComparators,
                     onRowTap: (t) {
-                      final tabManager = TabManagerScope.maybeOf(context);
-                      if (tabManager != null) {
-                        final taskId = t['id'].toString();
-                        final taskTitle = t['title'] as String? ?? 'Tarefa';
-                        final currentTab = tabManager.currentTab;
-                        final updatedTab = TabItem(
-                          id: 'task_$taskId',
-                          title: taskTitle,
-                          icon: Icons.task,
-                          page: TaskDetailPage(taskId: taskId),
-                          canClose: true,
-                          selectedMenuIndex: currentTab?.selectedMenuIndex ?? 0, // Preserva o índice do menu
-                        );
-                        tabManager.updateTab(tabManager.currentIndex, updatedTab);
-                      }
+                      final taskId = t['id'].toString();
+                      final taskTitle = t['title'] as String? ?? 'Tarefa';
+                      NavigationHelpers.navigateToTaskDetail(context, taskId, taskTitle);
                     },
-                    actions: canEdit ? [
-                      DataTableAction(icon: Icons.delete, label: 'Excluir', onPressed: (t) => _delete(t['id'] as String, t['title'] as String)),
-                    ] : [],
+                    actions: [
+                      DataTableAction(
+                        icon: Icons.delete,
+                        label: 'Excluir',
+                        onPressed: (t) => _delete(t['id'] as String, t['title'] as String),
+                        showWhen: (t) {
+                          final taskCreatorId = t['created_by'] as String?;
+                          return permissions.canDeleteTask(taskCreatorId, currentUserId);
+                        },
+                      ),
+                    ],
                     isLoading: isLoading,
                     hasError: errorMessage != null,
                     errorWidget: Center(child: Text('Erro: ${errorMessage ?? ""}')),

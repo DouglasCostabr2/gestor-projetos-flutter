@@ -37,10 +37,40 @@ class AuthRepository implements AuthContract {
   }
 
   @override
+  Future<void> resetPasswordForEmail({
+    required String email,
+  }) async {
+    await _client.auth.resetPasswordForEmail(
+      email,
+      redirectTo: 'io.supabase.flutter://reset-password',
+    );
+  }
+
+  @override
+  Future<void> updatePassword({
+    required String newPassword,
+  }) async {
+    await _client.auth.updateUser(
+      UserAttributes(password: newPassword),
+    );
+  }
+
+  @override
   User? get currentUser => _client.auth.currentUser;
 
   @override
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
+
+  @override
+  Future<List<Map<String, dynamic>>> getUserByEmail(String email) async {
+    final response = await _client
+        .from('profiles')
+        .select('id, email, full_name, avatar_url')
+        .eq('email', email)
+        .limit(1);
+
+    return List<Map<String, dynamic>>.from(response as List);
+  }
 }
 
 /// Instância singleton do repositório de autenticação

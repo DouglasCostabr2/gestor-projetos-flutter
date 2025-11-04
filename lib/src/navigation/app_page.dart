@@ -8,6 +8,10 @@ enum AppPage {
   finance,
   admin,
   monitoring,
+  notifications,
+  configuracoes,
+  settings,
+  organization,
 }
 
 /// Extensão para obter informações sobre cada página
@@ -31,6 +35,14 @@ extension AppPageExtension on AppPage {
         return 6;
       case AppPage.monitoring:
         return 7;
+      case AppPage.notifications:
+        return 8;
+      case AppPage.configuracoes:
+        return 9;
+      case AppPage.settings:
+        return 10;
+      case AppPage.organization:
+        return 11;
     }
   }
 
@@ -53,6 +65,14 @@ extension AppPageExtension on AppPage {
         return AppPage.admin;
       case 7:
         return AppPage.monitoring;
+      case 8:
+        return AppPage.notifications;
+      case 9:
+        return AppPage.configuracoes;
+      case 10:
+        return AppPage.settings;
+      case 11:
+        return AppPage.organization;
       default:
         return AppPage.home; // Fallback seguro
     }
@@ -77,6 +97,14 @@ extension AppPageExtension on AppPage {
         return 'Admin';
       case AppPage.monitoring:
         return 'Monitoramento';
+      case AppPage.notifications:
+        return 'Notificações';
+      case AppPage.configuracoes:
+        return 'Configurações';
+      case AppPage.settings:
+        return 'Perfil';
+      case AppPage.organization:
+        return 'Organização';
     }
   }
 }

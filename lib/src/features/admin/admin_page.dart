@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../state/app_state_scope.dart';
-import '../../../widgets/user_avatar_name.dart';
-import '../../../widgets/standard_dialog.dart';
-import '../../../services/google_drive_oauth_service.dart';
-import '../../../widgets/drive_connect_dialog.dart';
-import '../clients/client_categories_page.dart';
-import '../../../widgets/tabs/tabs.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import '../../../ui/molecules/user_avatar_name.dart';
+import '../../../ui/organisms/dialogs/standard_dialog.dart';
+import '../../../ui/organisms/tabs/tabs.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 
 class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
@@ -95,16 +92,14 @@ class _AdminPageState extends State<AdminPage> {
             tabs: const [
               TabConfig(icon: Icons.dashboard, text: 'Visão Geral'),
               TabConfig(icon: Icons.people, text: 'Usuários'),
-              TabConfig(icon: Icons.category, text: 'Categorias'),
               TabConfig(icon: Icons.settings, text: 'Sistema'),
               TabConfig(icon: Icons.analytics, text: 'Relatórios'),
             ],
-            children: const [
-              _OverviewTab(),
-              _UsersManagementTab(),
-              ClientCategoriesPage(),
-              _SystemSettingsTab(),
-              _ReportsTab(),
+            children: [
+              const _OverviewTab(),
+              const _UsersManagementTab(),
+              const _SystemSettingsTab(),
+              const _ReportsTab(),
             ],
           ),
         ),
@@ -357,7 +352,7 @@ class _UsersManagementTab extends StatefulWidget {
 class _UsersManagementTabState extends State<_UsersManagementTab> {
   bool _loading = true;
   List<Map<String, dynamic>> _users = [];
-  final List<String> _roles = const ['admin', 'gestor', 'designer', 'financeiro', 'cliente', 'convidado'];
+  final List<String> _roles = const ['admin', 'gestor', 'designer', 'financeiro', 'cliente', 'usuario', 'convidado'];
 
   @override
   void initState() {
@@ -505,6 +500,119 @@ class _UsersManagementTabState extends State<_UsersManagementTab> {
     }
   }
 
+  Future<void> _changeUserPassword(String userId, String userName) async {
+    final passwordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+
+    final newPassword = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Trocar Senha - $userName'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: passwordController,
+              decoration: const InputDecoration(
+                labelText: 'Nova Senha',
+                hintText: 'Digite a nova senha',
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: confirmPasswordController,
+              decoration: const InputDecoration(
+                labelText: 'Confirmar Senha',
+                hintText: 'Confirme a nova senha',
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'A senha deve ter pelo menos 6 caracteres.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final pwd = passwordController.text.trim();
+              final confirmPwd = confirmPasswordController.text.trim();
+
+              if (pwd.isEmpty || confirmPwd.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Preencha todos os campos')),
+                );
+                return;
+              }
+
+              if (pwd.length < 6) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('A senha deve ter pelo menos 6 caracteres')),
+                );
+                return;
+              }
+
+              if (pwd != confirmPwd) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('As senhas não conferem')),
+                );
+                return;
+              }
+
+              Navigator.pop(context, pwd);
+            },
+            child: const Text('Trocar Senha'),
+          ),
+        ],
+      ),
+    );
+
+    if (newPassword == null || newPassword.isEmpty) return;
+
+    try {
+      // Usar a função RPC do Supabase para trocar a senha
+      final result = await Supabase.instance.client.rpc(
+        'change_user_password',
+        params: {
+          'user_id': userId,
+          'new_password': newPassword,
+        },
+      );
+
+      if (result == null || result['success'] != true) {
+        throw Exception(result?['error'] ?? 'Erro desconhecido ao alterar senha');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Senha alterada com sucesso'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _loadUsers();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao alterar senha: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _deleteUser(String userId, String userName) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -640,6 +748,11 @@ class _UsersManagementTabState extends State<_UsersManagementTab> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             IconOnlyButton(
+                              icon: Icons.lock,
+                              tooltip: 'Trocar senha',
+                              onPressed: () => _changeUserPassword(user['id'], userName),
+                            ),
+                            IconOnlyButton(
                               icon: Icons.lock_reset,
                               tooltip: 'Enviar email de redefinição de senha',
                               onPressed: userEmail.isNotEmpty
@@ -678,113 +791,6 @@ class _SystemSettingsTab extends StatefulWidget {
 }
 
 class _SystemSettingsTabState extends State<_SystemSettingsTab> {
-  bool _loadingDriveStatus = true;
-  String? _driveEmail;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadDriveStatus();
-  }
-
-  Future<void> _loadDriveStatus() async {
-    setState(() => _loadingDriveStatus = true);
-    try {
-      final service = GoogleDriveOAuthService();
-      final email = await service.getConnectedEmail();
-      if (mounted) {
-        setState(() {
-          _driveEmail = email;
-          _loadingDriveStatus = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _driveEmail = null;
-          _loadingDriveStatus = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _connectDrive() async {
-    final service = GoogleDriveOAuthService();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => DriveConnectDialog(service: service),
-    );
-
-    if (ok == true) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Google Drive conectado com sucesso'),
-            backgroundColor: Theme.of(context).colorScheme.tertiary,
-          ),
-        );
-        _loadDriveStatus();
-      }
-    }
-  }
-
-  Future<void> _disconnectDrive() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Desconectar Google Drive'),
-        content: const Text(
-          'Tem certeza que deseja desconectar o Google Drive?\n\n'
-          'Os arquivos já enviados permanecerão no Drive, mas novos uploads não serão possíveis até reconectar.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Desconectar'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) return;
-
-      await Supabase.instance.client
-          .from('user_oauth_tokens')
-          .delete()
-          .eq('user_id', user.id)
-          .eq('provider', 'google');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Google Drive desconectado com sucesso'),
-            backgroundColor: Theme.of(context).colorScheme.tertiary,
-          ),
-        );
-        _loadDriveStatus();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao desconectar: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -844,45 +850,7 @@ class _SystemSettingsTabState extends State<_SystemSettingsTab> {
             ],
           ),
 
-          const SizedBox(height: 24),
 
-          _SettingSection(
-            title: 'Integrações',
-            children: [
-              _SettingItem(
-                icon: Icons.cloud,
-                title: 'Google Drive',
-                subtitle: _loadingDriveStatus
-                    ? 'Verificando...'
-                    : _driveEmail != null
-                        ? 'Conectado como $_driveEmail'
-                        : 'Não conectado',
-                trailing: _loadingDriveStatus
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : _driveEmail != null
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.check_circle, color: Colors.green),
-                              const SizedBox(width: 8),
-                              TextButton(
-                                onPressed: _disconnectDrive,
-                                child: const Text('Desconectar'),
-                              ),
-                            ],
-                          )
-                        : FilledButton.icon(
-                            onPressed: _connectDrive,
-                            icon: const Icon(Icons.link),
-                            label: const Text('Conectar'),
-                          ),
-              ),
-            ],
-          ),
         ],
       ),
     );

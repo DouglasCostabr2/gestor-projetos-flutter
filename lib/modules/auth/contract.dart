@@ -2,7 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Contrato público do módulo de autenticação
 /// Define as operações disponíveis para autenticação e gestão de sessão
-/// 
+///
 /// IMPORTANTE: Este é o ÚNICO ponto de comunicação com o módulo de autenticação.
 /// Nenhum código externo deve acessar a implementação interna diretamente.
 abstract class AuthContract {
@@ -21,10 +21,23 @@ abstract class AuthContract {
   /// Faz logout
   Future<void> signOut();
 
+  /// Solicita recuperação de senha por email
+  Future<void> resetPasswordForEmail({
+    required String email,
+  });
+
+  /// Atualiza a senha do usuário autenticado
+  Future<void> updatePassword({
+    required String newPassword,
+  });
+
   /// Obtém o usuário atual
   User? get currentUser;
 
   /// Stream para monitorar mudanças de autenticação
   Stream<AuthState> get authStateChanges;
+
+  /// Buscar usuário por email
+  Future<List<Map<String, dynamic>>> getUserByEmail(String email);
 }
 

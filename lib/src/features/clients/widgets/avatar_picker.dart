@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 
 /// Widget reutilizável para seleção de avatar
 /// Exibe preview e permite selecionar nova imagem

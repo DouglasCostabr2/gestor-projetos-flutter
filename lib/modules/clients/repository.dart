@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../../services/google_drive_oauth_service.dart';
 import '../auth/module.dart';
+import '../common/organization_context.dart';
 import 'contract.dart';
 
 /// Implementação do contrato de clientes
@@ -15,10 +16,17 @@ class ClientsRepository implements ClientsContract {
   @override
   Future<List<Map<String, dynamic>>> getClients() async {
     try {
-      debugPrint('Buscando clientes no Supabase...');
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
+        return [];
+      }
+
+      debugPrint('Buscando clientes da organização: $orgId');
       final response = await _client
           .from('clients')
-          .select('*, client_categories(*)')
+          .select('id, name, email, phone, company, address, city, state, zip_code, country, website, notes, status, owner_id, created_at, updated_at, avatar_url, category, category_id, social_networks, tax_id, tax_id_type, legal_name, client_categories(*)')
+          .eq('organization_id', orgId)
           .order('created_at', ascending: false);
 
       debugPrint('Resposta do Supabase para clientes: $response');
@@ -37,13 +45,17 @@ class ClientsRepository implements ClientsContract {
           'country': client['country'],
           'website': client['website'],
           'notes': client['notes'],
-          'status': client['status'] ?? 'active',
+          'status': client['status'] ?? 'nao_prospectado',
           'owner_id': client['owner_id'] ?? '',
           'created_at': client['created_at'] ?? DateTime.now().toIso8601String(),
           'updated_at': client['updated_at'] ?? DateTime.now().toIso8601String(),
           'avatar_url': client['avatar_url'],
           'category': client['category'],
           'category_id': client['category_id'],
+          'social_networks': client['social_networks'],
+          'tax_id': client['tax_id'],
+          'tax_id_type': client['tax_id_type'],
+          'legal_name': client['legal_name'],
           'client_categories': client['client_categories'],
           'profiles': client['profiles'],
         };
@@ -85,12 +97,18 @@ class ClientsRepository implements ClientsContract {
     String? country,
     String? website,
     String? notes,
-    String status = 'active',
+    String status = 'nao_prospectado',
     String? avatarUrl,
     String? categoryId,
+    String? taxId,
+    String? taxIdType,
+    String? legalName,
   }) async {
     final user = authModule.currentUser;
     if (user == null) throw Exception('Usuário não autenticado');
+
+    final orgId = OrganizationContext.currentOrganizationId;
+    if (orgId == null) throw Exception('Nenhuma organização ativa');
 
     final clientData = <String, dynamic>{
       'name': name.trim(),
@@ -106,8 +124,12 @@ class ClientsRepository implements ClientsContract {
       'notes': notes?.trim(),
       'status': status,
       'owner_id': user.id,
+      'organization_id': orgId,
       if (avatarUrl != null) 'avatar_url': avatarUrl,
       if (categoryId != null) 'category_id': categoryId,
+      if (taxId != null) 'tax_id': taxId.trim(),
+      if (taxIdType != null) 'tax_id_type': taxIdType.trim(),
+      if (legalName != null) 'legal_name': legalName.trim(),
     };
 
     try {
@@ -139,6 +161,9 @@ class ClientsRepository implements ClientsContract {
     String? website,
     String? notes,
     String? status,
+    String? taxId,
+    String? taxIdType,
+    String? legalName,
   }) async {
     // Buscar nome antigo se o nome está sendo alterado
     String? oldName;
@@ -169,12 +194,11 @@ class ClientsRepository implements ClientsContract {
     if (website != null) updateData['website'] = website.trim();
     if (notes != null) updateData['notes'] = notes.trim();
     if (status != null) updateData['status'] = status;
+    if (taxId != null) updateData['tax_id'] = taxId.trim();
+    if (taxIdType != null) updateData['tax_id_type'] = taxIdType.trim();
+    if (legalName != null) updateData['legal_name'] = legalName.trim();
 
     // Adicionar updated_by e updated_at
-    final user = authModule.currentUser;
-    if (user != null) {
-      updateData['updated_by'] = user.id;
-    }
     updateData['updated_at'] = DateTime.now().toIso8601String();
 
     try {

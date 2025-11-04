@@ -158,6 +158,10 @@ class _TaskHistoryWidgetState extends State<TaskHistoryWidget> {
         return 'Data de conclusão';
       case 'task':
         return 'Tarefa';
+      case 'product_unlinked':
+        return 'Produto';
+      case 'product_linked':
+        return 'Produto';
       default:
         return fieldName;
     }
@@ -242,6 +246,16 @@ class _TaskHistoryWidgetState extends State<TaskHistoryWidget> {
       // Para descrição/briefing, apenas informar que foi alterado
       if (fieldName == 'description') {
         return 'alterou o $field';
+      }
+
+      // Para desvinculação de produto
+      if (fieldName == 'product_unlinked') {
+        return 'desvinculou o produto "$oldValue"';
+      }
+
+      // Para vinculação de produto
+      if (fieldName == 'product_linked') {
+        return 'vinculou o produto "$newValue"';
       }
 
       final oldFormatted = _formatValue(fieldName, oldValue);

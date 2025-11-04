@@ -3,24 +3,28 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../state/app_state_scope.dart';
 import '../../navigation/tab_manager_scope.dart';
 import '../../navigation/tab_item.dart';
-import '../../../widgets/task_files_section.dart';
-import '../../../widgets/final_project_section.dart';
-import '../../../widgets/comments_section.dart';
-import '../../../widgets/user_avatar_name.dart';
-import '../../../widgets/custom_briefing_editor.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/organisms/sections/sections.dart';
+import 'package:my_business/ui/organisms/editors/generic_block_editor.dart';
+import 'package:my_business/ui/organisms/cards/cards.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/loaders/loaders.dart';
 import '../shared/quick_forms.dart';
 import 'widgets/subtasks_section.dart';
-import 'widgets/task_status_field.dart';
-import 'widgets/task_due_date_badge.dart';
-import 'widgets/task_priority_badge.dart';
-import '../../../modules/tasks/module.dart';
+import 'widgets/task_info_card_items.dart';
+import 'widgets/task_timer_widget.dart';
+import 'widgets/task_time_history_widget.dart';
+import '../../../modules/modules.dart';
 import '../projects/project_detail_page.dart';
-import '../clients/client_detail_page.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
 
 class TaskDetailPage extends StatefulWidget {
   final String taskId;
-  const TaskDetailPage({super.key, required this.taskId});
+  final bool openTimerCard;
+  const TaskDetailPage({
+    super.key,
+    required this.taskId,
+    this.openTimerCard = false,
+  });
 
   @override
   State<TaskDetailPage> createState() => _TaskDetailPageState();
@@ -28,60 +32,242 @@ class TaskDetailPage extends StatefulWidget {
 
 class _TaskDetailPageState extends State<TaskDetailPage> {
   late Future<Map<String, dynamic>?> _taskFuture;
+  bool _showTimerCard = false; // Estado para controlar visibilidade do card de Timer
+  bool _isFavorite = false;
+  bool _favoriteLoading = false;
 
   @override
   void initState() {
     super.initState();
     _taskFuture = _loadTask();
+    // Abrir o card do timer se solicitado
+    if (widget.openTimerCard) {
+      _showTimerCard = true;
+    }
+    _loadFavoriteStatus();
   }
 
   Future<Map<String, dynamic>?> _loadTask() async {
     return await tasksModule.getTaskWithDetails(widget.taskId);
   }
 
-  Future<void> _updateTask(Map<String, dynamic> updates, {String? parentTaskId}) async {
-    // Usar o módulo para atualizar a tarefa (isso vai renomear a pasta no Google Drive se necessário)
-    await tasksModule.updateTask(
-      taskId: widget.taskId,
-      title: updates['title'] as String?,
-      description: updates['description'] as String?,
-      assignedTo: updates['assigned_to'] as String?,
-      status: updates['status'] as String?,
-      priority: updates['priority'] as String?,
-      dueDate: updates['due_date'] != null ? DateTime.parse(updates['due_date'] as String) : null,
-    );
+  Future<void> _loadFavoriteStatus() async {
+    try {
+      // Primeiro, carregar a task para verificar se é subtarefa
+      final task = await _taskFuture;
+      final isSubTask = task?['parent_task_id'] != null;
 
-    // Se esta tarefa tem uma tarefa pai e o status foi alterado, atualizar o status da tarefa pai
-    if (parentTaskId != null && updates.containsKey('status')) {
-      try {
-        await tasksModule.updateTaskStatus(parentTaskId);
-        debugPrint('✅ Status da tarefa pai atualizado após mudança na subtarefa');
-      } catch (e) {
-        debugPrint('⚠️ Erro ao atualizar status da tarefa pai: $e');
+      final isFav = await favoritesModule.isFavorite(
+        itemType: isSubTask ? 'subtask' : 'task',
+        itemId: widget.taskId,
+      );
+      if (mounted) {
+        setState(() => _isFavorite = isFav);
       }
+    } catch (e) {
+      debugPrint('Erro ao carregar status de favorito: $e');
     }
-
-    if (!mounted) return;
-    setState(() {
-      _taskFuture = _loadTask();
-    });
   }
 
-  String _formatDateDDMMYY(String dateStr) {
-    final dt = DateTime.tryParse(dateStr);
-    if (dt == null) return '-';
-    final d = dt.day.toString().padLeft(2, '0');
-    final m = dt.month.toString().padLeft(2, '0');
-    final y = dt.year.toString(); // Ano completo com 4 dígitos
-    return '$d/$m/$y';
+  Future<void> _toggleFavorite(bool isSubTask) async {
+    setState(() => _favoriteLoading = true);
+    try {
+      final wasAdded = await favoritesModule.toggleFavorite(
+        itemType: isSubTask ? 'subtask' : 'task',
+        itemId: widget.taskId,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isFavorite = wasAdded;
+          _favoriteLoading = false;
+        });
+
+        final itemName = isSubTask ? 'Subtarefa' : 'Tarefa';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(wasAdded ? '$itemName adicionada aos favoritos' : '$itemName removida dos favoritos'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _favoriteLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erro ao atualizar favorito: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleStatusChange(String newStatus) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      // Buscar a tarefa atual para verificar se tem parent_task_id
+      final currentTask = await _taskFuture;
+      final parentTaskId = currentTask?['parent_task_id'] as String?;
+
+      await tasksModule.updateTask(
+        taskId: widget.taskId,
+        status: newStatus,
+      );
+
+      // Se é uma subtarefa, atualizar o status da tarefa pai
+      if (parentTaskId != null && parentTaskId.isNotEmpty) {
+        try {
+          await tasksModule.updateTaskStatus(parentTaskId);
+        } catch (e) {
+          debugPrint('Erro ao atualizar status da task pai: $e');
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _taskFuture = _loadTask();
+        });
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Status atualizado com sucesso!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Erro ao atualizar status: $e')),
+        );
+      }
+    }
+  }
+
+  bool _canEdit(Map<String, dynamic> task) {
+    final appState = AppStateScope.of(context);
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final taskCreatorId = task['created_by'] as String?;
+    return appState.permissions.canEditTask(taskCreatorId, currentUserId);
+  }
+
+  bool _canDelete(Map<String, dynamic> task) {
+    final appState = AppStateScope.of(context);
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final taskCreatorId = task['created_by'] as String?;
+    return appState.permissions.canDeleteTask(taskCreatorId, currentUserId);
+  }
+
+  Widget _buildTaskInfoCards({
+    required BuildContext context,
+    required Map<String, dynamic> task,
+    required String? projectId,
+    required String projectName,
+    required String? clientId,
+    required String clientName,
+    required String? clientAvatarUrl,
+  }) {
+    final appState = AppStateScope.of(context);
+    // Apenas admin e gestor podem acessar a página de clientes
+    final canAccessClientPage = appState.isAdmin || appState.isGestor;
+
+    // Card esquerdo: informações básicas
+    final leftCardItems = <InfoCardItem>[
+      TaskInfoCardItems.buildTaskNameItem(context, task),
+      TaskInfoCardItems.buildAssigneeItem(context, task),
+      TaskInfoCardItems.buildProjectItem(context, projectId, projectName),
+      TaskInfoCardItems.buildClientItem(
+        context,
+        clientId,
+        clientName,
+        clientAvatarUrl,
+        canNavigate: canAccessClientPage,
+      ),
+    ];
+
+    // Card direito: prioridade, vencimento, status, timer
+    final rightCardItems = <InfoCardItem>[
+      TaskInfoCardItems.buildPriorityItem(task),
+      TaskInfoCardItems.buildDueDateItem(context, task),
+      TaskInfoCardItems.buildStatusItem(
+        context,
+        task,
+        widget.taskId,
+        (newStatus) => _handleStatusChange(newStatus),
+      ),
+      TaskInfoCardItems.buildTimerItem(
+        onTap: () {
+          setState(() {
+            _showTimerCard = !_showTimerCard;
+          });
+        },
+      ),
+    ];
+
+    return InfoCardsSection(
+      leftCard: InfoCard(
+        items: leftCardItems,
+        minWidth: 120,
+        minHeight: 104,
+        totalItems: 4,
+        debugEmoji: '📝',
+        debugDescription: 'Nome da Tarefa/Responsável',
+        onSizeCalculated: (size) {
+          // Callback já implementado no InfoCard
+        },
+      ),
+      rightCard: InfoCard(
+        items: rightCardItems,
+        minWidth: 120,
+        minHeight: 104,
+        totalItems: 4,
+        debugEmoji: '🔍',
+        debugDescription: 'Prioridade/Vencimento/Status/Timer',
+      ),
+    );
+  }
+
+  Widget _buildTimerCard(BuildContext context, Map<String, dynamic> task) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF2A2A2A),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Timer Widget
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TaskTimerWidget(
+              taskId: widget.taskId,
+              assignedTo: task['assigned_to'] as String?,
+              assigneeUserIds: (task['assignee_user_ids'] as List<dynamic>?)?.cast<String>(),
+            ),
+          ),
+
+          const Divider(
+            color: Color(0xFF2A2A2A),
+            height: 1,
+          ),
+
+          // Histórico de Tempo
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: TaskTimeHistoryWidget(
+              taskId: widget.taskId,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildBriefingSection(BuildContext context, Map<String, dynamic> task) {
     final description = task['description'] as String?;
+    final projectId = task['project_id'] as String?;
 
-    if (description == null || description.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    // Mostrar card mesmo sem descrição se houver produtos vinculados
+    final hasDescription = description != null && description.isNotEmpty;
 
     return Card(
       child: Padding(
@@ -89,14 +275,252 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Produtos vinculados
+            if (projectId != null) ...[
+              _buildLinkedProductsSection(context, widget.taskId, projectId),
+              const SizedBox(height: 16),
+            ],
+
+            // Título Briefing
             Text('Briefing', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
-            CustomBriefingEditor(
-              initialJson: description,
-              enabled: false, // Read-only
-            ),
+
+            // Descrição/Briefing
+            if (hasDescription)
+              GenericBlockEditor(
+                initialJson: description,
+                enabled: false, // Read-only
+                showToolbar: false,
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildLinkedProductsSection(BuildContext context, String taskId, String projectId) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _loadLinkedProducts(taskId, projectId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(8.0),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Text(
+            'Erro ao carregar produtos: ${snapshot.error}',
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          );
+        }
+
+        final products = snapshot.data ?? [];
+
+        if (products.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.inventory_2_outlined,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Produtos Vinculados',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Column(
+              children: products.map((product) {
+                final label = product['label'] as String? ?? 'Produto';
+                final packageName = product['packageName'] as String?;
+                final thumbUrl = product['thumbUrl'] as String?;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: _buildProductChip(
+                    context,
+                    label: label,
+                    packageName: packageName,
+                    thumbUrl: thumbUrl,
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildProductChip(
+    BuildContext context, {
+    required String label,
+    String? packageName,
+    String? thumbUrl,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          // Thumbnail
+          if (thumbUrl != null && thumbUrl.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: Image.network(
+                thumbUrl,
+                width: 48,
+                height: 48,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Icon(
+                  Icons.inventory_2_outlined,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            )
+          else
+            Icon(
+              Icons.inventory_2_outlined,
+              size: 48,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          const SizedBox(width: 16),
+
+          // Label
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (packageName != null && packageName.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    packageName,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadLinkedProducts(String taskId, String projectId) async {
+    try {
+      // Importar o serviço dinamicamente
+      final client = Supabase.instance.client;
+
+      // Buscar vínculos task_products
+      final rows = await client
+          .from('task_products')
+          .select('product_id, package_id')
+          .eq('task_id', taskId);
+
+      final products = <Map<String, dynamic>>[];
+
+      for (final row in (rows as List)) {
+        final productId = row['product_id'] as String;
+        final packageId = row['package_id'] as String?;
+
+        // Buscar detalhes do produto
+        final prod = await client
+            .from('products')
+            .select('id, name, image_thumb_url, image_url')
+            .eq('id', productId)
+            .maybeSingle();
+
+        if (prod == null) continue;
+
+        String? packageName;
+        if (packageId != null && packageId.isNotEmpty) {
+          final pkg = await client
+              .from('packages')
+              .select('name')
+              .eq('id', packageId)
+              .maybeSingle();
+          packageName = pkg?['name'] as String?;
+        }
+
+        products.add({
+          'productId': productId,
+          'packageId': packageId,
+          'label': prod['name'] as String? ?? 'Produto',
+          'packageName': packageName,
+          'thumbUrl': (prod['image_thumb_url'] as String?) ?? (prod['image_url'] as String?),
+        });
+      }
+
+      return products;
+    } catch (e) {
+      debugPrint('Erro ao carregar produtos vinculados: $e');
+      return [];
+    }
+  }
+
+  /// Constrói skeleton loading para a página de detalhes da task
+  Widget _buildTaskDetailSkeleton() {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Título skeleton
+          SkeletonLoader.text(width: 200),
+          const SizedBox(height: 24),
+
+          // Dois cards skeleton lado a lado
+          Row(
+            children: [
+              Expanded(
+                child: InfoCardSkeleton(itemCount: 4, minHeight: 104),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: InfoCardSkeleton(itemCount: 4, minHeight: 104),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Seções skeleton
+          SkeletonLoader.box(width: double.infinity, height: 200, borderRadius: 12),
+          const SizedBox(height: 12),
+          SkeletonLoader.box(width: double.infinity, height: 150, borderRadius: 12),
+        ],
       ),
     );
   }
@@ -111,7 +535,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
               future: _taskFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState != ConnectionState.done) {
-                  return const Center(child: CircularProgressIndicator());
+                  return _buildTaskDetailSkeleton();
                 }
                 if (snapshot.hasError) {
                   return Center(child: Text('Erro ao carregar tarefa: ${snapshot.error}'));
@@ -132,18 +556,12 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                 // Envolve o conteúdo em Material para widgets que precisam dele
                 return Material(
                   type: MaterialType.transparency,
-                  child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return SingleChildScrollView(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          minHeight: constraints.maxHeight,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                  child: CustomScrollView(
+                    slivers: [
+                      SliverPadding(
+                        padding: const EdgeInsets.all(16),
+                        sliver: SliverList(
+                          delegate: SliverChildListDelegate([
                               // Header
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -185,18 +603,26 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                     ),
                                   ),
                                   // Botões de ação
-                                  if (appState.isAdmin || appState.isDesigner || task['created_by'] == Supabase.instance.client.auth.currentUser?.id) ...[
+                                  if (_canEdit(task)) ...[
                                     IconOnlyButton(
                                       icon: Icons.edit,
                                       tooltip: 'Editar',
                                       onPressed: () async {
-                                        final changed = await showDialog<bool>(
+                                        debugPrint('🔘 TaskDetailPage - Botão EDITAR clicado!');
+                                        debugPrint('   projectId: ${task['project_id']}');
+                                        debugPrint('   taskId: ${task['id']}');
+                                        debugPrint('   Abrindo QuickTaskForm...');
+
+                                        final changed = await DialogHelper.show<bool>(
                                           context: context,
                                           builder: (_) => QuickTaskForm(
                                             projectId: task['project_id'] as String,
                                             initial: task,
                                           ),
                                         );
+
+                                        debugPrint('🔘 TaskDetailPage - QuickTaskForm fechado. Changed: $changed');
+
                                         if (changed == true) {
                                           setState(() {
                                             _taskFuture = _loadTask();
@@ -205,13 +631,13 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                       },
                                     ),
                                   ],
-                                  if (appState.isAdmin || task['created_by'] == Supabase.instance.client.auth.currentUser?.id) ...[
+                                  if (_canDelete(task)) ...[
                                     IconOnlyButton(
                                       icon: Icons.delete,
                                       tooltip: 'Excluir',
                                       onPressed: () async {
                                         final navigator = Navigator.of(context);
-                                        final confirmed = await showDialog<bool>(
+                                        final confirmed = await DialogHelper.show<bool>(
                                           context: context,
                                           builder: (_) => AlertDialog(
                                             title: const Text('Excluir tarefa'),
@@ -229,256 +655,42 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                           ),
                                         );
                                         if (confirmed == true) {
-                                          await Supabase.instance.client
-                                              .from('tasks')
-                                              .delete()
-                                              .eq('id', widget.taskId);
+                                          await tasksModule.deleteTask(widget.taskId);
                                           if (!mounted) return;
                                           navigator.pop(true);
                                         }
                                       },
                                     ),
                                   ],
+                                  // Botão de Favorito (disponível para todos os usuários)
+                                  IconOnlyButton(
+                                    icon: _isFavorite ? Icons.star : Icons.star_border,
+                                    tooltip: _isFavorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
+                                    iconColor: _isFavorite ? const Color(0xFFFFD700) : null,
+                                    isLoading: _favoriteLoading,
+                                    onPressed: () => _toggleFavorite(task['parent_task_id'] != null),
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 16),
 
-                              // Card com informações da Task
-                              Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      // Nome da Task
-                                      Expanded(
-                                        flex: 2,
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text('Tarefa', style: Theme.of(context).textTheme.labelSmall),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              task['title'] ?? 'Sem título',
-                                              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-
-                                      // Responsável
-                                      Expanded(
-                                        flex: 2,
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text('Responsável', style: Theme.of(context).textTheme.labelSmall),
-                                            const SizedBox(height: 4),
-                                            Builder(
-                                              builder: (context) {
-                                                final assigneeId = task['assigned_to'] as String?;
-                                                if (assigneeId == null) {
-                                                  return Text('Não atribuído', style: Theme.of(context).textTheme.bodySmall);
-                                                }
-
-                                                // Usar os dados que já vêm da task
-                                                final profile = task['assignee_profile'] as Map<String, dynamic>?;
-                                                final name = (profile?['full_name'] ?? profile?['email'] ?? 'Usuário') as String;
-                                                final avatarUrl = profile?['avatar_url'] as String?;
-
-                                                return UserAvatarName(
-                                                  avatarUrl: avatarUrl,
-                                                  name: name,
-                                                  size: 20,
-                                                );
-                                              },
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-
-                                      // Projeto
-                                      Expanded(
-                                        flex: 2,
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text('Projeto', style: Theme.of(context).textTheme.labelSmall),
-                                            const SizedBox(height: 4),
-                                            if (projectId != null)
-                                              GestureDetector(
-                                                onTap: () {
-                                                  // Atualiza a aba atual com os detalhes do projeto
-                                                  final tabManager = TabManagerScope.maybeOf(context);
-                                                  if (tabManager != null) {
-                                                    final currentIndex = tabManager.currentIndex;
-                                                    final updatedTab = TabItem(
-                                                      id: 'project_$projectId',
-                                                      title: projectName,
-                                                      icon: Icons.folder,
-                                                      page: ProjectDetailPage(projectId: projectId),
-                                                      canClose: true,
-                                                      selectedMenuIndex: 2, // Índice do menu de Projetos
-                                                    );
-                                                    tabManager.updateTab(currentIndex, updatedTab);
-                                                  }
-                                                },
-                                                child: MouseRegion(
-                                                  cursor: SystemMouseCursors.click,
-                                                  child: Text(
-                                                    projectName,
-                                                    style: Theme.of(context).textTheme.bodySmall,
-                                                    maxLines: 2,
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                              )
-                                            else
-                                              Text(
-                                                projectName,
-                                                style: Theme.of(context).textTheme.bodySmall,
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-
-                                      // Cliente
-                                      Expanded(
-                                        flex: 2,
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text('Cliente', style: Theme.of(context).textTheme.labelSmall),
-                                            const SizedBox(height: 4),
-                                            if (clientId != null)
-                                              GestureDetector(
-                                                onTap: () {
-                                                  // Atualiza a aba atual com os detalhes do cliente
-                                                  final tabManager = TabManagerScope.maybeOf(context);
-                                                  if (tabManager != null) {
-                                                    final currentIndex = tabManager.currentIndex;
-                                                    final updatedTab = TabItem(
-                                                      id: 'client_$clientId',
-                                                      title: clientName,
-                                                      icon: Icons.person,
-                                                      page: ClientDetailPage(clientId: clientId),
-                                                      canClose: true,
-                                                      selectedMenuIndex: 1, // Índice do menu de Clientes
-                                                    );
-                                                    tabManager.updateTab(currentIndex, updatedTab);
-                                                  }
-                                                },
-                                                child: MouseRegion(
-                                                  cursor: SystemMouseCursors.click,
-                                                  child: Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      if (clientAvatarUrl != null && clientAvatarUrl.isNotEmpty)
-                                                        Padding(
-                                                          padding: const EdgeInsets.only(right: 8),
-                                                          child: CircleAvatar(
-                                                            radius: 12,
-                                                            backgroundImage: NetworkImage(clientAvatarUrl),
-                                                          ),
-                                                        ),
-                                                      Flexible(
-                                                        child: Text(
-                                                          clientName,
-                                                          style: Theme.of(context).textTheme.bodySmall,
-                                                          maxLines: 2,
-                                                          overflow: TextOverflow.ellipsis,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              )
-                                            else
-                                              Text(
-                                                clientName,
-                                                style: Theme.of(context).textTheme.bodySmall,
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-
-                                      // Prioridade (apenas badge)
-                                      Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text('Prioridade', style: Theme.of(context).textTheme.labelSmall),
-                                          const SizedBox(height: 4),
-                                          TaskPriorityBadge(priority: task['priority'] ?? 'medium'),
-                                        ],
-                                      ),
-                                      const SizedBox(width: 16),
-
-                                      // Data de conclusão (data + badge)
-                                      Expanded(
-                                        flex: 2,
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text('Data de conclusão', style: Theme.of(context).textTheme.labelSmall),
-                                            const SizedBox(height: 4),
-                                            if (task['due_date'] != null) ...[
-                                              Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(
-                                                    _formatDateDDMMYY(task['due_date'] as String),
-                                                    style: Theme.of(context).textTheme.bodySmall,
-                                                  ),
-                                                  const SizedBox(width: 8),
-                                                  TaskDueDateBadge(
-                                                    dueDate: task['due_date'] as String,
-                                                    status: task['status'] ?? 'todo',
-                                                  ),
-                                                ],
-                                              ),
-                                            ] else
-                                              Text('Sem data de conclusão', style: Theme.of(context).textTheme.bodySmall),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-
-                                      // Status (dropdown)
-                                      Expanded(
-                                        flex: 2,
-                                        child: TaskStatusField(
-                                          status: task['status'] ?? 'todo',
-                                          taskId: widget.taskId,
-                                          onStatusChanged: (status) async {
-                                            await _updateTask(
-                                              {'status': status},
-                                              parentTaskId: task['parent_task_id'] as String?,
-                                            );
-                                          },
-                                          enabled: appState.isAdmin || appState.isDesigner,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                              // 2 Cards com informações da Task
+                              _buildTaskInfoCards(
+                                context: context,
+                                task: task,
+                                projectId: projectId,
+                                projectName: projectName,
+                                clientId: clientId,
+                                clientName: clientName,
+                                clientAvatarUrl: clientAvatarUrl,
                               ),
                               const SizedBox(height: 12),
+
+                              // Card de Timer (exibido condicionalmente)
+                              if (_showTimerCard) ...[
+                                _buildTimerCard(context, task),
+                                const SizedBox(height: 12),
+                              ],
 
                               // Briefing
                               _buildBriefingSection(context, task),
@@ -538,15 +750,15 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                 },
                               ),
                               const SizedBox(height: 12),
-
-                              // Comentários
-                              CommentsSection(task: task),
-                            ],
-                          ),
+                          ]),
                         ),
                       ),
-                    );
-                  },
+                      // Comentários (Sliver)
+                      SliverPadding(
+                        padding: const EdgeInsets.all(16),
+                        sliver: CommentsSection(task: task),
+                      ),
+                    ],
                   ),
                 );
               },

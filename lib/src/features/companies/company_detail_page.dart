@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -8,17 +7,21 @@ import '../../navigation/tab_manager_scope.dart';
 import '../../navigation/tab_item.dart';
 import '../projects/project_form_dialog.dart';
 import '../projects/project_detail_page.dart';
-import '../../widgets/dynamic_paginated_table.dart';
-import '../../../widgets/reusable_data_table.dart';
-import '../../../widgets/user_avatar_name.dart';
-import '../../../widgets/table_search_filter_bar.dart';
-import '../../../widgets/standard_dialog.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
-import '../../../widgets/tabs/tabs.dart';
+import 'package:my_business/ui/organisms/tables/dynamic_paginated_table.dart';
+import 'package:my_business/ui/organisms/tables/reusable_data_table.dart';
+import '../../../ui/molecules/user_avatar_name.dart';
+import '../../../ui/molecules/table_cells/responsible_cell.dart';
+import 'package:my_business/ui/organisms/tables/table_search_filter_bar.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import '../../../ui/organisms/tabs/tabs.dart';
 import '../../../modules/modules.dart';
 import '../clients/client_detail_page.dart';
 import 'companies_page.dart';
 import '../projects/widgets/project_status_badge.dart';
+import '../../utils/project_helpers.dart';
+import 'package:my_business/ui/organisms/cards/cards.dart';
+import 'widgets/company_info_card_items.dart';
 
 class CompanyDetailPage extends StatefulWidget {
   final String companyId;
@@ -43,9 +46,9 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
   // Lista de usuários para o filtro de pessoas
   List<Map<String, dynamic>> _allUsers = [];
 
-  // Ordenação
-  int? _sortColumnIndex = 0; // Inicializar com a primeira coluna (Nome)
-  bool _sortAscending = true;
+  // Ordenação - padrão por "Criado" (coluna 6) decrescente
+  int? _sortColumnIndex = 6;
+  bool _sortAscending = false;
 
   @override
   void initState() {
@@ -57,19 +60,90 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
   Future<Map<String, dynamic>?> _loadCompany() async {
     final res = await Supabase.instance.client
         .from('companies')
-        .select('*')
+        .select('*, clients(id, name, avatar_url)')
         .eq('id', widget.companyId)
         .maybeSingle();
     return res;
   }
 
+  /// Constrói os cards de informações da empresa (similar ao design da project detail page)
+  Widget _buildCompanyInfoCards({
+    required BuildContext context,
+    required Map<String, dynamic> company,
+  }) {
+    final appState = AppStateScope.of(context);
+    final canAccessClientPage = appState.isAdmin || appState.isGestor;
+
+    // Card esquerdo: Nome da Empresa + Cliente
+    final leftCardItems = <InfoCardItem>[
+      CompanyInfoCardItems.buildCompanyNameItem(context, company),
+      CompanyInfoCardItems.buildClientItem(
+        context,
+        company['client_id'] as String?,
+        company['clients']?['name'] ?? '-',
+        company['clients']?['avatar_url'] as String?,
+        canNavigate: canAccessClientPage,
+      ),
+    ];
+
+    // Card direito: Notas/Observações
+    final rightCardItems = <InfoCardItem>[
+      CompanyInfoCardItems.buildNotesItem(context, company),
+    ];
+
+    return InfoCardsSection(
+      leftCard: InfoCard(
+        items: leftCardItems,
+        minWidth: 120,
+        minHeight: 104,
+        totalItems: 2,
+        debugEmoji: '🏢',
+        debugDescription: 'Nome da Empresa/Cliente',
+      ),
+      rightCard: InfoCard(
+        items: rightCardItems,
+        minWidth: 120,
+        minHeight: 104,
+        totalItems: 1,
+        debugEmoji: '📝',
+        debugDescription: 'Notas/Observações',
+      ),
+    );
+  }
+
   Future<List<Map<String, dynamic>>> _loadProjects() async {
     try {
-      // OTIMIZAÇÃO: Usar RPC function para buscar projetos com stats agregados
-      // Isso substitui ~5 queries por projeto por apenas 1 query total!
-      debugPrint('🚀 Carregando projetos com stats otimizado...');
+      // NOTA: Não usar RPC porque task_assignees não inclui assignee_user_ids
+      // Buscar projetos manualmente e enriquecer com múltiplos responsáveis
+      debugPrint('🚀 Carregando projetos com stats...');
       final projects = await companiesModule.getCompanyProjectsWithStats(widget.companyId);
       debugPrint('✅ ${projects.length} projetos carregados com stats');
+
+      // FIX: A RPC function não retorna value_cents, currency_code e description_json
+      // Buscar esses campos separadamente
+      if (projects.isNotEmpty) {
+        final projectIds = projects.map((p) => p['id'] as String).toList();
+        final additionalFields = await Supabase.instance.client
+            .from('projects')
+            .select('id, value_cents, currency_code, description_json')
+            .inFilter('id', projectIds);
+
+        // Criar um mapa para acesso rápido
+        final fieldsMap = <String, Map<String, dynamic>>{};
+        for (final field in additionalFields) {
+          fieldsMap[field['id'] as String] = field;
+        }
+
+        // Adicionar os campos aos projetos
+        for (final project in projects) {
+          final id = project['id'] as String;
+          if (fieldsMap.containsKey(id)) {
+            project['value_cents'] = fieldsMap[id]!['value_cents'];
+            project['currency_code'] = fieldsMap[id]!['currency_code'];
+            project['description_json'] = fieldsMap[id]!['description_json'];
+          }
+        }
+      }
 
       // Transformar os dados para o formato esperado pela UI
       for (final project in projects) {
@@ -98,21 +172,18 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
           };
         }
 
-        // task_assignees já vem como JSONB array
-        // Converter de JSONB para List se necessário
-        if (project['task_assignees'] is String) {
-          try {
-            project['task_assignees'] = jsonDecode(project['task_assignees']);
-          } catch (e) {
-            project['task_assignees'] = [];
-          }
-        }
+        // task_assignees vem da RPC mas NÃO inclui assignee_user_ids
+        // Precisamos enriquecer manualmente
+        project['task_assignees'] = [];
 
         // Calcular valor total do catálogo (já vem agregado em total_catalog_value_cents)
         // project_catalog_items não é mais necessário para cálculo,
         // mas se a UI precisar, pode ser buscado separadamente
         project['project_catalog_items'] = [];
       }
+
+      // Enriquecer task_assignees com múltiplos responsáveis usando helper
+      await ProjectAssigneesHelper.enrichWithAssignees(projects);
 
       return projects;
     } catch (e) {
@@ -214,30 +285,10 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
       (a, b) => 0,
       // Valor
       (a, b) {
-        double calcTotal(Map<String, dynamic> p) {
-          final items = p['project_catalog_items'] as List?;
-          if (items == null || items.isEmpty) return 0.0;
-          double total = 0.0;
-          for (final item in items) {
-            final priceCentsRaw = item['unit_price_cents'];
-            final quantityRaw = item['quantity'];
-            int priceCents = 0;
-            if (priceCentsRaw is int) {
-              priceCents = priceCentsRaw;
-            } else if (priceCentsRaw is double) {
-              priceCents = priceCentsRaw.toInt();
-            }
-            int quantity = 1;
-            if (quantityRaw is int) {
-              quantity = quantityRaw;
-            } else if (quantityRaw is double) {
-              quantity = quantityRaw.toInt();
-            }
-            total += (priceCents / 100) * quantity;
-          }
-          return total;
-        }
-        return calcTotal(a).compareTo(calcTotal(b));
+        // Usar o valor agregado que já vem da RPC function
+        final aTotal = (a['total_catalog_value_cents'] as int? ?? 0);
+        final bTotal = (b['total_catalog_value_cents'] as int? ?? 0);
+        return aTotal.compareTo(bTotal);
       },
       // Status
       (a, b) => (a['status'] ?? 'active').toString().compareTo((b['status'] ?? 'active').toString()),
@@ -343,7 +394,7 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
 
     if (!mounted) return;
 
-    final created = await showDialog<bool>(
+    final created = await DialogHelper.show<bool>(
       context: context,
       builder: (context) => ProjectFormDialog(
         fixedClientId: company['client_id'],
@@ -356,7 +407,7 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
   }
 
   Future<void> _openEditCompanyDialog(Map<String, dynamic> company) async {
-    final saved = await showDialog<bool>(
+    final saved = await DialogHelper.show<bool>(
       context: context,
       builder: (context) => CompanyFormDialog(
         clientId: company['client_id'],
@@ -372,7 +423,7 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
 
   Future<void> _bulkDeleteProjects() async {
     final count = _selectedProjects.length;
-    final confirm = await showDialog<bool>(
+    final confirm = await DialogHelper.show<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmar exclusão'),
@@ -426,7 +477,7 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
   }
 
   Future<void> _deleteCompany(Map<String, dynamic> company) async {
-    final confirm = await showDialog<bool>(
+    final confirm = await DialogHelper.show<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmar exclusão'),
@@ -537,19 +588,10 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
                       ),
                       const SizedBox(height: 12),
 
-                      // Card com informações básicas
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Informações da Empresa', style: Theme.of(context).textTheme.titleMedium),
-                              const SizedBox(height: 16),
-                              _Info('Nome', company['name'] ?? ''),
-                            ],
-                          ),
-                        ),
+                      // Cards de informações da empresa
+                      _buildCompanyInfoCards(
+                        context: context,
+                        company: company,
                       ),
                       const SizedBox(height: 16),
 
@@ -644,11 +686,11 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
             columns: const [
               DataTableColumn(label: 'Nome', sortable: true),
               DataTableColumn(label: 'Tasks', sortable: true),
-              DataTableColumn(label: 'Pessoas'),
+              DataTableColumn(label: 'Membros'),
               DataTableColumn(label: 'Valor', sortable: true),
               DataTableColumn(label: 'Status', sortable: true),
-              DataTableColumn(label: 'Última Atualização', sortable: true),
-              DataTableColumn(label: 'Criado em', sortable: true),
+              DataTableColumn(label: 'Atualizado', sortable: true),
+              DataTableColumn(label: 'Criado', sortable: true),
             ],
             onSort: (columnIndex, ascending) {
               setState(() {
@@ -667,31 +709,16 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
                               (a, b) => ((a['pending_tasks_count'] ?? 0) as int).compareTo((b['pending_tasks_count'] ?? 0) as int),
                               (a, b) => 0, // Pessoas não ordenável
                               (a, b) {
-                                // Calcular valor total de cada projeto
-                                double calcTotal(Map<String, dynamic> p) {
-                                  final items = p['project_catalog_items'] as List?;
-                                  if (items == null || items.isEmpty) return 0.0;
-                                  double total = 0.0;
-                                  for (final item in items) {
-                                    final priceCentsRaw = item['unit_price_cents'];
-                                    final quantityRaw = item['quantity'];
-                                    int priceCents = 0;
-                                    if (priceCentsRaw is int) {
-                                      priceCents = priceCentsRaw;
-                                    } else if (priceCentsRaw is double) {
-                                      priceCents = priceCentsRaw.toInt();
-                                    }
-                                    int quantity = 1;
-                                    if (quantityRaw is int) {
-                                      quantity = quantityRaw;
-                                    } else if (quantityRaw is double) {
-                                      quantity = quantityRaw.toInt();
-                                    }
-                                    total += (priceCents / 100) * quantity;
-                                  }
-                                  return total;
-                                }
-                                return calcTotal(a).compareTo(calcTotal(b));
+                                // Priorizar value_cents (valor manual) se existir, senão usar total_catalog_value_cents (soma dos itens)
+                                final aValueCents = a['value_cents'] as int?;
+                                final aTotalCatalogCents = a['total_catalog_value_cents'] as int? ?? 0;
+                                final aDisplayCents = (aValueCents != null && aValueCents > 0) ? aValueCents : aTotalCatalogCents;
+
+                                final bValueCents = b['value_cents'] as int?;
+                                final bTotalCatalogCents = b['total_catalog_value_cents'] as int? ?? 0;
+                                final bDisplayCents = (bValueCents != null && bValueCents > 0) ? bValueCents : bTotalCatalogCents;
+
+                                return aDisplayCents.compareTo(bDisplayCents);
                               },
                               (a, b) => (a['status'] ?? 'active').toString().compareTo((b['status'] ?? 'active').toString()),
                               (a, b) {
@@ -722,71 +749,23 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
                               },
 
                               // Pessoas (avatares dos assignees das tasks)
-                              (p) {
-                                final assignees = p['task_assignees'] as List?;
-                                if (assignees == null || assignees.isEmpty) {
-                                  return const Text('-');
-                                }
-                                return SizedBox(
-                                  height: 32,
-                                  child: ListView.builder(
-                                    scrollDirection: Axis.horizontal,
-                                    itemCount: assignees.length > 5 ? 5 : assignees.length,
-                                    itemBuilder: (context, index) {
-                                      final profile = assignees[index] as Map<String, dynamic>;
-                                      final avatarUrl = profile['avatar_url'] as String?;
-                                      final fullName = profile['full_name'] as String? ?? '?';
-
-                                      return Padding(
-                                        padding: const EdgeInsets.only(right: 4),
-                                        child: Tooltip(
-                                          message: fullName,
-                                          child: CircleAvatar(
-                                            radius: 16,
-                                            backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                                            child: avatarUrl == null ? Text(fullName[0].toUpperCase()) : null,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                );
-                              },
+                              // REFATORADO: Usa ResponsibleCell para consistência
+                              (p) => ResponsibleCell(
+                                people: p['task_assignees'] as List?,
+                              ),
 
                               // Valor
                               (p) {
                                 final currency = p['currency_code'] as String? ?? 'BRL';
                                 final currencySymbol = _getCurrencySymbol(currency);
-                                final items = p['project_catalog_items'] as List?;
 
-                                if (items == null || items.isEmpty) {
-                                  return Text('$currencySymbol 0,00');
-                                }
+                                // Priorizar value_cents (valor manual) se existir, senão usar total_catalog_value_cents (soma dos itens)
+                                final valueCents = p['value_cents'] as int?;
+                                final totalCatalogCents = p['total_catalog_value_cents'] as int? ?? 0;
+                                final displayCents = (valueCents != null && valueCents > 0) ? valueCents : totalCatalogCents;
+                                final displayValue = displayCents / 100.0;
 
-                                double totalValue = 0.0;
-                                for (final item in items) {
-                                  // unit_price_cents pode vir como int ou double
-                                  final priceCentsRaw = item['unit_price_cents'];
-                                  final quantityRaw = item['quantity'];
-
-                                  int priceCents = 0;
-                                  if (priceCentsRaw is int) {
-                                    priceCents = priceCentsRaw;
-                                  } else if (priceCentsRaw is double) {
-                                    priceCents = priceCentsRaw.toInt();
-                                  }
-
-                                  int quantity = 1;
-                                  if (quantityRaw is int) {
-                                    quantity = quantityRaw;
-                                  } else if (quantityRaw is double) {
-                                    quantity = quantityRaw.toInt();
-                                  }
-
-                                  totalValue += (priceCents / 100) * quantity;
-                                }
-
-                                return Text('$currencySymbol ${totalValue.toStringAsFixed(2).replaceAll('.', ',')}');
+                                return Text('$currencySymbol ${displayValue.toStringAsFixed(2).replaceAll('.', ',')}');
                               },
 
                               // Status
@@ -869,7 +848,7 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
                                 icon: Icons.edit,
                                 label: 'Editar',
                                 onPressed: (p) async {
-                                  final changed = await showDialog<bool>(
+                                  final changed = await DialogHelper.show<bool>(
                                     context: context,
                                     builder: (context) => ProjectFormDialog(
                                       fixedClientId: company['client_id'],
@@ -921,7 +900,7 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
                                 icon: Icons.delete,
                                 label: 'Excluir',
                                 onPressed: (p) async {
-                                  final confirm = await showDialog<bool>(
+                                  final confirm = await DialogHelper.show<bool>(
                                     context: context,
                                     builder: (context) => AlertDialog(
                                       title: const Text('Confirmar exclusão'),
@@ -1199,7 +1178,7 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
     // Capturar TabManager ANTES de abrir o dialog
     final tabManager = TabManagerScope.maybeOf(context);
 
-    showDialog(
+    DialogHelper.show(
       context: context,
       builder: (dialogContext) => StandardDialog(
         title: 'Pagamentos Recebidos ($currency)',
@@ -1306,7 +1285,7 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
     // Capturar TabManager ANTES de abrir o dialog
     final tabManager = TabManagerScope.maybeOf(context);
 
-    showDialog(
+    DialogHelper.show(
       context: context,
       builder: (dialogContext) => StandardDialog(
         title: 'Valores Pendentes ($currency)',

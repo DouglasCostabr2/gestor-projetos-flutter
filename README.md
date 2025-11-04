@@ -52,12 +52,56 @@ static const String supabaseAnonKey = 'sua-anon-key-aqui';
 
 ```
 lib/
-├── config/
-│   └── supabase_config.dart    # Configuração do Supabase
-├── services/
-│   └── supabase_service.dart   # Serviços para interação com Supabase
-└── main.dart                   # Ponto de entrada da aplicação
+├── ui/                         # 🎨 Atomic Design (NOVO)
+│   ├── atoms/                  # Componentes básicos (buttons, inputs, avatars)
+│   ├── molecules/              # Combinações simples (dropdowns, table_cells)
+│   ├── organisms/              # Componentes complexos (em migração)
+│   ├── templates/              # Templates de páginas
+│   └── ui.dart                 # Barrel file principal
+│
+├── src/
+│   ├── features/               # Funcionalidades por módulo
+│   │   ├── auth/              # Autenticação
+│   │   ├── clients/           # Clientes
+│   │   ├── projects/          # Projetos
+│   │   ├── tasks/             # Tarefas
+│   │   ├── catalog/           # Catálogo de produtos
+│   │   └── ...
+│   ├── navigation/            # Sistema de navegação e tabs
+│   ├── state/                 # Gerenciamento de estado
+│   └── app_shell.dart         # Shell principal do app
+│
+├── modules/                    # Lógica de negócio
+│   ├── auth/
+│   ├── clients/
+│   ├── projects/
+│   └── tasks/
+│
+├── services/                   # Serviços (Supabase, Google Drive, etc.)
+├── widgets/                    # Widgets reutilizáveis (organisms em migração)
+├── config/                     # Configurações
+└── main.dart                   # Ponto de entrada
 ```
+
+### 🎨 Atomic Design
+
+O projeto segue o padrão **Atomic Design** para organização de componentes UI:
+
+- **Atoms** (`lib/ui/atoms/`): Componentes básicos indivisíveis
+  - Buttons, Inputs, Avatars
+
+- **Molecules** (`lib/ui/molecules/`): Combinações simples de atoms
+  - Dropdowns, Table Cells, User Avatar + Name
+
+- **Organisms** (`lib/ui/organisms/`): Componentes complexos
+  - Em migração de `lib/widgets/`
+
+- **Templates** (`lib/ui/templates/`): Layouts de páginas
+
+- **Pages** (`lib/src/features/*/`): Páginas completas
+
+📖 **Documentação completa:** [lib/ui/README.md](lib/ui/README.md)
+📊 **Status da migração:** [lib/ui/ATOMIC_DESIGN_STATUS.md](lib/ui/ATOMIC_DESIGN_STATUS.md)
 
 ## 🚀 Como usar
 

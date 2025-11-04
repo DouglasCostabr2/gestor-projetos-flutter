@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../../state/app_state_scope.dart';
 import 'widgets/user_monitoring_card.dart';
 import '../../../modules/modules.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/loaders/loaders.dart';
 
 /// Página de monitoramento de usuários
 /// Exibe cards com informações sobre o que cada usuário está fazendo
@@ -32,6 +33,58 @@ class _UserMonitoringPageState extends State<UserMonitoringPage> {
     _loadUsers();
   }
 
+  /// Constrói skeleton loading para a página de monitoramento
+  Widget _buildMonitoringSkeleton() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: GridView.builder(
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 400,
+          childAspectRatio: 1.5,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 16,
+        ),
+        itemCount: 6,
+        itemBuilder: (context, index) {
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Avatar + Nome skeleton
+                  Row(
+                    children: [
+                      SkeletonLoader.circle(size: 48),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SkeletonLoader.text(width: 120),
+                            const SizedBox(height: 8),
+                            SkeletonLoader.text(width: 80),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Informações skeleton
+                  SkeletonLoader.text(width: double.infinity),
+                  const SizedBox(height: 8),
+                  SkeletonLoader.text(width: 150),
+                  const SizedBox(height: 8),
+                  SkeletonLoader.text(width: 200),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _loadUsers() async {
     setState(() {
       _loading = true;
@@ -41,7 +94,7 @@ class _UserMonitoringPageState extends State<UserMonitoringPage> {
     try {
       // Usando o módulo de monitoramento
       final users = await monitoringModule.fetchMonitoringData();
-      
+
       setState(() {
         _allUsers = users;
         _filteredUsers = users;
@@ -249,7 +302,7 @@ class _UserMonitoringPageState extends State<UserMonitoringPage> {
           // Conteúdo
           Expanded(
             child: _loading
-                ? const Center(child: CircularProgressIndicator())
+                ? _buildMonitoringSkeleton()
                 : _error != null
                     ? Center(
                         child: Column(

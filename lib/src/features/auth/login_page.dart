@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../modules/modules.dart';
+import 'forgot_password_dialog.dart';
 
 class LoginPage extends StatefulWidget {
   final Future<void> Function() onLoggedIn;
@@ -74,6 +75,22 @@ class _LoginPageState extends State<LoginPage> {
                     decoration: const InputDecoration(labelText: 'Senha'),
                     obscureText: true,
                     onSubmitted: (_) => _login(),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: _loading
+                          ? null
+                          : () {
+                              showDialog(
+                                context: context,
+                                builder: (context) =>
+                                    const ForgotPasswordDialog(),
+                              );
+                            },
+                      child: const Text('Esqueci a Senha'),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   FilledButton(

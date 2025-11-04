@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../exceptions/app_exceptions.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
 
 /// Handler centralizado de erros da aplicação
 /// 
@@ -127,7 +128,7 @@ class ErrorHandler {
   }) async {
     final message = getErrorMessage(error);
 
-    return showDialog(
+    return DialogHelper.show(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
+import '../common/organization_context.dart';
 import 'contract.dart';
 
 /// Implementação do contrato de monitoramento
@@ -10,19 +11,43 @@ class MonitoringRepository implements MonitoringContract {
   @override
   Future<List<Map<String, dynamic>>> fetchMonitoringData() async {
     try {
-      // 1. Buscar todos os profiles
-      final profilesData = await _client
-          .from('profiles')
-          .select('id, full_name, email, role, avatar_url')
-          .order('full_name');
+      // Obter organization_id
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa ao buscar dados de monitoramento');
+        return [];
+      }
 
-      // 2. Buscar TODAS as tasks de uma vez com todos os campos necessários
+      debugPrint('📊 Carregando monitoramento para organização: $orgId');
+
+      // 1. Buscar membros ativos da organização usando RPC
+      final membersData = await _client.rpc(
+        'get_organization_members_with_profiles',
+        params: {'org_id': orgId},
+      );
+
+      // Transformar para o formato esperado
+      final profiles = <Map<String, dynamic>>[];
+      for (final member in (membersData as List)) {
+        final m = member as Map<String, dynamic>;
+        profiles.add({
+          'id': m['user_id'],
+          'full_name': m['full_name'],
+          'email': m['email'],
+          'avatar_url': m['avatar_url'],
+          'role': m['om_role'], // Usar role do organization_members
+        });
+      }
+
+      debugPrint('✅ Encontrados ${profiles.length} membros na organização');
+
+      // 2. Buscar TODAS as tasks da organização de uma vez com todos os campos necessários
       final allTasksData = await _client
           .from('tasks')
-          .select('id, title, status, assigned_to, created_by, due_date, project_id, priority, description');
+          .select('id, title, status, assigned_to, created_by, due_date, project_id, priority, description, organization_id')
+          .eq('organization_id', orgId);
 
       // 3. Agregar dados
-      final profiles = List<Map<String, dynamic>>.from(profilesData);
       final allTasks = List<Map<String, dynamic>>.from(allTasksData);
       final now = DateTime.now();
 

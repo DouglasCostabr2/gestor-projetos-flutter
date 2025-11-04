@@ -1,0 +1,219 @@
+import 'package:flutter/material.dart';
+import '../../../../modules/modules.dart';
+import '../../../../ui/atoms/inputs/inputs.dart';
+import '../../../../ui/atoms/buttons/buttons.dart';
+import '../../../../ui/molecules/dropdowns/dropdowns.dart';
+
+/// Dialog para adicionar membro à organização
+class AddMemberDialog extends StatefulWidget {
+  final String organizationId;
+
+  const AddMemberDialog({
+    super.key,
+    required this.organizationId,
+  });
+
+  @override
+  State<AddMemberDialog> createState() => _AddMemberDialogState();
+}
+
+class _AddMemberDialogState extends State<AddMemberDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  String _selectedRole = 'usuario';
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addMember() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _loading = true);
+    try {
+      final email = _emailController.text.trim();
+
+      // Verificar se o usuário já existe no sistema
+      final users = await authModule.getUserByEmail(email);
+
+      // Verificar se já é membro da organização
+      if (users.isNotEmpty) {
+        final userId = users.first['id'];
+        final existingMember = await organizationsModule.getOrganizationMember(
+          organizationId: widget.organizationId,
+          userId: userId,
+        );
+
+        if (existingMember != null) {
+          throw Exception('Este usuário já é membro da organização');
+        }
+      }
+
+      // Verificar se já existe convite pendente para este email
+      final invites = await organizationsModule.getOrganizationInvites(widget.organizationId);
+      final pendingInvite = invites.where((inv) =>
+        inv['email'] == email.toLowerCase() && inv['status'] == 'pending'
+      ).firstOrNull;
+
+      if (pendingInvite != null) {
+        throw Exception('Já existe um convite pendente para este email');
+      }
+
+      // Criar convite
+      await organizationsModule.createOrganizationInvite(
+        organizationId: widget.organizationId,
+        email: email,
+        role: _selectedRole,
+      );
+
+      if (mounted) {
+        Navigator.of(context).pop(true); // Retorna true para indicar sucesso
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Convite enviado com sucesso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao enviar convite: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1E1E1E),
+      child: Container(
+        width: 500,
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              Row(
+                children: [
+                  const Icon(
+                    Icons.mail_outline,
+                    color: Colors.white,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Text(
+                      'Enviar Convite',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              // Email
+              GenericEmailField(
+                controller: _emailController,
+                labelText: 'Email do usuário',
+                hintText: 'usuario@exemplo.com',
+                enabled: !_loading,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Email é obrigatório';
+                  }
+                  if (!value.contains('@')) {
+                    return 'Email inválido';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              // Role
+              GenericDropdownField<String>(
+                value: _selectedRole,
+                items: const [
+                  DropdownItem(value: 'usuario', label: 'Usuário'),
+                  DropdownItem(value: 'designer', label: 'Designer'),
+                  DropdownItem(value: 'financeiro', label: 'Financeiro'),
+                  DropdownItem(value: 'gestor', label: 'Gestor'),
+                  DropdownItem(value: 'admin', label: 'Administrador'),
+                ],
+                onChanged: _loading ? null : (value) {
+                  if (value != null) {
+                    setState(() => _selectedRole = value);
+                  }
+                },
+                labelText: 'Função (Role)',
+              ),
+              const SizedBox(height: 8),
+              // Info
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.blue.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.blue[300], size: 20),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Um convite será enviado para o email informado. O usuário precisará aceitar o convite para se tornar membro ativo.',
+                        style: TextStyle(
+                          color: Colors.blue[300],
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Botões
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  SecondaryButton(
+                    label: 'Cancelar',
+                    onPressed: _loading ? null : () => Navigator.of(context).pop(),
+                  ),
+                  const SizedBox(width: 12),
+                  PrimaryButton(
+                    label: 'Enviar Convite',
+                    onPressed: _loading ? null : _addMember,
+                    isLoading: _loading,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+

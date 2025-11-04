@@ -23,9 +23,12 @@ abstract class ClientsContract {
     String? country,
     String? website,
     String? notes,
-    String status = 'active',
+    String status = 'nao_prospectado',
     String? avatarUrl,
     String? categoryId,
+    String? taxId,
+    String? taxIdType,
+    String? legalName,
   });
 
   /// Atualizar um cliente
@@ -43,6 +46,9 @@ abstract class ClientsContract {
     String? website,
     String? notes,
     String? status,
+    String? taxId,
+    String? taxIdType,
+    String? legalName,
   });
 
   /// Deletar um cliente

@@ -13,14 +13,14 @@ import 'project_form_dialog.dart';
 import '../../navigation/route_observer.dart';
 import '../../navigation/tab_manager_scope.dart';
 import '../../navigation/tab_item.dart';
-import '../../../widgets/reusable_data_table.dart';
-import '../../widgets/dynamic_paginated_table.dart';
-import '../../../widgets/table_search_filter_bar.dart';
-import '../../../widgets/table_cells/table_cells.dart';
+import 'package:my_business/ui/organisms/tables/reusable_data_table.dart';
+import 'package:my_business/ui/organisms/tables/dynamic_paginated_table.dart';
+import 'package:my_business/ui/organisms/tables/table_search_filter_bar.dart';
+import 'package:my_business/ui/molecules/table_cells/table_cells.dart';
 import '../../../modules/modules.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
 import 'widgets/project_status_badge.dart';
 import '../../../constants/project_status.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
 
 
 class ProjectsPage extends StatefulWidget {
@@ -102,46 +102,54 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
       final usersRes = results[0];
       final projects = results[1];
 
-      // OTIMIZAÇÃO: Buscar TODAS as tasks de TODOS os projetos em UMA ÚNICA query
+      // OTIMIZAÇÃO: Buscar membros e tasks de TODOS os projetos em queries otimizadas
       final projectIds = projects.map((p) => p['id'] as String).toList();
 
       if (projectIds.isNotEmpty) {
-        final allTasksResponse = await Supabase.instance.client
-            .from('tasks')
-            .select('project_id, assigned_to, profiles:assigned_to(id, full_name, avatar_url)')
+        // Buscar membros dos projetos (adicionados automaticamente quando atribuídos a tasks)
+        final allMembersResponse = await Supabase.instance.client
+            .from('project_members')
+            .select('project_id, user_id, profiles:user_id(id, full_name, avatar_url)')
             .inFilter('project_id', projectIds);
 
-        // Agrupar tasks por projeto
-        final tasksByProject = <String, List<dynamic>>{};
+        // Buscar contagem de tasks por projeto
+        final allTasksResponse = await Supabase.instance.client
+            .from('tasks')
+            .select('project_id')
+            .inFilter('project_id', projectIds);
+
+        // Agrupar membros por projeto
+        final membersByProject = <String, List<dynamic>>{};
+        for (final member in allMembersResponse) {
+          final projectId = member['project_id'] as String?;
+          if (projectId != null) {
+            membersByProject.putIfAbsent(projectId, () => []).add(member);
+          }
+        }
+
+        // Contar tasks por projeto
+        final taskCountByProject = <String, int>{};
         for (final task in allTasksResponse) {
           final projectId = task['project_id'] as String?;
           if (projectId != null) {
-            tasksByProject.putIfAbsent(projectId, () => []).add(task);
+            taskCountByProject[projectId] = (taskCountByProject[projectId] ?? 0) + 1;
           }
         }
 
         // Processar cada projeto
         for (final project in projects) {
           final projectId = project['id'] as String;
-          final projectTasks = tasksByProject[projectId] ?? [];
+          final members = membersByProject[projectId] ?? [];
 
-          // Extrair pessoas únicas usando Map com ID como chave
-          final peopleMap = <String, Map<String, dynamic>>{};
-          for (final task in projectTasks) {
-            final profile = task['profiles'];
-            if (profile != null && profile is Map<String, dynamic>) {
-              final id = profile['id'] as String?;
-              if (id != null && !peopleMap.containsKey(id)) {
-                peopleMap[id] = profile;
-              }
-            }
-          }
+          // Extrair profiles dos membros
+          final people = members
+              .map((m) => m['profiles'] as Map<String, dynamic>?)
+              .whereType<Map<String, dynamic>>()
+              .toList();
 
-          // Adicionar ao projeto
-          final uniquePeople = peopleMap.values.toList();
-          project['task_people'] = uniquePeople;
-          project['total_people'] = uniquePeople.length;
-          project['total_tasks'] = projectTasks.length;
+          project['team_members'] = people;
+          project['total_people'] = people.length;
+          project['total_tasks'] = taskCountByProject[projectId] ?? 0;
         }
       }
 
@@ -317,7 +325,7 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
 
 
   Future<void> _openForm({Map<String, dynamic>? initial}) async {
-    final changed = await showDialog<bool>(
+    final changed = await DialogHelper.show<bool>(
       context: context,
       builder: (context) => ProjectFormDialog(initial: initial),
     );
@@ -396,7 +404,7 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
     final current = authModule.currentUser;
     final isOwner = current != null && project['owner_id'] == current.id;
     final isAdmin = false; // Admin real pode ser verificado via profiles, mas mantemos simples na UI
-    await showDialog(
+    await DialogHelper.show(
       context: context,
       builder: (context) => ProjectMembersDialog(
         projectId: project['id'] as String,
@@ -409,7 +417,7 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
   Future<void> _bulkDelete() async {
     final count = _selected.length;
 
-    final confirm = await showDialog<bool>(
+    final confirm = await DialogHelper.show<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmar exclusão'),
@@ -562,19 +570,27 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
                       _applyFilters();
                     },
                     selectedCount: _selected.length,
-                    bulkActions: (isLogged && appState.isAdminOrGestor) ? [
-                      BulkAction(
-                        icon: Icons.delete,
-                        label: 'Excluir selecionados',
-                        color: Colors.red,
-                        onPressed: _bulkDelete,
-                      ),
-                    ] : null,
-                    actionButton: (isLogged && (appState.isAdmin || appState.isDesigner)) ? FilledButton.icon(
-                      onPressed: () => _openForm(),
-                      icon: const Icon(Icons.add),
-                      label: const Text('Novo Projeto'),
-                    ) : null,
+                    bulkActions: (() {
+                      if (!isLogged) return null;
+                      final permissions = appState.permissions;
+                      return permissions.canDeleteProjects ? [
+                        BulkAction(
+                          icon: Icons.delete,
+                          label: 'Excluir selecionados',
+                          color: Colors.red,
+                          onPressed: _bulkDelete,
+                        ),
+                      ] : null;
+                    })(),
+                    actionButton: (() {
+                      if (!isLogged) return null;
+                      final permissions = appState.permissions;
+                      return permissions.canCreateProjects ? FilledButton.icon(
+                        onPressed: () => _openForm(),
+                        icon: const Icon(Icons.add),
+                        label: const Text('Novo Projeto'),
+                      ) : null;
+                    })(),
                   ),
 
                   const SizedBox(height: 16),
@@ -594,9 +610,9 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
                         DataTableColumn(label: 'Valor', sortable: true),
                         DataTableColumn(label: 'Status', sortable: true),
                         DataTableColumn(label: 'Tasks', sortable: true),
-                        DataTableColumn(label: 'Pessoas', sortable: true),
-                        DataTableColumn(label: 'Última Atualização', sortable: true),
-                        DataTableColumn(label: 'Criado em', sortable: true),
+                        DataTableColumn(label: 'Membros', sortable: true),
+                        DataTableColumn(label: 'Atualizado', sortable: true),
+                        DataTableColumn(label: 'Criado', sortable: true),
                       ],
                       onSort: (columnIndex, ascending) {
                         setState(() {
@@ -629,11 +645,11 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
                           count: (p['total_tasks'] as num?)?.toInt(),
                           icon: Icons.task_alt,
                         ),
-                        // Pessoas
-                        (p) => TableCellAvatarList(
-                          people: p['task_people'] ?? [],
-                          maxVisible: 3,
-                          avatarSize: 12,
+                        // Membros
+                        (p) => ResponsibleCell(
+                          people: p['team_members'],
+                          singleAvatarSize: 20,
+                          multipleAvatarSize: 10,
                         ),
                         // Última Atualização
                         (p) => TableCellUpdatedBy(
@@ -691,19 +707,19 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
                           icon: Icons.edit,
                           label: 'Editar',
                           onPressed: (p) => _openForm(initial: p),
-                          showWhen: (p) => appState.isAdmin || appState.isDesigner,
+                          showWhen: (p) => appState.permissions.canEditProjects,
                         ),
                         DataTableAction<Map<String, dynamic>>(
                           icon: Icons.content_copy,
                           label: 'Duplicar',
                           onPressed: (p) => _duplicate(p),
-                          showWhen: (p) => appState.isAdmin || appState.isDesigner,
+                          showWhen: (p) => appState.permissions.canEditProjects,
                         ),
                         DataTableAction<Map<String, dynamic>>(
                           icon: Icons.delete,
                           label: 'Excluir',
                           onPressed: (p) => _deleteProjectAndDrive(p),
-                          showWhen: (p) => appState.isAdmin || appState.isDesigner,
+                          showWhen: (p) => appState.permissions.canDeleteProjects,
                         ),
                       ],
                       isLoading: _loading,
@@ -872,6 +888,7 @@ class _ProjectFormState extends State<_ProjectForm> {
     _desc.dispose();
     _valueText.dispose();
     for (final c in _costs) { c.dispose(); }
+    for (final item in _catalogItems) { item.dispose(); }
     super.dispose();
   }
 
@@ -1000,12 +1017,12 @@ class _ProjectFormState extends State<_ProjectForm> {
                       Row(children: [
                         Expanded(
                           flex: 2,
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _currencyCode,
+                          child: GenericDropdownField<String>(
+                            value: _currencyCode,
                             items: const [
-                              DropdownMenuItem(value: 'BRL', child: Text('Real (BRL)')),
-                              DropdownMenuItem(value: 'USD', child: Text('Dólar (USD)')),
-                              DropdownMenuItem(value: 'EUR', child: Text('Euro (EUR)')),
+                              DropdownItem(value: 'BRL', label: 'Real (BRL)'),
+                              DropdownItem(value: 'USD', label: 'Dólar (USD)'),
+                              DropdownItem(value: 'EUR', label: 'Euro (EUR)'),
                             ],
                             onChanged: canEditFinancial ? (v) {
                               final newCur = v ?? 'BRL';
@@ -1017,7 +1034,9 @@ class _ProjectFormState extends State<_ProjectForm> {
                                 }
                               });
                             } : null,
-                            decoration: const InputDecoration(labelText: 'Moeda'),
+                            labelText: 'Moeda',
+                            enabled: canEditFinancial,
+                            openUpwards: true, // Abre para cima pois está no footer
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -1117,7 +1136,7 @@ class _ProjectFormState extends State<_ProjectForm> {
                         const Spacer(),
                         FilledButton.tonal(
                           onPressed: () async {
-                            final selected = await showDialog<_CatalogItem>(
+                            final selected = await DialogHelper.show<_CatalogItem>(
                               context: context,
                               builder: (_) => _SelectCatalogItemDialog(currency: _currencyCode),
                             );
@@ -1160,15 +1179,15 @@ class _ProjectFormState extends State<_ProjectForm> {
                               Expanded(
                                 flex: 2,
                                 child: TextFormField(
-                                  key: ValueKey('price_${it.itemType}_${it.itemId}_${_currencyCode}_${it.priceCents}'),
-                                  initialValue: (it.priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ','),
+                                  controller: it.priceController,
                                   enabled: canEditFinancial,
                                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                  textDirection: TextDirection.ltr,
                                   decoration: const InputDecoration(labelText: 'Preço'),
                                   onChanged: (v) {
                                     final cents = _parseMoneyToCents(v);
+                                    it.updatePriceCents(cents);
                                     setState(() {
-                                      _catalogItems[idx] = it.copyWith(priceCents: cents);
                                       if (canEditFinancial && _catalogItems.isNotEmpty) {
                                         _valueText.text = _formatCents(_catalogSumCents).replaceAll('.', ',');
                                       }
@@ -1180,14 +1199,15 @@ class _ProjectFormState extends State<_ProjectForm> {
                               Expanded(
                                 flex: 2,
                                 child: TextFormField(
-                                  initialValue: it.quantity.toString(),
+                                  controller: it.quantityController,
                                   enabled: canEditFinancial,
                                   keyboardType: TextInputType.number,
+                                  textDirection: TextDirection.ltr,
                                   decoration: const InputDecoration(labelText: 'Qtd'),
                                   onChanged: (v) {
                                     final q = int.tryParse(v) ?? 1;
+                                    it.updateQuantity(q.clamp(1, 999));
                                     setState(() {
-                                      _catalogItems[idx] = it.copyWith(quantity: q.clamp(1, 999));
                                       if (canEditFinancial && _catalogItems.isNotEmpty) {
                                         _valueText.text = _formatCents(_catalogSumCents).replaceAll('.', ',');
                                       }
@@ -1289,17 +1309,71 @@ class _CatalogItem {
   final String itemId;
   final String name;
   final String currency;
-  final int priceCents;
-  final int quantity;
-  _CatalogItem({required this.itemType, required this.itemId, required this.name, required this.currency, required this.priceCents, required this.quantity});
-  _CatalogItem copyWith({String? itemType, String? itemId, String? name, String? currency, int? priceCents, int? quantity}) => _CatalogItem(
-    itemType: itemType ?? this.itemType,
-    itemId: itemId ?? this.itemId,
-    name: name ?? this.name,
-    currency: currency ?? this.currency,
-    priceCents: priceCents ?? this.priceCents,
-    quantity: quantity ?? this.quantity,
-  );
+  int priceCents; // mutável
+  int quantity; // mutável
+  final TextEditingController priceController; // Controller para o campo de preço
+  final TextEditingController quantityController; // Controller para o campo de quantidade
+
+  _CatalogItem({
+    required this.itemType,
+    required this.itemId,
+    required this.name,
+    required this.currency,
+    required this.priceCents,
+    required this.quantity,
+  }) : priceController = TextEditingController(
+         text: (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ','),
+       ),
+       quantityController = TextEditingController(
+         text: quantity.toString(),
+       );
+
+  // Métodos para atualizar valores sem recriar o objeto
+  void updatePriceCents(int cents) {
+    priceCents = cents;
+  }
+
+  void updateQuantity(int qty) {
+    quantity = qty;
+  }
+
+  _CatalogItem copyWith({
+    String? itemType,
+    String? itemId,
+    String? name,
+    String? currency,
+    int? priceCents,
+    int? quantity,
+  }) {
+    final newItem = _CatalogItem(
+      itemType: itemType ?? this.itemType,
+      itemId: itemId ?? this.itemId,
+      name: name ?? this.name,
+      currency: currency ?? this.currency,
+      priceCents: priceCents ?? this.priceCents,
+      quantity: quantity ?? this.quantity,
+    );
+    // Se o preço mudou, atualiza o controller
+    if (priceCents != null && priceCents != this.priceCents) {
+      newItem.priceController.text = (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ',');
+    } else {
+      // Mantém o texto atual do controller (preserva o que o usuário está digitando)
+      newItem.priceController.text = priceController.text;
+    }
+    // Se a quantidade mudou, atualiza o controller
+    if (quantity != null && quantity != this.quantity) {
+      newItem.quantityController.text = quantity.toString();
+    } else {
+      // Mantém o texto atual do controller (preserva o que o usuário está digitando)
+      newItem.quantityController.text = quantityController.text;
+    }
+    return newItem;
+  }
+
+  void dispose() {
+    priceController.dispose();
+    quantityController.dispose();
+  }
 }
 
 class _SelectCatalogItemDialog extends StatefulWidget {

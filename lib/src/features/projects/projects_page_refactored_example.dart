@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import '../../state/app_state_scope.dart';
 import '../../mixins/table_state_mixin.dart';
 import '../../utils/table_utils.dart';
-import '../../widgets/dynamic_paginated_table.dart';
-import '../../../widgets/table_search_filter_bar.dart';
-import '../../../widgets/reusable_data_table.dart';
+import 'package:my_business/ui/organisms/tables/dynamic_paginated_table.dart';
+import 'package:my_business/ui/organisms/tables/table_search_filter_bar.dart';
+import 'package:my_business/ui/organisms/tables/reusable_data_table.dart';
 import '../../../modules/modules.dart';
 import 'widgets/project_status_badge.dart';
 import '../../../constants/project_status.dart';
@@ -260,7 +260,7 @@ class _ProjectsPageRefactoredExampleState extends State<ProjectsPageRefactoredEx
                       DataTableColumn(label: 'Cliente', sortable: true),
                       DataTableColumn(label: 'Valor', sortable: true),
                       DataTableColumn(label: 'Status', sortable: true),
-                      DataTableColumn(label: 'Criado em', sortable: true),
+                      DataTableColumn(label: 'Criado', sortable: true),
                     ],
                     onSort: updateSorting,
                     externalSortColumnIndex: sortColumnIndex,

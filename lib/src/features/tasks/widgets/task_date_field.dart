@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 
 /// Widget reutilizável para campo de data de vencimento de tarefas
 /// 
@@ -75,11 +77,33 @@ class _TaskDateFieldState extends State<TaskDateField> {
   Future<void> _pickDate() async {
     if (!widget.enabled) return;
 
-    final picked = await showDatePicker(
+    // Diálogo customizado: somente calendário (sem cabeçalho lateral do Material)
+    final initial = widget.dueDate ?? DateTime.now();
+    DateTime temp = DateUtils.dateOnly(initial);
+
+    final picked = await DialogHelper.show<DateTime>(
       context: context,
-      initialDate: widget.dueDate ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
+      builder: (context) {
+        return StandardDialog(
+          title: 'Selecionar data',
+          width: 420,
+          height: 560,
+          actions: [
+            TextOnlyButton(onPressed: () => Navigator.pop(context), label: 'Cancelar'),
+            PrimaryButton(onPressed: () => Navigator.pop(context, temp), label: 'Salvar'),
+          ],
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              return CalendarDatePicker(
+                initialDate: temp,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2100),
+                onDateChanged: (d) => setState(() => temp = DateUtils.dateOnly(d)),
+              );
+            },
+          ),
+        );
+      },
     );
 
     if (picked != null) {

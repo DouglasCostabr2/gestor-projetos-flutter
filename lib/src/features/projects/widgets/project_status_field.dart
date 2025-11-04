@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:gestor_projetos_flutter/widgets/dropdowns/dropdowns.dart';
+import 'package:my_business/ui/molecules/dropdowns/dropdowns.dart';
 
 /// Widget reutilizável para campo de seleção de status de projeto
 ///

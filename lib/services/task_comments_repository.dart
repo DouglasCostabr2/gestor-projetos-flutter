@@ -25,7 +25,7 @@ class TaskCommentsRepository {
     try {
       final res = await _client
           .from('task_comments')
-          .select('id, content, user_id, created_at, user_profile:profiles!task_comments_user_id_fkey(full_name, email, avatar_url)')
+          .select('id, content, user_id, created_at, updated_at, user_profile:profiles!task_comments_user_id_fkey(full_name, email, avatar_url)')
           .eq('task_id', taskId)
           .order('created_at', ascending: true);
       return List<Map<String, dynamic>>.from(res);
@@ -33,7 +33,7 @@ class TaskCommentsRepository {
       // Fallback when relationship between task_comments.user_id and profiles is not declared (PGRST200)
       final res = await _client
           .from('task_comments')
-          .select('id, content, user_id, created_at')
+          .select('id, content, user_id, created_at, updated_at')
           .eq('task_id', taskId)
           .order('created_at', ascending: true);
       final list = List<Map<String, dynamic>>.from(res);

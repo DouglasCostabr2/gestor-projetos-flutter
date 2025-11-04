@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../../../widgets/user_avatar_name.dart';
-import '../../../../widgets/standard_dialog.dart';
+import 'package:my_business/ui/molecules/user_avatar_name.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
 import 'task_status_row.dart';
 import '../../tasks/task_detail_page.dart';
 import '../../../navigation/tab_manager_scope.dart';
@@ -242,7 +242,7 @@ class UserMonitoringCard extends StatelessWidget {
     // Capturar TabManager ANTES de abrir o dialog
     final tabManager = TabManagerScope.maybeOf(context);
 
-    showDialog(
+    DialogHelper.show(
       context: context,
       builder: (dialogContext) => StandardDialog(
         title: title,

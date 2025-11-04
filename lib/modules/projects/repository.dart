@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../../services/google_drive_oauth_service.dart';
 import '../auth/module.dart';
+import '../common/organization_context.dart';
 import 'contract.dart';
 
 /// Implementação do contrato de projetos
@@ -15,11 +16,60 @@ class ProjectsRepository implements ProjectsContract {
     int? limit,
   }) async {
     try {
+      // Obter usuário autenticado
+      final currentUser = authModule.currentUser;
+      if (currentUser == null) {
+        debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
+        return [];
+      }
+
+      // Obter organização ativa
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
+        return [];
+      }
+
+      final userId = currentUser.id;
+
       // OTIMIZAÇÃO: Suporte a paginação
       if (offset != null && limit != null) {
         debugPrint('🔍 Carregando projetos com paginação: offset=$offset, limit=$limit');
       }
 
+      // SEGURANÇA: Buscar apenas projetos que o usuário tem acesso
+      // 1. Projetos onde é owner
+      // 2. Projetos onde é membro (project_members)
+      // 3. Projetos onde tem tarefas atribuídas
+
+      // Primeiro, buscar IDs de projetos onde o usuário é membro
+      final memberProjectsResponse = await _client
+          .from('project_members')
+          .select('project_id')
+          .eq('user_id', userId);
+
+      final memberProjectIds = memberProjectsResponse
+          .map((m) => m['project_id'] as String)
+          .toSet();
+
+      // Buscar IDs de projetos onde o usuário tem tarefas
+      final taskProjectsResponse = await _client
+          .from('tasks')
+          .select('project_id')
+          .or('assigned_to.eq.$userId,assignee_user_ids.cs.{$userId}');
+
+      final taskProjectIds = taskProjectsResponse
+          .map((t) => t['project_id'] as String?)
+          .whereType<String>()
+          .toSet();
+
+      // Combinar todos os IDs de projetos acessíveis
+      final accessibleProjectIds = <String>{
+        ...memberProjectIds,
+        ...taskProjectIds,
+      };
+
+      // Buscar projetos
       var queryBuilder = _client
           .from('projects')
           .select('''
@@ -27,7 +77,16 @@ class ProjectsRepository implements ProjectsContract {
             profiles:owner_id(full_name, avatar_url),
             clients:client_id(name, company, email, avatar_url),
             updated_by_profile:updated_by(id, full_name, avatar_url)
-          ''');
+          ''')
+          .eq('organization_id', orgId);
+
+      // Filtrar: owner OU está na lista de projetos acessíveis
+      if (accessibleProjectIds.isNotEmpty) {
+        queryBuilder = queryBuilder.or('owner_id.eq.$userId,id.in.(${accessibleProjectIds.join(',')})');
+      } else {
+        // Se não tem projetos acessíveis, mostrar apenas os que é owner
+        queryBuilder = queryBuilder.eq('owner_id', userId);
+      }
 
       var orderedQuery = queryBuilder.order('created_at', ascending: false);
 
@@ -36,13 +95,17 @@ class ProjectsRepository implements ProjectsContract {
           ? await orderedQuery.range(offset, offset + limit - 1)
           : await orderedQuery;
 
+      debugPrint('✅ Projetos filtrados por usuário: ${response.length} encontrados');
+
       return response.map<Map<String, dynamic>>((project) {
         return {
           'id': project['id'] ?? '',
           'name': project['name'] ?? 'Projeto sem nome',
           'description': project['description'],
+          'description_json': project['description_json'],
           'owner_id': project['owner_id'] ?? '',
           'client_id': project['client_id'],
+          'company_id': project['company_id'],
           'status': project['status'] ?? 'active',
           'priority': project['priority'] ?? 'medium',
           'start_date': project['start_date'],
@@ -58,7 +121,7 @@ class ProjectsRepository implements ProjectsContract {
         };
       }).toList();
     } catch (e) {
-      debugPrint('Erro ao buscar projetos: $e');
+      debugPrint('❌ Erro ao buscar projetos: $e');
       return [];
     }
   }
@@ -84,9 +147,9 @@ class ProjectsRepository implements ProjectsContract {
       final response = await _client
           .from('projects')
           .select('''
-            id, name, description, status, currency_code, client_id, owner_id,
+            id, name, description, description_json, status, currency_code, value_cents, client_id, company_id, owner_id,
             created_at, updated_at, created_by, updated_by,
-            clients:client_id(name),
+            clients:client_id(name, avatar_url),
             created_by_profile:created_by(full_name, email),
             updated_by_profile:updated_by(full_name, email)
           ''')
@@ -179,10 +242,14 @@ class ProjectsRepository implements ProjectsContract {
     final user = authModule.currentUser;
     if (user == null) throw Exception('Usuário não autenticado');
 
+    final orgId = OrganizationContext.currentOrganizationId;
+    if (orgId == null) throw Exception('Nenhuma organização ativa');
+
     final projectData = <String, dynamic>{
       'name': name.trim(),
       'description': description.trim().isEmpty ? null : description.trim(),
       'owner_id': user.id,
+      'organization_id': orgId,
       'client_id': clientId,
       'priority': priority,
       'status': status,

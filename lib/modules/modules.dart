@@ -47,3 +47,17 @@ export 'products/module.dart';
 // Monitoring Module
 export 'monitoring/module.dart';
 
+// Time Tracking Module
+export 'time_tracking/module.dart';
+
+// Favorites Module
+export 'favorites/module.dart';
+
+// Notifications Module
+export 'notifications/module.dart';
+
+// Organizations Module
+export 'organizations/module.dart';
+
+// Audit Module
+export 'audit/audit.dart';

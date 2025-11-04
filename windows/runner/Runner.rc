@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "gestor_projetos_flutter" "\0"
+            VALUE "CompanyName", "Douglas Costa" "\0"
+            VALUE "FileDescription", "My Business - Gerenciador de Projetos e Tarefas" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "gestor_projetos_flutter" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2025 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "gestor_projetos_flutter.exe" "\0"
-            VALUE "ProductName", "gestor_projetos_flutter" "\0"
+            VALUE "InternalName", "my_business" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2025 Douglas Costa. All rights reserved." "\0"
+            VALUE "OriginalFilename", "my_business.exe" "\0"
+            VALUE "ProductName", "My Business" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

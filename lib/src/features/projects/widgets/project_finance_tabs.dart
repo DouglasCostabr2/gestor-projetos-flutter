@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../state/app_state_scope.dart';
 import 'project_financial_section.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 
 /// Widget com abas para financeiro do projeto
 /// Aba 1: Financeiro geral do projeto (ProjectFinancialSection existente)
@@ -25,62 +25,93 @@ class _ProjectFinanceTabsState extends State<ProjectFinanceTabs> {
   @override
   Widget build(BuildContext context) {
     final app = AppStateScope.of(context);
-    final canAccessFinance = app.isAdmin || app.isFinanceiro || app.isGestor;
+    final canAccessFullFinance = app.isOrgOwner || app.isAdmin || app.isFinanceiro || app.isGestor;
 
-    if (!canAccessFinance) {
-      return const SizedBox.shrink();
-    }
-
-    return Card(
-      child: DefaultTabController(
-        length: 2,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Financeiro',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ),
-            TabBar(
-              labelColor: Theme.of(context).colorScheme.primary,
-              unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
-              indicatorColor: Theme.of(context).colorScheme.primary,
-              tabs: const [
-                Tab(text: 'Projeto'),
-                Tab(text: 'Funcionários'),
-              ],
-            ),
-            const Divider(height: 1),
-            SizedBox(
-              height: 390,
-              child: TabBarView(
-                children: [
-                  // Aba 1: Financeiro do projeto (sem scroll externo)
-                  ClipRect(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: ProjectFinancialSection(
-                        projectId: widget.projectId,
-                        currencyCode: widget.currencyCode,
+    // Se for Admin/Gestor/Financeiro: mostra ambas as abas
+    if (canAccessFullFinance) {
+      return Card(
+        child: DefaultTabController(
+          length: 2,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Financeiro',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
                       ),
-                    ),
-                  ),
-                  // Aba 2: Pagamentos aos funcionários
-                  _EmployeePaymentsTab(
-                    projectId: widget.projectId,
-                    currencyCode: widget.currencyCode,
-                  ),
+                ),
+              ),
+              TabBar(
+                labelColor: Theme.of(context).colorScheme.primary,
+                unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
+                indicatorColor: Theme.of(context).colorScheme.primary,
+                tabs: const [
+                  Tab(text: 'Projeto'),
+                  Tab(text: 'Funcionários'),
                 ],
               ),
-            ),
-          ],
+              const Divider(height: 1),
+              SizedBox(
+                height: 390,
+                child: TabBarView(
+                  children: [
+                    // Aba 1: Financeiro do projeto (sem scroll externo)
+                    ClipRect(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: ProjectFinancialSection(
+                          projectId: widget.projectId,
+                          currencyCode: widget.currencyCode,
+                        ),
+                      ),
+                    ),
+                    // Aba 2: Pagamentos aos funcionários
+                    _EmployeePaymentsTab(
+                      projectId: widget.projectId,
+                      currencyCode: widget.currencyCode,
+                      showOnlyCurrentUser: false,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
+      );
+    }
+
+    // Se for outro usuário (Designer, Cliente, Usuário): mostra apenas suas próprias informações
+    return Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'Financeiro',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+          const Divider(height: 1),
+          SizedBox(
+            height: 390,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: _EmployeePaymentsTab(
+                projectId: widget.projectId,
+                currencyCode: widget.currencyCode,
+                showOnlyCurrentUser: true,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -90,10 +121,12 @@ class _ProjectFinanceTabsState extends State<ProjectFinanceTabs> {
 class _EmployeePaymentsTab extends StatefulWidget {
   final String projectId;
   final String currencyCode;
+  final bool showOnlyCurrentUser;
 
   const _EmployeePaymentsTab({
     required this.projectId,
     required this.currencyCode,
+    this.showOnlyCurrentUser = false,
   });
 
   @override
@@ -120,63 +153,71 @@ class _EmployeePaymentsTabState extends State<_EmployeePaymentsTab> {
 
     try {
       final supabase = Supabase.instance.client;
+      final currentUserId = supabase.auth.currentUser?.id;
 
-      // Buscar todas as tasks do projeto com assigned_to
-      final tasksData = await supabase
-          .from('tasks')
-          .select('assigned_to')
-          .eq('project_id', widget.projectId)
-          .not('assigned_to', 'is', null);
+      // Se showOnlyCurrentUser = true, filtrar apenas o usuário atual
+      Set<String> employeeIds;
 
-      // Extrair IDs únicos de funcionários
-      final employeeIds = <String>{};
-      for (final task in tasksData) {
-        final assignedTo = task['assigned_to'] as String?;
-        if (assignedTo != null) {
-          employeeIds.add(assignedTo);
+      if (widget.showOnlyCurrentUser && currentUserId != null) {
+        // Mostrar apenas o usuário atual
+        employeeIds = {currentUserId};
+      } else {
+        // Buscar todas as tasks do projeto com assigned_to e assignee_user_ids
+        final tasksData = await supabase
+            .from('tasks')
+            .select('assigned_to, assignee_user_ids')
+            .eq('project_id', widget.projectId);
+
+        // Extrair IDs únicos de funcionários (de assigned_to e assignee_user_ids)
+        employeeIds = <String>{};
+        for (final task in tasksData) {
+          // Adicionar assigned_to (responsável principal)
+          final assignedTo = task['assigned_to'] as String?;
+          if (assignedTo != null) {
+            employeeIds.add(assignedTo);
+          }
+
+          // Adicionar assignee_user_ids (múltiplos responsáveis)
+          final assigneeUserIds = (task['assignee_user_ids'] as List<dynamic>?)?.cast<String>() ?? [];
+          for (final id in assigneeUserIds) {
+            if (id.isNotEmpty) {
+              employeeIds.add(id);
+            }
+          }
         }
       }
 
-      // Buscar perfis dos funcionários
+      // Buscar perfis de todos os funcionários únicos
       final employeesMap = <String, Map<String, dynamic>>{};
-      for (final employeeId in employeeIds) {
-        try {
-          final profileData = await supabase
-              .from('profiles')
-              .select('id, full_name, email, avatar_url')
-              .eq('id', employeeId)
-              .maybeSingle();
+      if (employeeIds.isNotEmpty) {
+        final profilesResponse = await supabase
+            .from('profiles')
+            .select('id, full_name, email, avatar_url')
+            .inFilter('id', employeeIds.toList());
 
-          if (profileData != null) {
-            employeesMap[employeeId] = {
-              'id': profileData['id'] ?? employeeId,
-              'full_name': profileData['full_name'] ?? 'Usuário',
-              'email': profileData['email'] ?? '',
-              'avatar_url': profileData['avatar_url'],
-            };
-          }
-        } catch (e) {
-          // Se falhar ao buscar perfil, adiciona com dados mínimos
-          employeesMap[employeeId] = {
-            'id': employeeId,
-            'full_name': 'Usuário',
-            'email': '',
-            'avatar_url': null,
+        for (final profile in profilesResponse) {
+          final id = profile['id'] as String;
+          employeesMap[id] = {
+            'id': id,
+            'full_name': profile['full_name'] ?? 'Usuário',
+            'email': profile['email'] ?? '',
+            'avatar_url': profile['avatar_url'],
           };
         }
       }
 
-      // Buscar TODOS os pagamentos aos funcionários deste projeto (pending e confirmed)
-      final paymentsData = await supabase
+      // Buscar pagamentos aos funcionários deste projeto
+      var paymentsQuery = supabase
           .from('employee_payments')
           .select('*')
-          .eq('project_id', widget.projectId)
-          .order('created_at', ascending: false);
+          .eq('project_id', widget.projectId);
 
-      debugPrint('📊 Pagamentos encontrados: ${paymentsData.length}');
-      for (final p in paymentsData) {
-        debugPrint('   - R\$ ${(p['amount_cents'] as int) / 100} - Status: ${p['status']} - ${p['description'] ?? 'sem descrição'}');
+      // Se showOnlyCurrentUser = true, filtrar apenas pagamentos do usuário atual
+      if (widget.showOnlyCurrentUser && currentUserId != null) {
+        paymentsQuery = paymentsQuery.eq('employee_id', currentUserId);
       }
+
+      final paymentsData = await paymentsQuery.order('created_at', ascending: false);
 
       setState(() {
         _employees = employeesMap.values.toList();
@@ -401,11 +442,14 @@ class _EmployeePaymentsTabState extends State<_EmployeePaymentsTab> {
                       ),
                   ],
                 ),
-                trailing: IconOnlyButton(
-                  icon: Icons.add_circle_outline,
-                  onPressed: () => _addPayment(employeeId, employee['full_name']),
-                  tooltip: 'Adicionar pagamento',
-                ),
+                // Botão "+" só aparece para Admin/Gestor/Financeiro (quando showOnlyCurrentUser = false)
+                trailing: !widget.showOnlyCurrentUser
+                    ? IconOnlyButton(
+                        icon: Icons.add_circle_outline,
+                        onPressed: () => _addPayment(employeeId, employee['full_name']),
+                        tooltip: 'Adicionar pagamento',
+                      )
+                    : null,
                 children: [
                   if (employeePayments.isEmpty)
                     const Padding(
@@ -467,27 +511,30 @@ class _EmployeePaymentsTabState extends State<_EmployeePaymentsTab> {
                           '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}'
                           '${payment['description'] != null ? ' • ${payment['description']}' : ''}',
                         ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (!isConfirmed)
-                              IconOnlyButton(
-                                icon: Icons.check,
-                                tooltip: 'Confirmar pagamento',
-                                onPressed: () => _confirmPayment(payment['id'] as String),
-                              ),
-                            IconOnlyButton(
-                              icon: Icons.delete_outline,
-                              tooltip: 'Excluir pagamento',
-                              iconColor: Theme.of(context).colorScheme.error,
-                              onPressed: () => _deletePayment(
-                                payment['id'] as String,
-                                employee['full_name'],
-                                payment['amount_cents'] as int,
-                              ),
-                            ),
-                          ],
-                        ),
+                        // Botões de ação só aparecem para Admin/Gestor/Financeiro
+                        trailing: !widget.showOnlyCurrentUser
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (!isConfirmed)
+                                    IconOnlyButton(
+                                      icon: Icons.check,
+                                      tooltip: 'Confirmar pagamento',
+                                      onPressed: () => _confirmPayment(payment['id'] as String),
+                                    ),
+                                  IconOnlyButton(
+                                    icon: Icons.delete_outline,
+                                    tooltip: 'Excluir pagamento',
+                                    iconColor: Theme.of(context).colorScheme.error,
+                                    onPressed: () => _deletePayment(
+                                      payment['id'] as String,
+                                      employee['full_name'],
+                                      payment['amount_cents'] as int,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : null,
                       );
                     }),
                 ],
@@ -544,11 +591,19 @@ class _AddEmployeePaymentDialogState extends State<_AddEmployeePaymentDialog> {
     setState(() => _saving = true);
 
     try {
-      debugPrint('💰 Tentando salvar pagamento...');
-      debugPrint('   Project ID: ${widget.projectId}');
-      debugPrint('   Employee ID: ${widget.employeeId}');
-      debugPrint('   Amount: ${_parseCents(_amountController.text)}');
-      debugPrint('   User ID: ${Supabase.instance.client.auth.currentUser?.id}');
+      // Obter organization_id do projeto
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      String? organizationId;
+      try {
+        final project = await Supabase.instance.client
+            .from('projects')
+            .select('organization_id')
+            .eq('id', widget.projectId)
+            .maybeSingle();
+        organizationId = project?['organization_id'] as String?;
+      } catch (e) {
+        // Silently fail - organization_id is optional for backward compatibility
+      }
 
       await Supabase.instance.client.from('employee_payments').insert({
         'project_id': widget.projectId,
@@ -558,21 +613,19 @@ class _AddEmployeePaymentDialogState extends State<_AddEmployeePaymentDialog> {
             ? null
             : _descriptionController.text.trim(),
         'status': 'pending',
-        'created_by': Supabase.instance.client.auth.currentUser?.id,
+        'created_by': userId,
+        if (organizationId != null) 'organization_id': organizationId,
       });
-
-      debugPrint('✅ Pagamento salvo com sucesso!');
 
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
-      debugPrint('❌ Erro ao salvar pagamento: $e');
 
       if (!mounted) return;
 
       String errorMessage = 'Erro ao salvar pagamento';
       if (e.toString().contains('permission') || e.toString().contains('policy')) {
-        errorMessage = 'Você não tem permissão para registrar pagamentos. Apenas Admin, Gestor e Financeiro podem fazer isso.';
+        errorMessage = 'Você não tem permissão para registrar pagamentos. Apenas Owner, Admin, Gestor e Financeiro podem fazer isso.';
       } else {
         errorMessage = 'Erro ao salvar: $e';
       }

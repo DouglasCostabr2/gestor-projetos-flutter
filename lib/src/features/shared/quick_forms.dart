@@ -2,31 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:file_picker/file_picker.dart';
-import 'package:mime/mime.dart' as mime;
-import 'package:googleapis_auth/auth_io.dart' as auth;
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
+import 'package:my_business/services/briefing_upload_helpers.dart';
+import 'package:my_business/services/assets_upload_helpers.dart';
 
-import 'package:gestor_projetos_flutter/services/google_drive_oauth_service.dart';
-import 'package:gestor_projetos_flutter/services/task_files_repository.dart';
-import 'package:gestor_projetos_flutter/services/upload_manager.dart' as legacy_upload;
-import 'package:gestor_projetos_flutter/widgets/drive_connect_dialog.dart';
-import 'package:gestor_projetos_flutter/modules/tasks/module.dart';
+import 'package:my_business/services/google_drive_oauth_service.dart';
+import 'package:my_business/modules/tasks/module.dart';
+import 'package:my_business/modules/common/organization_context.dart';
 
-import 'package:gestor_projetos_flutter/src/features/tasks/widgets/task_history_widget.dart';
-import 'package:gestor_projetos_flutter/src/features/tasks/widgets/task_assets_section.dart';
-import 'package:gestor_projetos_flutter/src/features/tasks/widgets/task_briefing_section.dart';
-import 'package:gestor_projetos_flutter/src/features/tasks/widgets/task_product_link_section.dart';
-import 'package:gestor_projetos_flutter/src/features/tasks/widgets/task_date_field.dart';
-import 'package:gestor_projetos_flutter/src/features/tasks/widgets/task_assignee_field.dart';
-import 'package:gestor_projetos_flutter/src/features/tasks/widgets/task_priority_field.dart';
-import 'package:gestor_projetos_flutter/src/features/tasks/widgets/task_status_field.dart';
-import 'package:gestor_projetos_flutter/widgets/standard_dialog.dart';
-import 'package:gestor_projetos_flutter/widgets/custom_briefing_editor.dart';
-import 'package:gestor_projetos_flutter/modules/modules.dart';
-import 'package:gestor_projetos_flutter/widgets/inputs/inputs.dart';
+import 'package:my_business/src/features/tasks/widgets/task_history_widget.dart';
+import 'package:my_business/src/features/tasks/widgets/task_assets_section.dart';
+import 'package:my_business/src/features/tasks/widgets/task_briefing_section.dart';
+import 'package:my_business/src/features/tasks/widgets/task_product_link_selector.dart';
+import 'package:my_business/src/features/tasks/widgets/task_date_field.dart';
+import 'package:my_business/src/features/tasks/widgets/task_assignees_field.dart';
+import 'package:my_business/src/features/tasks/widgets/task_priority_field.dart';
+import 'package:my_business/src/features/tasks/widgets/task_status_field.dart';
+import 'package:my_business/modules/modules.dart';
+import 'package:my_business/src/services/task_products_service.dart';
+import 'package:my_business/ui/molecules/inputs/mention_text_field.dart';
+import 'package:my_business/services/mentions_service.dart';
 
 /* LEGACY REMOVED: QuickProjectForm and _SelectCatalogItemDialogQuick (now using ProjectFormDialog)
 
@@ -155,6 +153,7 @@ class _QuickProjectFormState extends State<QuickProjectForm> {
     _name.dispose();
     _desc.dispose();
     _valueText.dispose();
+    for (final item in _catalogItems) { item.dispose(); }
     super.dispose();
   }
 
@@ -262,12 +261,12 @@ class _QuickProjectFormState extends State<QuickProjectForm> {
                       // Moeda + Valor
                       Row(children: [
                         Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _currencyCode,
+                          child: GenericDropdownField<String>(
+                            value: _currencyCode,
                             items: const [
-                              DropdownMenuItem(value: 'BRL', child: Text('BRL - Real')),
-                              DropdownMenuItem(value: 'USD', child: Text('USD - Dólar')),
-                              DropdownMenuItem(value: 'EUR', child: Text('EUR - Euro')),
+                              DropdownItem(value: 'BRL', label: 'Real (BRL)'),
+                              DropdownItem(value: 'USD', label: 'Dólar (USD)'),
+                              DropdownItem(value: 'EUR', label: 'Euro (EUR)'),
                             ],
                             onChanged: canEditFinancial ? (v) {
                               if (v == null || v == _currencyCode) return;
@@ -278,7 +277,9 @@ class _QuickProjectFormState extends State<QuickProjectForm> {
                                 }
                               });
                             } : null,
-                            decoration: const InputDecoration(labelText: 'Moeda'),
+                            labelText: 'Moeda',
+                            enabled: canEditFinancial,
+                            openUpwards: true, // Abre para cima pois está no footer
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -331,13 +332,22 @@ class _SelectCatalogItemDialogQuickState extends State<_SelectCatalogItemDialogQ
     setState(() { _loading = true; _error = null; });
     try {
       final client = Supabase.instance.client;
+
+      // Obter organization_id
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        throw Exception('Nenhuma organização ativa');
+      }
+
       final prods = await client
           .from('products')
           .select('id, name, currency_code, price_cents')
+          .eq('organization_id', orgId)
           .eq('currency_code', widget.currency);
       final packs = await client
           .from('packages')
           .select('id, name, currency_code, price_cents')
+          .eq('organization_id', orgId)
           .eq('currency_code', widget.currency);
       if (!mounted) return;
       setState(() {
@@ -482,15 +492,15 @@ class _SelectCatalogItemDialogQuickState extends State<_SelectCatalogItemDialogQ
                               SizedBox(
                                 width: 140,
                                 child: GenericNumberField(
-                                  initialValue: _formatCents(it.priceCents).replaceAll('.', ','),
+                                  controller: it.priceController,
                                   enabled: canEditFinancial,
                                   allowDecimals: true,
                                   labelText: 'Preço',
                                   prefixText: '${_currencySymbol(_currencyCode)} ',
                                   onChanged: (v) {
                                     final cents = _parseMoneyToCents(v);
+                                    it.updatePriceCents(cents);
                                     setState(() {
-                                      _catalogItems[i] = it.copyWith(priceCents: cents);
                                       if (canEditFinancial && _catalogItems.isNotEmpty) {
                                         _valueText.text = _formatCents(_catalogSumCents).replaceAll('.', ',');
                                       }
@@ -502,14 +512,14 @@ class _SelectCatalogItemDialogQuickState extends State<_SelectCatalogItemDialogQ
                               SizedBox(
                                 width: 90,
                                 child: GenericNumberField(
-                                  initialValue: it.quantity.toString(),
+                                  controller: it.quantityController,
                                   enabled: canEditFinancial,
                                   allowDecimals: false,
                                   labelText: 'Qtd',
                                   onChanged: (v) {
                                     final q = int.tryParse(v) ?? 1;
+                                    it.updateQuantity(q.clamp(1, 999));
                                     setState(() {
-                                      _catalogItems[i] = it.copyWith(quantity: q.clamp(1, 999));
                                       if (canEditFinancial && _catalogItems.isNotEmpty) {
                                         _valueText.text = _formatCents(_catalogSumCents).replaceAll('.', ',');
                                       }
@@ -549,17 +559,33 @@ class _CatalogItem {
   final String itemId;
   final String name;
   final String currency;
-  final int priceCents; // snapshot negociado
-  final int quantity;
+  int priceCents; // snapshot negociado (mutável)
+  int quantity; // mutável
+  final TextEditingController priceController; // Controller para o campo de preço
+  final TextEditingController quantityController; // Controller para o campo de quantidade
 
-  const _CatalogItem({
+  _CatalogItem({
     required this.itemType,
     required this.itemId,
     required this.name,
     required this.currency,
     required this.priceCents,
     required this.quantity,
-  });
+  }) : priceController = TextEditingController(
+         text: (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ','),
+       ),
+       quantityController = TextEditingController(
+         text: quantity.toString(),
+       );
+
+  // Métodos para atualizar valores sem recriar o objeto
+  void updatePriceCents(int cents) {
+    priceCents = cents;
+  }
+
+  void updateQuantity(int qty) {
+    quantity = qty;
+  }
 
   _CatalogItem copyWith({
     String? itemType,
@@ -569,7 +595,7 @@ class _CatalogItem {
     int? priceCents,
     int? quantity,
   }) {
-    return _CatalogItem(
+    final newItem = _CatalogItem(
       itemType: itemType ?? this.itemType,
       itemId: itemId ?? this.itemId,
       name: name ?? this.name,
@@ -577,6 +603,26 @@ class _CatalogItem {
       priceCents: priceCents ?? this.priceCents,
       quantity: quantity ?? this.quantity,
     );
+    // Se o preço mudou, atualiza o controller
+    if (priceCents != null && priceCents != this.priceCents) {
+      newItem.priceController.text = (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ',');
+    } else {
+      // Mantém o texto atual do controller (preserva o que o usuário está digitando)
+      newItem.priceController.text = priceController.text;
+    }
+    // Se a quantidade mudou, atualiza o controller
+    if (quantity != null && quantity != this.quantity) {
+      newItem.quantityController.text = quantity.toString();
+    } else {
+      // Mantém o texto atual do controller (preserva o que o usuário está digitando)
+      newItem.quantityController.text = quantityController.text;
+    }
+    return newItem;
+  }
+
+  void dispose() {
+    priceController.dispose();
+    quantityController.dispose();
   }
 }
 class _SelectCatalogItemDialogQuick extends StatefulWidget {
@@ -602,14 +648,23 @@ class _SelectCatalogItemDialogQuickState extends State<_SelectCatalogItemDialogQ
     setState(() { _loading = true; _error = null; });
     try {
       final supa = Supabase.instance.client;
+
+      // Obter organization_id
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        throw Exception('Nenhuma organização ativa');
+      }
+
       final prods = await supa
           .from('products')
           .select('id, name, price_cents, currency_code')
+          .eq('organization_id', orgId)
           .eq('currency_code', widget.currency)
           .order('name');
       final packs = await supa
           .from('packages')
           .select('id, name, price_cents, currency_code')
+          .eq('organization_id', orgId)
           .eq('currency_code', widget.currency)
           .order('name');
       if (!mounted) return;
@@ -720,7 +775,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
   bool _saving = false;
   // Project & Members/Assignee
   String? _projectId;
-  String? _assigneeUserId; // assigned_to
+  List<String> _assigneeUserIds = []; // múltiplos responsáveis
   List<Map<String, dynamic>> _members = [];
   // Priority & Due date
   String _priority = 'medium';
@@ -741,14 +796,8 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
   String? _clientName;
   String? _companyName;
 
-  bool _isAbsolutePath(String s) {
-    final hasDrive = RegExp(r'^[A-Za-z]:[\\/]').hasMatch(s);
-    return hasDrive || s.startsWith('/') || s.startsWith('\\\\');
-  }
-
-  // Drive + files repo
+  // Drive service
   final _drive = GoogleDriveOAuthService();
-  final _filesRepo = TaskFilesRepository();
 
   // Métodos removidos: _loadExistingAssets, _openDownloadFromAsset, _buildExistingAssetThumb, _deleteExistingAsset
   // QuickTaskForm não gerencia assets existentes - apenas novos uploads
@@ -757,12 +806,27 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
   @override
   void initState() {
     super.initState();
+    debugPrint('🚀 QuickTaskForm - initState chamado');
+    debugPrint('   widget.projectId: ${widget.projectId}');
+    debugPrint('   widget.initial: ${widget.initial != null ? "SIM" : "NÃO"}');
+
     final i = widget.initial;
     if (i != null) {
+      debugPrint('   Modo: EDIÇÃO');
       _title.text = i['title'] ?? '';
       _priority = (i['priority'] as String?) ?? 'medium';
       _projectId = i['project_id'] as String? ?? widget.projectId;
-      _assigneeUserId = i['assigned_to'] as String?;
+      debugPrint('   _projectId definido: $_projectId');
+
+      // Carregar responsáveis (suporta assigned_to antigo e assignee_user_ids novo)
+      final assigneeUserIds = i['assignee_user_ids'] as List?;
+      if (assigneeUserIds != null && assigneeUserIds.isNotEmpty) {
+        _assigneeUserIds = assigneeUserIds.cast<String>();
+      } else {
+        final assignedTo = i['assigned_to'] as String?;
+        _assigneeUserIds = assignedTo != null ? [assignedTo] : [];
+      }
+
       final due = i['due_date'] as String?;
       if (due != null && due.isNotEmpty) {
         try {
@@ -783,11 +847,22 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         _briefingText = d;
       }
     } else {
+      debugPrint('   Modo: CRIAÇÃO');
       _projectId = widget.projectId;
+      debugPrint('   _projectId definido: $_projectId');
     }
+
     if (_projectId != null) {
+      debugPrint('   ✅ Chamando _loadMembers($_projectId)');
       _loadMembers(_projectId!);
       _loadProjectAndClientInfo(_projectId!);
+    } else {
+      debugPrint('   ⚠️ _projectId é NULL - NÃO vai carregar membros!');
+    }
+
+    // Load linked products if editing existing task
+    if (i != null && i['id'] != null) {
+      _loadLinkedProducts(i['id'] as String);
     }
     // Removed: _loadExistingAssets - QuickTaskForm doesn't manage existing assets
   }
@@ -800,29 +875,47 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
 
   Future<void> _loadMembers(String projectId) async {
     try {
+      // Buscar membros do projeto
       final res = await Supabase.instance.client
           .from('project_members')
           .select('user_id, profiles:user_id(full_name, email, role, avatar_url)')
           .eq('project_id', projectId);
       final all = List<Map<String, dynamic>>.from(res);
-      var filtered = all.where((m) {
-        final role = (m['profiles']?['role'] as String?)?.toLowerCase();
-        return role == 'admin' || role == 'gestor' || role == 'funcionario';
-      }).toList();
+
+      // Não filtrar por roles - mostrar todos os membros do projeto
+      var filtered = all;
+
+      // Fallback: buscar membros da organização se o projeto não tem membros
       if (filtered.isEmpty) {
-        // Fallback to all admins/funcionarios if project has no members
-        final prof = await Supabase.instance.client
-            .from('profiles')
-            .select('id, full_name, email, role, avatar_url')
-            .inFilter('role', ['admin','gestor','funcionario']);
-        filtered = List<Map<String, dynamic>>.from(prof).map((p) => {
-          'user_id': p['id'],
-          'profiles': p,
-        }).toList();
+        final orgId = OrganizationContext.currentOrganizationId;
+        if (orgId != null) {
+          try {
+            final orgMembers = await Supabase.instance.client.rpc(
+              'get_organization_members_with_profiles',
+              params: {'org_id': orgId},
+            );
+
+            filtered = (orgMembers as List).map((m) {
+              final member = m as Map<String, dynamic>;
+              return {
+                'user_id': member['user_id'],
+                'profiles': {
+                  'id': member['user_id'],
+                  'full_name': member['full_name'],
+                  'email': member['email'],
+                  'avatar_url': member['avatar_url'],
+                  'role': member['role'],
+                },
+              };
+            }).toList();
+          } catch (e) {
+            // Silently fail - filtered will remain empty
+          }
+        }
       }
+
       if (mounted) setState(() => _members = filtered);
     } catch (e) {
-      debugPrint('Erro ao carregar membros (quick form): $e');
       if (mounted) setState(() => _members = []);
     }
   }
@@ -847,9 +940,15 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
     }
   }
 
-
-
-
+  Future<void> _loadLinkedProducts(String taskId) async {
+    try {
+      if (_projectId == null || _projectId!.isEmpty) return;
+      final list = await TaskProductsService.loadLinkedProducts(taskId, projectId: _projectId!);
+      if (mounted) setState(() => _linkedProducts = list);
+    } catch (e) {
+      debugPrint('Erro ao carregar produtos vinculados: $e');
+    }
+  }
 
   Future<void> _save() async {
     if (_saving) return; // reentrancy guard
@@ -867,29 +966,14 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         final validPriorities = ['low', 'medium', 'high', 'urgent'];
         final safePriority = validPriorities.contains(_priority) ? _priority : 'medium';
 
-        // Fazer upload das imagens do briefing em cache para o Google Drive
-        String finalBriefingJson = _briefingJson;
-        if (_briefingJson.isNotEmpty && _clientName != null && _projectName != null) {
-          try {
-            finalBriefingJson = await uploadCustomBriefingCachedImages(
-              briefingJson: _briefingJson,
-              clientName: _clientName!,
-              projectName: _projectName!,
-              taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Nova Tarefa',
-              companyName: _companyName,
-            );
-          } catch (e) {
-            debugPrint('⚠️ Erro ao fazer upload das imagens do briefing: $e');
-            // Continua com o JSON original em caso de erro
-          }
-        }
-
-        // Criar tarefa usando o módulo (isso vai criar a pasta no Google Drive)
+        // Criar tarefa IMEDIATAMENTE com JSON local (URLs file://)
+        // Upload de imagens será feito em background depois
         final taskRow = await tasksModule.createTask(
           title: _title.text.trim(),
-          description: finalBriefingJson.isNotEmpty ? finalBriefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
+          description: _briefingJson.isNotEmpty ? _briefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
           projectId: _projectId ?? widget.projectId!,
-          assignedTo: _assigneeUserId,
+          assignedTo: _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+          assigneeUserIds: _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
           status: 'todo',
           priority: safePriority,
           dueDate: _dueDate,
@@ -900,6 +984,30 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         // Atualizar prioridade baseada no prazo
         final taskId = taskRow['id'] as String;
         await tasksModule.updateSingleTaskPriority(taskId);
+
+        // Salvar menções do título
+        final mentionsService = MentionsService();
+        try {
+          await mentionsService.saveTaskMentions(
+            taskId: taskId,
+            fieldName: 'title',
+            content: _title.text,
+          );
+        } catch (e) {
+          debugPrint('Erro ao salvar menções do título: $e');
+        }
+
+        // Upload de imagens do briefing em BACKGROUND (não bloqueia o salvamento)
+        if (_clientName != null && _projectName != null) {
+          startBriefingImagesBackgroundUpload(
+            taskId: taskId,
+            briefingJson: _briefingJson,
+            clientName: _clientName!,
+            projectName: _projectName!,
+            taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Nova Tarefa',
+            companyName: _companyName,
+          );
+        }
 
         // Atualizar o projeto também (updated_by e updated_at)
         if (widget.projectId != null && userId != null) {
@@ -914,165 +1022,21 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           }
         }
 
-        Future<auth.AuthClient?> ensureClient() async {
-          try { return await _drive.getAuthedClient(); } on ConsentRequired catch (_) {
-            if (!mounted) return null;
-            final ok = await showDialog<bool>(context: context, builder: (_) => DriveConnectDialog(service: _drive));
-            if (ok == true) { try { return await _drive.getAuthedClient(); } catch (_) {} }
-            return null;
-          }
-        }
-
         // Upload Assets em segundo plano (se houver)
-        if (_assetsImages.isNotEmpty || _assetsFiles.isNotEmpty || _assetsVideos.isNotEmpty) {
-          try {
-            final authed = await ensureClient();
-            if (authed != null) {
-              final taskId = taskRow['id'] as String;
-              final clientName = _clientName ?? 'Cliente';
-              final projectName = _projectName ?? 'Projeto';
-              final taskTitle = _title.text.trim().isNotEmpty ? _title.text.trim() : 'Tarefa';
+        await startAssetsBackgroundUpload(
+          taskId: taskRow['id'] as String,
+          clientName: _clientName ?? 'Cliente',
+          projectName: _projectName ?? 'Projeto',
+          taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Tarefa',
+          assetsImages: _assetsImages,
+          assetsFiles: _assetsFiles,
+          assetsVideos: _assetsVideos,
+          companyName: _companyName,
+          context: mounted ? context : null,
+          driveService: _drive,
+        );
 
-              final items = <legacy_upload.MemoryUploadItem>[];
-              void addList(List<PlatformFile> list, String category) {
-                for (final f in list.where((f) => f.bytes != null)) {
-                  items.add(legacy_upload.MemoryUploadItem(
-                    name: f.name,
-                    bytes: f.bytes!,
-                    mimeType: mime.lookupMimeType(f.name),
-                    subfolderName: 'Assets',
-                    category: category,
-                  ));
-                }
-              }
-              addList(_assetsImages, 'assets');
-              addList(_assetsFiles, 'assets');
-              addList(_assetsVideos, 'assets');
 
-              // Dispara upload em background e não aguarda
-              unawaited(legacy_upload.UploadManager.instance.startAssetsUploadWithClient(
-                client: authed,
-                taskId: taskId,
-                clientName: clientName,
-                projectName: projectName,
-                taskTitle: taskTitle,
-                items: items,
-              ));
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enviando arquivos em segundo plano...')));
-              }
-            }
-          } catch (e) { debugPrint('Falha ao enfileirar assets (quick): $e'); }
-        }
-
-        // Note: AppFlowy Editor handles image uploads internally
-        // The briefing JSON is already saved in the 'description' field above
-
-        /* OLD QUILL IMAGE PROCESSING - Not needed with AppFlowy
-        try {
-          final List<Map<String, dynamic>> ops = List<Map<String, dynamic>>.from(_briefingCtrl.document.toDelta().toJson());
-          final usedBriefingNames = <String>{};
-          String uniqueBriefingName(String name) {
-            var candidate = name; int i = 1;
-            while (usedBriefingNames.contains(candidate)) {
-              final dot = candidate.lastIndexOf('.');
-              final base = dot >= 0 ? candidate.substring(0, dot) : candidate;
-              final ext = dot >= 0 ? candidate.substring(dot) : '';
-              candidate = "$base ($i)$ext"; i++;
-            }
-            usedBriefingNames.add(candidate); return candidate;
-          }
-          auth.AuthClient? authed;
-          for (var i = 0; i < ops.length; i++) {
-            final op = ops[i];
-            final insert = op['insert'];
-            if (insert is Map && insert['image'] is String) {
-              final src = insert['image'] as String;
-              List<int>? bytes;
-              String? mimeType;
-              if (src.startsWith('data:')) {
-                final comma = src.indexOf(',');
-                if (comma > 0) {
-                  final header = src.substring(5, comma);
-                  final b64 = src.substring(comma + 1);
-                  bytes = base64Decode(b64);
-                  mimeType = header.split(';').first;
-                }
-              } else if (src.startsWith('file://') || _isAbsolutePath(src)) {
-                final filePath = src.startsWith('file://') ? Uri.parse(src).toFilePath() : src;
-                final file = File(filePath);
-                if (await file.exists()) {
-                  bytes = await file.readAsBytes();
-                  mimeType = mime.lookupMimeType(filePath) ?? 'image/png';
-                }
-              }
-
-              if (bytes != null && mimeType != null) {
-                String ext;
-                switch (mimeType) {
-                  case 'image/jpeg': ext = 'jpg'; break;
-                  case 'image/png': ext = 'png'; break;
-                  case 'image/gif': ext = 'gif'; break;
-                  case 'image/webp': ext = 'webp'; break;
-                  default: ext = 'bin';
-                }
-                authed ??= await ensureClient();
-                if (authed == null) break;
-                final clientName = (taskRow['projects']?['clients']?['name'] ?? 'Cliente').toString();
-                final projectName = (taskRow['projects']?['name'] ?? 'Projeto').toString();
-                final taskTitle = (taskRow['title'] ?? 'Tarefa').toString();
-                final taskId = taskRow['id'] as String;
-
-                // Determine original filename
-                String originalName;
-                if (src.startsWith('file://') || _isAbsolutePath(src)) {
-                  final filePath = src.startsWith('file://') ? Uri.parse(src).toFilePath() : src;
-                  originalName = filePath.split(RegExp(r'[\\/]')).last;
-                  if (originalName.contains('__')) {
-                    originalName = originalName.split('__').last;
-                  }
-                  if (!originalName.contains('.')) {
-                    originalName = '$originalName.$ext';
-                  }
-                  if (!originalName.toLowerCase().startsWith('briefing_')) {
-                    originalName = 'Briefing_$originalName';
-                  } else {
-                    originalName = 'Briefing_${originalName.substring('briefing_'.length)}';
-                  }
-                } else {
-                  originalName = 'Briefing_image.$ext';
-                }
-                final filename = uniqueBriefingName(originalName);
-                final up = await _drive.uploadToTaskSubfolder(
-                  client: authed,
-                  clientName: clientName,
-                  projectName: projectName,
-                  taskName: taskTitle,
-                  subfolderName: 'Briefing',
-                  filename: filename,
-                  bytes: bytes,
-                  mimeType: mimeType,
-                );
-                await _filesRepo.saveFile(
-                  taskId: taskId,
-                  filename: filename,
-                  sizeBytes: bytes.length,
-                  mimeType: mimeType,
-                  driveFileId: up.id,
-                  driveFileUrl: up.publicViewUrl,
-                  category: 'briefing',
-                );
-                op['insert'] = { 'image': up.publicViewUrl };
-                ops[i] = op;
-              }
-            }
-          }
-          final descJson = jsonEncode(ops);
-          await client.from('tasks').update({'description': descJson}).eq('id', taskRow['id']);
-        } catch (e) {
-          debugPrint('Falha ao processar briefing (quick create): $e');
-        }
-        */
 
         // Save linked products to task_products table
         try {
@@ -1112,36 +1076,12 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         final validPriorities = ['low', 'medium', 'high', 'urgent'];
         final safePriority = validPriorities.contains(_priority) ? _priority : 'medium';
 
-        // Fazer upload das imagens do briefing em cache para o Google Drive
-        String finalBriefingJson = _briefingJson;
-        debugPrint('🔍 Verificando upload de imagens do briefing...');
-        debugPrint('   _briefingJson.isNotEmpty: ${_briefingJson.isNotEmpty}');
-        debugPrint('   _clientName: $_clientName');
-        debugPrint('   _projectName: $_projectName');
-
-        if (_briefingJson.isNotEmpty && _clientName != null && _projectName != null) {
-          debugPrint('✅ Condições atendidas! Chamando uploadCustomBriefingCachedImages...');
-          try {
-            finalBriefingJson = await uploadCustomBriefingCachedImages(
-              briefingJson: _briefingJson,
-              clientName: _clientName!,
-              projectName: _projectName!,
-              taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : widget.initial!['title'] ?? 'Tarefa',
-              companyName: _companyName,
-            );
-          } catch (e) {
-            debugPrint('⚠️ Erro ao fazer upload das imagens do briefing: $e');
-            // Continua com o JSON original em caso de erro
-          }
-        } else {
-          debugPrint('❌ Condições NÃO atendidas para upload de imagens');
-        }
-
         final payload = {
           'title': _title.text.trim(),
-          'description': finalBriefingJson.isNotEmpty ? finalBriefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
+          'description': _briefingJson.isNotEmpty ? _briefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
           'priority': safePriority,
-          'assigned_to': _assigneeUserId,
+          'assigned_to': _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+          'assignee_user_ids': _assigneeUserIds,
           'due_date': _dueDate == null ? null : DateUtils.dateOnly(_dueDate!).toIso8601String(),
           if (userId != null) 'updated_by': userId,
           'updated_at': DateTime.now().toIso8601String(),
@@ -1149,18 +1089,16 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
 
         debugPrint('📋 QuickTaskForm UPDATE - Payload: $payload');
         debugPrint('📋 QuickTaskForm UPDATE - Priority: "$safePriority" (original: "$_priority")');
-        debugPrint('📋 QuickTaskForm UPDATE - Priority type: ${safePriority.runtimeType}');
-        debugPrint('📋 QuickTaskForm UPDATE - Priority length: ${safePriority.length}');
-        debugPrint('📋 QuickTaskForm UPDATE - Priority bytes: ${safePriority.codeUnits}');
-        debugPrint('📋 QuickTaskForm UPDATE - Priority == "urgent": ${safePriority == "urgent"}');
 
         try {
-          // Usar o módulo para atualizar a tarefa (isso vai renomear a pasta no Google Drive se necessário)
+          // Atualizar tarefa IMEDIATAMENTE com JSON local (URLs file://)
+          // Upload de imagens será feito em background depois
           await tasksModule.updateTask(
             taskId: widget.initial!['id'],
             title: _title.text.trim(),
-            description: finalBriefingJson.isNotEmpty ? finalBriefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
-            assignedTo: _assigneeUserId,
+            description: _briefingJson.isNotEmpty ? _briefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
+            assignedTo: _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+            assigneeUserIds: _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
             priority: safePriority,
             dueDate: _dueDate,
           );
@@ -1168,6 +1106,30 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
 
           // Atualizar prioridade baseada no prazo
           await tasksModule.updateSingleTaskPriority(widget.initial!['id']);
+
+          // Salvar menções do título
+          final mentionsService = MentionsService();
+          try {
+            await mentionsService.saveTaskMentions(
+              taskId: widget.initial!['id'],
+              fieldName: 'title',
+              content: _title.text,
+            );
+          } catch (e) {
+            debugPrint('Erro ao salvar menções do título: $e');
+          }
+
+          // Upload de imagens do briefing em BACKGROUND (não bloqueia o salvamento)
+          if (_clientName != null && _projectName != null) {
+            startBriefingImagesBackgroundUpload(
+              taskId: widget.initial!['id'],
+              briefingJson: _briefingJson,
+              clientName: _clientName!,
+              projectName: _projectName!,
+              taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : widget.initial!['title'] ?? 'Tarefa',
+              companyName: _companyName,
+            );
+          }
 
           // Atualizar o projeto também (updated_by e updated_at)
           if (widget.projectId != null && userId != null) {
@@ -1192,56 +1154,19 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
             .eq('id', widget.initial!['id'])
             .single();
 
-        Future<auth.AuthClient?> ensureClient() async {
-          try { return await _drive.getAuthedClient(); } on ConsentRequired catch (_) {
-            if (!mounted) return null;
-            final ok = await showDialog<bool>(context: context, builder: (_) => DriveConnectDialog(service: _drive));
-            if (ok == true) { try { return await _drive.getAuthedClient(); } catch (_) {} }
-            return null;
-          }
-        }
-
         // Upload Assets em segundo plano (se houver)
-        if (_assetsImages.isNotEmpty || _assetsFiles.isNotEmpty || _assetsVideos.isNotEmpty) {
-          try {
-            final authed = await ensureClient();
-            if (authed != null) {
-              final clientName = (afterTask['projects']?['clients']?['name'] ?? 'Cliente').toString();
-              final projectName = (afterTask['projects']?['name'] ?? 'Projeto').toString();
-              final taskTitle = (afterTask['title'] ?? 'Tarefa').toString();
-              final taskId = widget.initial!['id'] as String;
-
-              final items = <legacy_upload.MemoryUploadItem>[];
-              void addList(List<PlatformFile> list, String category) {
-                for (final f in list.where((f) => f.bytes != null)) {
-                  items.add(legacy_upload.MemoryUploadItem(
-                    name: f.name,
-                    bytes: f.bytes!,
-                    mimeType: mime.lookupMimeType(f.name),
-                    subfolderName: 'Assets',
-                    category: category,
-                  ));
-                }
-              }
-              addList(_assetsImages, 'assets');
-              addList(_assetsFiles, 'assets');
-              addList(_assetsVideos, 'assets');
-
-              // Dispara upload em background e não aguarda
-              unawaited(legacy_upload.UploadManager.instance.startAssetsUploadWithClient(
-                client: authed,
-                taskId: taskId,
-                clientName: clientName,
-                projectName: projectName,
-                taskTitle: taskTitle,
-                items: items,
-              ));
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enviando arquivos em segundo plano...')));
-              }
-            }
-          } catch (e) { debugPrint('Falha ao enfileirar assets (quick edit): $e'); }
-        }
+        await startAssetsBackgroundUpload(
+          taskId: widget.initial!['id'] as String,
+          clientName: (afterTask['projects']?['clients']?['name'] ?? 'Cliente').toString(),
+          projectName: (afterTask['projects']?['name'] ?? 'Projeto').toString(),
+          taskTitle: (afterTask['title'] ?? 'Tarefa').toString(),
+          assetsImages: _assetsImages,
+          assetsFiles: _assetsFiles,
+          assetsVideos: _assetsVideos,
+          companyName: _companyName,
+          context: mounted ? context : null,
+          driveService: _drive,
+        );
         final afterStatus = (afterTask['status'] as String?)?.toLowerCase();
         final turnedCompleted = beforeStatus != 'completed' && afterStatus == 'completed';
         final leftCompleted = beforeStatus == 'completed' && afterStatus != 'completed';
@@ -1273,6 +1198,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         }
 
         // Processar Briefing (delta)  subir imagens embutidas e salvar JSON
+        /* OLD QUILL CODE - DISABLED
         try {
           // final List<Map<String, dynamic>> ops = List<Map<String, dynamic>>.from(_briefingCtrl.document.toDelta().toJson());
           final List<Map<String, dynamic>> ops = [];
@@ -1375,9 +1301,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         } catch (e) {
           // Old Quill image processing - no longer needed
         }
-
-        // Note: AppFlowy Editor handles image uploads internally
-        // The briefing JSON is already saved in the 'description' field above
+        */
 
         // Save linked products to task_products table
         try {
@@ -1446,51 +1370,80 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-                GenericTextField(
+                // 1. Título (largura fill)
+                MentionTextField(
                   controller: _title,
-                  labelText: 'Título *',
+                  decoration: const InputDecoration(labelText: 'Título *'),
                   validator: (v) => v == null || v.trim().isEmpty ? 'Informe o título' : null,
+                  maxLines: 1,
+                  onMentionsChanged: (userIds) {
+                    // Menções serão salvas ao salvar a tarefa
+                  },
                 ),
                 const SizedBox(height: 12),
 
-                // Prazo e Responsável lado a lado
-                Row(
-                  children: [
-                    Expanded(
-                      child: TaskDateField(
-                        dueDate: _dueDate,
-                        onDateChanged: (date) {
-                          setState(() => _dueDate = date);
-                        },
-                        enabled: !_saving,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TaskAssigneeField(
-                        assigneeUserId: _assigneeUserId,
-                        members: _members,
-                        onAssigneeChanged: (userId) {
-                          setState(() => _assigneeUserId = userId);
-                        },
-                        enabled: !_saving,
-                      ),
-                    ),
-                  ],
+                // 2. Data de conclusão / Prioridade (wrap responsivo)
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final fieldWidth = constraints.maxWidth > 264
+                        ? (constraints.maxWidth - 12) / 2
+                        : constraints.maxWidth;
+
+                    return Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        SizedBox(
+                          width: fieldWidth.clamp(120.0, double.infinity),
+                          child: TaskDateField(
+                            dueDate: _dueDate,
+                            onDateChanged: (date) {
+                              setState(() => _dueDate = date);
+                            },
+                            enabled: !_saving,
+                          ),
+                        ),
+                        SizedBox(
+                          width: fieldWidth.clamp(120.0, double.infinity),
+                          child: TaskPriorityField(
+                            priority: _priority,
+                            onPriorityChanged: (priority) {
+                              setState(() => _priority = priority);
+                            },
+                            enabled: !_saving,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-                const SizedBox(height: 20),
-                // Vincular produto do projeto (opcional) via modal com miniaturas/comentários
-                TaskProductLinkSection(
-                  projectId: _projectId,
-                  taskId: widget.initial?['id'] as String?,
-                  onLinkedProductsChanged: (products) {
-                    setState(() => _linkedProducts = products);
+                const SizedBox(height: 12),
+
+                // 3. Responsáveis (largura fill - múltiplos)
+                TaskAssigneesField(
+                  assigneeUserIds: _assigneeUserIds,
+                  members: _members,
+                  onAssigneesChanged: (userIds) {
+                    setState(() => _assigneeUserIds = userIds);
                   },
                   enabled: !_saving,
                 ),
+                const SizedBox(height: 12),
 
-                const SizedBox(height: 16),
-                // Briefing após Produto
+                // 4. Produtos (vínculo via diálogo + cards)
+                TaskProductLinkSelector(
+                  projectId: _projectId,
+                  currentTaskId: widget.initial != null ? (widget.initial!['id'] as String?) : null,
+                  selectedProducts: _linkedProducts,
+                  onChanged: (products) {
+                    setState(() => _linkedProducts = products);
+                  },
+                  enabled: !_saving,
+                  placeholderText: 'Vincular produto',
+                ),
+                const SizedBox(height: 12),
+
+                // 5. Briefing (largura fill)
                 TaskBriefingSection(
                   initialJson: _briefingJson.isNotEmpty ? _briefingJson : null,
                   initialText: _briefingJson.isEmpty ? _briefingText : null,
@@ -1508,7 +1461,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
                 ),
                 const SizedBox(height: 16),
 
-                // Assets
+                // 6. Assets (largura fill)
                 TaskAssetsSection(
                   taskId: widget.initial?['id'] as String?,
                   assetsImages: _assetsImages,
@@ -1523,17 +1476,9 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
                   },
                   enabled: !_saving,
                 ),
-                const SizedBox(height: 12),
-                TaskPriorityField(
-                  priority: _priority,
-                  onPriorityChanged: (priority) {
-                    setState(() => _priority = priority);
-                  },
-                  enabled: !_saving,
-                ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 16),
 
-                // Histórico de Alterações
+                // 7. Histórico (largura fill)
                 if (widget.initial != null && widget.initial!['id'] != null) ...[
                   ExpansionTile(
                     leading: const Icon(Icons.history),
@@ -1581,7 +1526,7 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
   String _briefingJson = '';
   bool _saving = false;
 
-  String? _assigneeUserId;
+  List<String> _assigneeUserIds = []; // múltiplos responsáveis
   String _status = 'todo';
   String _priority = 'medium';
   DateTime? _dueDate;
@@ -1592,6 +1537,9 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
   // Attachments
   List<PlatformFile> _assetsImages = [];
   List<PlatformFile> _assetsFiles = [];
+  // Vínculo de produtos
+  List<Map<String, dynamic>> _linkedProducts = [];
+
   List<PlatformFile> _assetsVideos = [];
 
   // Informações para Google Drive (briefing images)
@@ -1602,8 +1550,21 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
   @override
   void initState() {
     super.initState();
+    debugPrint('🚀 SubTaskForm - initState chamado');
+    debugPrint('   widget.projectId: ${widget.projectId}');
+    debugPrint('   widget.parentTaskId: ${widget.parentTaskId}');
+    debugPrint('   widget.initial: ${widget.initial != null ? "SIM" : "NÃO"}');
+    debugPrint('   OrganizationContext.currentOrganizationId: ${OrganizationContext.currentOrganizationId}');
     _loadMembers();
     _loadProjectAndClientInfo();
+
+    // Carregar produtos vinculados quando em modo de edi e7 e3o
+    final initialId = widget.initial?['id'] as String?;
+    if (initialId != null && initialId.isNotEmpty) {
+      TaskProductsService.loadLinkedProducts(initialId, projectId: widget.projectId).then((list) {
+        if (mounted) setState(() => _linkedProducts = list);
+      });
+    }
 
     // Initialize briefing from description
     if (widget.initial != null && widget.initial!['description'] != null) {
@@ -1624,7 +1585,16 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
 
     if (widget.initial != null) {
       _title.text = widget.initial!['title'] ?? '';
-      _assigneeUserId = widget.initial!['assigned_to'];
+
+      // Carregar responsáveis (suporta assigned_to antigo e assignee_user_ids novo)
+      final assigneeUserIds = widget.initial!['assignee_user_ids'] as List?;
+      if (assigneeUserIds != null && assigneeUserIds.isNotEmpty) {
+        _assigneeUserIds = assigneeUserIds.cast<String>();
+      } else {
+        final assignedTo = widget.initial!['assigned_to'] as String?;
+        _assigneeUserIds = assignedTo != null ? [assignedTo] : [];
+      }
+
       _status = widget.initial!['status'] ?? 'todo';
       _priority = widget.initial!['priority'] ?? 'medium';
 
@@ -1648,32 +1618,74 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
   Future<void> _loadMembers() async {
     setState(() => _loadingMembers = true);
     try {
-      // Buscar TODOS os usuários do sistema (profiles)
+      debugPrint('🔍 SubTaskForm._loadMembers - Iniciando...');
+      debugPrint('   widget.projectId: ${widget.projectId}');
+
+      // Buscar membros do projeto primeiro
       final res = await Supabase.instance.client
-          .from('profiles')
-          .select('id, full_name, email, avatar_url')
-          .order('full_name', ascending: true);
+          .from('project_members')
+          .select('user_id, profiles:user_id(full_name, email, role, avatar_url)')
+          .eq('project_id', widget.projectId);
+      final all = List<Map<String, dynamic>>.from(res);
 
+      debugPrint('📡 SubTaskForm._loadMembers - Membros do projeto: ${all.length}');
+
+      // Não filtrar por roles - mostrar todos os membros do projeto
+      var filtered = all;
+
+      debugPrint('   Membros do projeto (sem filtro): ${filtered.length}');
+
+      // Fallback: buscar membros da organização se o projeto não tem membros
+      if (filtered.isEmpty) {
+        debugPrint('   ⚠️ Nenhum membro no projeto, buscando da organização...');
+        final orgId = OrganizationContext.currentOrganizationId;
+        debugPrint('   orgId: $orgId');
+
+        if (orgId != null) {
+          try {
+            final orgMembers = await Supabase.instance.client.rpc(
+              'get_organization_members_with_profiles',
+              params: {'org_id': orgId},
+            ) as List;
+
+            debugPrint('   Membros da organização: ${orgMembers.length}');
+
+            filtered = orgMembers.map((m) {
+              final member = m as Map<String, dynamic>;
+              debugPrint('      - ${member['full_name']} (${member['email']})');
+              return {
+                'user_id': member['user_id'],
+                'profiles': {
+                  'id': member['user_id'],
+                  'full_name': member['full_name'],
+                  'email': member['email'],
+                  'avatar_url': member['avatar_url'],
+                  'role': member['role'],
+                },
+              };
+            }).toList();
+          } catch (e) {
+            debugPrint('   ❌ Erro ao buscar membros da organização: $e');
+            // Silently fail - filtered will remain empty
+          }
+        }
+      }
+
+      debugPrint('✅ SubTaskForm._loadMembers - Total de membros: ${filtered.length}');
       if (mounted) {
-        // Transformar para o formato esperado pelo TaskAssigneeField
-        final transformed = res.map((profile) {
-          return {
-            'user_id': profile['id'],
-            'profiles': profile,
-          };
-        }).toList();
-
         setState(() {
-          _members = List<Map<String, dynamic>>.from(transformed);
+          _members = filtered;
           _loadingMembers = false;
         });
-
-        debugPrint('📋 Sub Task - Usuários carregados: ${_members.length}');
       }
-    } catch (e) {
-      debugPrint('❌ Erro ao carregar usuários: $e');
+    } catch (e, stackTrace) {
+      debugPrint('❌ SubTaskForm._loadMembers - Erro: $e');
+      debugPrint('❌ SubTaskForm._loadMembers - StackTrace: $stackTrace');
       if (mounted) {
-        setState(() => _loadingMembers = false);
+        setState(() {
+          _members = [];
+          _loadingMembers = false;
+        });
       }
     }
   }
@@ -1719,7 +1731,8 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
         'description': _briefingJson.isNotEmpty ? _briefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
         'project_id': widget.projectId,
         'parent_task_id': widget.parentTaskId,
-        'assigned_to': _assigneeUserId,
+        'assigned_to': _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+        'assignee_user_ids': _assigneeUserIds,
         'status': safeStatus,
         'priority': safePriority,
         'due_date': _dueDate == null ? null : DateUtils.dateOnly(_dueDate!).toIso8601String(),
@@ -1732,46 +1745,53 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
         // Criar nova sub task usando o módulo (isso vai criar a pasta no Google Drive)
         final createdTask = await tasksModule.createTask(
           title: data['title'] as String,
-          description: data['description'],
+          description: data['description'] as String?,
           projectId: widget.projectId,
-          assignedTo: data['assigned_to'],
-          status: data['status'] ?? 'todo',
-          priority: data['priority'] ?? 'medium',
+          assignedTo: _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+          assigneeUserIds: _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
+          status: (data['status'] ?? 'todo') as String,
+          priority: (data['priority'] ?? 'medium') as String,
           dueDate: data['due_date'] != null ? DateTime.parse(data['due_date'] as String) : null,
           parentTaskId: widget.parentTaskId,
         );
 
-        // DEPOIS de criar a subtarefa, fazer upload das imagens do briefing
-        if (_briefingJson.isNotEmpty && _clientName != null && _projectName != null && widget.parentTaskTitle != null) {
-          try {
-            final finalBriefingJson = await uploadCustomBriefingCachedImagesForSubTask(
-              briefingJson: _briefingJson,
-              clientName: _clientName!,
-              projectName: _projectName!,
-              taskTitle: widget.parentTaskTitle!,
-              subTaskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Sub Tarefa',
-              companyName: _companyName,
-            );
-
-            // Atualizar a descrição da tarefa com as URLs do Drive
-            await client.from('tasks').update({
-              'description': finalBriefingJson,
-            }).eq('id', createdTask['id']);
-          } catch (e) {
-            debugPrint('⚠️ Erro ao fazer upload das imagens do briefing (SubTask): $e');
-          }
+        // Upload de imagens do briefing em BACKGROUND (não bloqueia o salvamento)
+        if (_clientName != null && _projectName != null && widget.parentTaskTitle != null) {
+          startBriefingImagesBackgroundUpload(
+            taskId: createdTask['id'],
+            briefingJson: _briefingJson,
+            clientName: _clientName!,
+            projectName: _projectName!,
+            taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Sub Tarefa',
+            companyName: _companyName,
+            isSubTask: true,
+            parentTaskTitle: widget.parentTaskTitle,
+          );
         }
+
+        // Salvar vnculos de produtos da Subtarefa (criafo)
+        await TaskProductsService.saveLinkedProducts(
+          taskId: createdTask['id'] as String,
+          linkedProducts: _linkedProducts,
+        );
 
       } else {
         // Atualizar sub task existente usando o módulo (isso vai renomear a pasta no Google Drive se necessário)
         await tasksModule.updateTask(
           taskId: widget.initial!['id'],
-          title: data['title'],
-          description: data['description'],
-          assignedTo: data['assigned_to'],
-          status: data['status'],
-          priority: data['priority'],
+          title: data['title'] as String?,
+          description: data['description'] as String?,
+          assignedTo: _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+          assigneeUserIds: _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
+          status: data['status'] as String?,
+          priority: data['priority'] as String?,
           dueDate: data['due_date'] != null ? DateTime.parse(data['due_date'] as String) : null,
+        );
+
+        // Salvar vnculos de produtos da Subtarefa (edie7fo)
+        await TaskProductsService.saveLinkedProducts(
+          taskId: widget.initial!['id'] as String,
+          linkedProducts: _linkedProducts,
         );
       }
 
@@ -1789,9 +1809,8 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
       // Atualizar o status da task principal (aguardando/concluída)
       try {
         await tasksModule.updateTaskStatus(widget.parentTaskId);
-        debugPrint('✅ Status da task principal atualizado');
       } catch (e) {
-        debugPrint('⚠️ Erro ao atualizar status da task principal: $e');
+        debugPrint('Erro ao atualizar status da task principal: $e');
       }
 
       if (mounted) {
@@ -1836,44 +1855,96 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-                      GenericTextField(
+                      // 1. Título (largura fill)
+                      MentionTextField(
                         controller: _title,
-                        labelText: 'Título *',
+                        decoration: const InputDecoration(labelText: 'Título *'),
                         validator: (v) => v == null || v.trim().isEmpty ? 'Informe o título' : null,
+                        maxLines: 1,
+                        onMentionsChanged: (userIds) {
+                          // Menções serão salvas ao salvar a tarefa
+                        },
                       ),
                       const SizedBox(height: 12),
 
-                      // Prazo e Responsável lado a lado
+                      // 2. Data de conclusão / Prioridade (wrap responsivo)
                       if (_loadingMembers)
                         const Center(child: CircularProgressIndicator())
                       else
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TaskDateField(
-                                dueDate: _dueDate,
-                                onDateChanged: (date) {
-                                  setState(() => _dueDate = date);
-                                },
-                                enabled: !_saving,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TaskAssigneeField(
-                                assigneeUserId: _assigneeUserId,
-                                members: _members,
-                                onAssigneeChanged: (userId) {
-                                  setState(() => _assigneeUserId = userId);
-                                },
-                                enabled: !_saving,
-                              ),
-                            ),
-                          ],
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final fieldWidth = constraints.maxWidth > 264
+                                ? (constraints.maxWidth - 12) / 2
+                                : constraints.maxWidth;
+
+                            return Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                SizedBox(
+                                  width: fieldWidth.clamp(120.0, double.infinity),
+                                  child: TaskDateField(
+                                    dueDate: _dueDate,
+                                    onDateChanged: (date) {
+                                      setState(() => _dueDate = date);
+                                    },
+                                    enabled: !_saving,
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: fieldWidth.clamp(120.0, double.infinity),
+                                  child: TaskPriorityField(
+                                    priority: _priority,
+                                    onPriorityChanged: (priority) {
+                                      setState(() => _priority = priority);
+                                    },
+                                    enabled: !_saving,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      const SizedBox(height: 12),
+
+                      // 3. Status (largura fill)
+                      if (!_loadingMembers)
+                        TaskStatusField(
+                          status: _status,
+                          taskId: widget.initial?['id'] as String?,
+                          onStatusChanged: (status) {
+                            setState(() => _status = status);
+                          },
+                          enabled: !_saving,
+                        ),
+                      const SizedBox(height: 12),
+
+                      // 4. Responsáveis (largura fill - múltiplos)
+                      if (!_loadingMembers)
+                        TaskAssigneesField(
+                          assigneeUserIds: _assigneeUserIds,
+                          members: _members,
+                          onAssigneesChanged: (userIds) {
+                            setState(() => _assigneeUserIds = userIds);
+                          },
+                          enabled: !_saving,
                         ),
                       const SizedBox(height: 16),
+                      // 5. Produtos (vínculo)
+                      TaskProductLinkSelector(
+                        projectId: widget.projectId,
+                        currentTaskId: widget.initial != null ? (widget.initial!['id'] as String?) : null,
+                        selectedProducts: _linkedProducts,
+                        onChanged: (products) {
+                          setState(() => _linkedProducts = products);
+                        },
+                        enabled: !_saving,
+                        placeholderText: 'Vincular produto',
+                      ),
+                      const SizedBox(height: 16),
 
-                      // Briefing (sem vincular produto)
+
+                      // 5. Briefing (largura fill)
                       TaskBriefingSection(
                         initialJson: _briefingJson.isNotEmpty ? _briefingJson : null,
                         initialText: _briefingJson.isEmpty ? _briefingText : null,
@@ -1891,7 +1962,7 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Assets
+                      // 6. Assets (largura fill)
                       TaskAssetsSection(
                         taskId: widget.initial?['id'] as String?,
                         assetsImages: _assetsImages,
@@ -1906,35 +1977,9 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
                         },
                         enabled: !_saving,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
 
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TaskStatusField(
-                              status: _status,
-                              taskId: widget.initial?['id'] as String?, // Para validação de subtasks
-                              onStatusChanged: (status) {
-                                setState(() => _status = status);
-                              },
-                              enabled: !_saving,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TaskPriorityField(
-                              priority: _priority,
-                              onPriorityChanged: (priority) {
-                                setState(() => _priority = priority);
-                              },
-                              enabled: !_saving,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Histórico de Alterações
+                      // 7. Histórico (largura fill)
                       if (widget.initial != null && widget.initial!['id'] != null) ...[
                         ExpansionTile(
                           leading: const Icon(Icons.history),

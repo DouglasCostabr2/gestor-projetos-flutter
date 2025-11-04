@@ -29,12 +29,16 @@ abstract class TasksContract {
   /// Buscar subtarefas de um projeto (com parent_task_id)
   Future<List<Map<String, dynamic>>> getProjectSubTasks(String projectId);
 
+  /// Buscar subtarefas de uma tarefa específica (filhas diretas)
+  Future<List<Map<String, dynamic>>> getTaskSubTasks(String taskId);
+
   /// Criar uma nova tarefa
   Future<Map<String, dynamic>> createTask({
     required String title,
     String? description,
     required String projectId,
     String? assignedTo,
+    List<String>? assigneeUserIds,
     String status = 'todo',
     String priority = 'medium',
     DateTime? startDate,
@@ -50,6 +54,7 @@ abstract class TasksContract {
     String? title,
     String? description,
     String? assignedTo,
+    List<String>? assigneeUserIds,
     String? status,
     String? priority,
     DateTime? startDate,

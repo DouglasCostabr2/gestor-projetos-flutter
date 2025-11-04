@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../auth/module.dart';
+import '../common/organization_context.dart';
 import 'contract.dart';
 
 /// Implementação do contrato de usuários
@@ -25,14 +26,20 @@ class UsersRepository implements UsersContract {
 
       // Se não existe perfil, criar um básico
       if (response == null) {
+        final userName = user.userMetadata?['full_name'] ?? user.email?.split('@')[0] ?? 'Usuário';
         final newProfile = {
           'id': user.id,
           'email': user.email ?? '',
-          'full_name': user.userMetadata?['full_name'] ?? user.email?.split('@')[0] ?? 'Usuário',
+          'full_name': userName,
           'avatar_url': null,
+          'role': 'usuario', // Role padrão para novos usuários
         };
 
         await _client.from('profiles').insert(newProfile);
+
+        // Criar organização padrão para o novo usuário
+        await _createDefaultOrganization(user.id, userName, user.email ?? '');
+
         return newProfile;
       }
 
@@ -89,13 +96,38 @@ class UsersRepository implements UsersContract {
   @override
   Future<List<Map<String, dynamic>>> getAllProfiles() async {
     try {
-      final response = await _client
-          .from('profiles')
-          .select('id, full_name, email, role, avatar_url')
-          .order('full_name');
-      return List<Map<String, dynamic>>.from(response);
+      // Obter organization_id
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa ao buscar perfis');
+        return [];
+      }
+
+      debugPrint('👥 Buscando perfis da organização: $orgId');
+
+      // Buscar membros ativos da organização usando RPC
+      final response = await _client.rpc(
+        'get_organization_members_with_profiles',
+        params: {'org_id': orgId},
+      );
+
+      // Transformar para o formato esperado
+      final profiles = <Map<String, dynamic>>[];
+      for (final member in (response as List)) {
+        final m = member as Map<String, dynamic>;
+        profiles.add({
+          'id': m['user_id'],
+          'full_name': m['full_name'],
+          'email': m['email'],
+          'avatar_url': m['avatar_url'],
+          'role': m['role'], // Role do profiles
+        });
+      }
+
+      debugPrint('✅ Perfis carregados: ${profiles.length}');
+      return profiles;
     } catch (e) {
-      debugPrint('Erro ao buscar todos os perfis: $e');
+      debugPrint('❌ Erro ao buscar perfis: $e');
       return [];
     }
   }
@@ -103,17 +135,72 @@ class UsersRepository implements UsersContract {
   @override
   Future<List<Map<String, dynamic>>> getEmployeeProfiles() async {
     try {
-      debugPrint('Buscando perfis de funcionários');
-      final response = await _client
-          .from('profiles')
-          .select('id, full_name, email, avatar_url, role')
-          .order('full_name');
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa ao buscar funcionários');
+        return [];
+      }
 
-      debugPrint('Perfis de funcionários encontrados: ${response.length}');
-      return List<Map<String, dynamic>>.from(response);
+      debugPrint('👥 Buscando perfis de funcionários da organização: $orgId');
+
+      // Buscar membros ativos da organização usando RPC
+      final response = await _client.rpc(
+        'get_organization_members_with_profiles',
+        params: {'org_id': orgId},
+      );
+
+      // Transformar para o formato esperado
+      final profiles = <Map<String, dynamic>>[];
+      for (final member in (response as List)) {
+        final m = member as Map<String, dynamic>;
+        profiles.add({
+          'id': m['user_id'],
+          'full_name': m['full_name'],
+          'email': m['email'],
+          'avatar_url': m['avatar_url'],
+          'role': m['role'], // Role do profiles
+          'organization_role': m['om_role'], // Role na organização
+        });
+      }
+
+      debugPrint('✅ Perfis de funcionários encontrados: ${profiles.length}');
+      return profiles;
     } catch (e) {
-      debugPrint('Erro ao buscar perfis de funcionários: $e');
+      debugPrint('❌ Erro ao buscar perfis de funcionários: $e');
       return [];
+    }
+  }
+
+  /// Cria uma organização padrão para um novo usuário
+  Future<void> _createDefaultOrganization(String userId, String userName, String userEmail) async {
+    try {
+      debugPrint('🏢 [UsersRepository] Criando organização padrão para novo usuário: $userName');
+
+      // Gerar nome e slug da organização baseado no nome do usuário
+      final orgName = '$userName - Organização';
+      final orgSlug = userName
+          .toLowerCase()
+          .trim()
+          .replaceAll(RegExp(r'[^a-z0-9\s-]'), '')
+          .replaceAll(RegExp(r'\s+'), '-')
+          .replaceAll(RegExp(r'-+'), '-')
+          .replaceAll(RegExp(r'^-|-$'), '');
+
+      // Usar a função RPC do Supabase para criar a organização
+      // Isso contorna problemas de RLS e cria automaticamente o membro owner
+      await _client.rpc('create_organization', params: {
+        'p_name': orgName,
+        'p_slug': orgSlug,
+        'p_legal_name': null,
+        'p_email': userEmail,
+        'p_phone': null,
+      });
+
+      debugPrint('✅ [UsersRepository] Organização padrão criada com sucesso');
+    } catch (e) {
+      debugPrint('❌ [UsersRepository] Erro ao criar organização padrão: $e');
+      // Não lançar exceção - a criação da organização é opcional
+      // O usuário pode criar manualmente depois se for admin
     }
   }
 }

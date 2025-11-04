@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../../services/google_drive_oauth_service.dart';
 import '../auth/module.dart';
+import '../common/organization_context.dart';
 import 'contract.dart';
 
 /// Implementação do contrato de tarefas
@@ -16,22 +17,97 @@ class TasksRepository implements TasksContract {
     int? limit,
   }) async {
     try {
+      // Obter usuário autenticado
+      final currentUser = authModule.currentUser;
+      if (currentUser == null) {
+        debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
+        return [];
+      }
+
+      // Obter organização ativa
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
+        return [];
+      }
+
+      final userId = currentUser.id;
+
       // OTIMIZAÇÃO: Suporte a paginação
       if (offset != null && limit != null) {
         debugPrint('🔍 Carregando tarefas com paginação: offset=$offset, limit=$limit');
       }
+
+      // SEGURANÇA: Buscar apenas tarefas que o usuário tem acesso
+      // 1. Tarefas onde é assigned_to (responsável principal)
+      // 2. Tarefas onde está em assignee_user_ids (múltiplos responsáveis)
+      // 3. Tarefas de projetos onde é membro (project_members)
+      // 4. Tarefas de projetos onde é owner
+
+      // Buscar IDs de projetos onde o usuário é membro ou owner
+      final memberProjectsResponse = await _client
+          .from('project_members')
+          .select('project_id')
+          .eq('user_id', userId);
+
+      final memberProjectIds = memberProjectsResponse
+          .map((m) => m['project_id'] as String)
+          .toSet();
+
+      final ownerProjectsResponse = await _client
+          .from('projects')
+          .select('id')
+          .eq('owner_id', userId);
+
+      final ownerProjectIds = ownerProjectsResponse
+          .map((p) => p['id'] as String)
+          .toSet();
+
+      // Combinar IDs de projetos acessíveis
+      final accessibleProjectIds = <String>{
+        ...memberProjectIds,
+        ...ownerProjectIds,
+      };
 
       var queryBuilder = _client
           .from('tasks')
           .select('''
             *,
             projects:project_id(name, client_id),
-            creator_profile:profiles!tasks_created_by_fkey(full_name, avatar_url),
-            assignee_profile:profiles!tasks_assigned_to_fkey(full_name, avatar_url)
-          ''');
+            creator_profile:profiles!tasks_created_by_fkey(full_name, email, avatar_url),
+            assignee_profile:profiles!tasks_assigned_to_fkey(full_name, email, avatar_url),
+            updated_by_profile:profiles!tasks_updated_by_fkey(full_name, email, avatar_url)
+          ''')
+          .eq('organization_id', orgId);
 
       if (projectId != null) {
         queryBuilder = queryBuilder.eq('project_id', projectId);
+      }
+
+      // Filtrar tarefas por acesso do usuário
+      // Construir filtro OR complexo
+      final filters = <String>[];
+
+      // Responsável principal
+      filters.add('assigned_to.eq.$userId');
+
+      // Múltiplos responsáveis (usando contains)
+      filters.add('assignee_user_ids.cs.{$userId}');
+
+      // Criador da tarefa (tasks que o usuário criou)
+      filters.add('created_by.eq.$userId');
+
+      // Projetos acessíveis
+      if (accessibleProjectIds.isNotEmpty) {
+        filters.add('project_id.in.(${accessibleProjectIds.join(',')})');
+      }
+
+      if (filters.isNotEmpty) {
+        queryBuilder = queryBuilder.or(filters.join(','));
+      } else {
+        // Se não tem nenhum filtro, retornar vazio
+        debugPrint('⚠️ Usuário não tem acesso a nenhuma tarefa');
+        return [];
       }
 
       var orderedQuery = queryBuilder.order('created_at', ascending: false);
@@ -41,6 +117,8 @@ class TasksRepository implements TasksContract {
           ? await orderedQuery.range(offset, offset + limit - 1)
           : await orderedQuery;
 
+      debugPrint('✅ Tarefas filtradas por usuário: ${response.length} encontradas');
+
       return response.map<Map<String, dynamic>>((task) {
         return {
           'id': task['id'] ?? '',
@@ -49,6 +127,7 @@ class TasksRepository implements TasksContract {
           'project_id': task['project_id'] ?? '',
           'created_by': task['created_by'] ?? '',
           'assigned_to': task['assigned_to'],
+          'assignee_user_ids': task['assignee_user_ids'],
           'status': task['status'] ?? 'todo',
           'priority': task['priority'] ?? 'medium',
           'start_date': task['start_date'],
@@ -62,10 +141,12 @@ class TasksRepository implements TasksContract {
           'projects': task['projects'],
           'creator_profile': task['creator_profile'],
           'assignee_profile': task['assignee_profile'],
+          'updated_by_profile': task['updated_by_profile'],
+          'users': task['assignee_profile'], // Alias para compatibilidade
         };
       }).toList();
     } catch (e) {
-      debugPrint('Erro ao buscar tarefas: $e');
+      debugPrint('❌ Erro ao buscar tarefas: $e');
       return [];
     }
   }
@@ -93,7 +174,7 @@ class TasksRepository implements TasksContract {
           .select('''
             id, title, description, status, priority, created_at, updated_at,
             completed_at, created_by, updated_by, due_date, project_id,
-            assigned_to, parent_task_id,
+            assigned_to, assignee_user_ids, parent_task_id,
             projects:project_id(id, name, client_id, clients:client_id(id, name, avatar_url)),
             assignee_profile:profiles!tasks_assigned_to_fkey(full_name, email, avatar_url),
             created_by_profile:profiles!tasks_created_by_fkey(full_name, email),
@@ -110,48 +191,256 @@ class TasksRepository implements TasksContract {
 
   @override
   Future<List<Map<String, dynamic>>> getProjectTasks(String projectId) async {
-    final response = await _client
+    // Obter usuário autenticado
+    final currentUser = authModule.currentUser;
+    if (currentUser == null) {
+      debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
+      return [];
+    }
+
+    final userId = currentUser.id;
+
+    // Verificar se o usuário tem acesso ao projeto
+    final hasAccess = await _checkProjectAccess(projectId, userId);
+    if (!hasAccess) {
+      debugPrint('⚠️ Usuário não tem acesso ao projeto $projectId');
+      return [];
+    }
+
+    // Verificar se o usuário é admin/gestor (vê todas as tarefas) ou usuário comum (vê apenas suas tarefas)
+    final isAdminOrGestor = await _isAdminOrGestor(userId);
+
+    var queryBuilder = _client
         .from('tasks')
         .select('''
           *,
           assigned_to_profile:profiles!tasks_assigned_to_fkey(full_name, avatar_url),
           created_by_profile:profiles!tasks_created_by_fkey(full_name, avatar_url)
         ''')
-        .eq('project_id', projectId)
-        .order('created_at', ascending: false);
+        .eq('project_id', projectId);
+
+    // Se não for admin/gestor, filtrar apenas tarefas atribuídas ao usuário OU criadas por ele
+    if (!isAdminOrGestor) {
+      queryBuilder = queryBuilder.or('assigned_to.eq.$userId,assignee_user_ids.cs.{$userId},created_by.eq.$userId');
+    }
+
+    final response = await queryBuilder.order('created_at', ascending: false);
     return response;
   }
 
   @override
   Future<List<Map<String, dynamic>>> getProjectMainTasks(String projectId) async {
-    final response = await _client
+    // Obter usuário autenticado
+    final currentUser = authModule.currentUser;
+    if (currentUser == null) {
+      debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
+      return [];
+    }
+
+    final userId = currentUser.id;
+
+    // Verificar se o usuário tem acesso ao projeto
+    final hasAccess = await _checkProjectAccess(projectId, userId);
+    if (!hasAccess) {
+      debugPrint('⚠️ Usuário não tem acesso ao projeto $projectId');
+      return [];
+    }
+
+    // Verificar se o usuário é admin/gestor (vê todas as tarefas) ou usuário comum (vê apenas suas tarefas)
+    final isAdminOrGestor = await _isAdminOrGestor(userId);
+
+    var queryBuilder = _client
         .from('tasks')
         .select('''
-          id, title, status, priority, assigned_to, due_date, created_at, updated_at,
+          id, title, status, priority, assigned_to, assignee_user_ids, due_date, created_at, updated_at,
           updated_by, created_by,
           assignee_profile:profiles!tasks_assigned_to_fkey(full_name, email, avatar_url),
           updated_by_profile:profiles!tasks_updated_by_fkey(full_name, email, avatar_url)
         ''')
         .eq('project_id', projectId)
-        .isFilter('parent_task_id', null)
-        .order('created_at', ascending: false);
+        .isFilter('parent_task_id', null);
+
+    // Se não for admin/gestor, filtrar apenas tarefas atribuídas ao usuário OU criadas por ele
+    if (!isAdminOrGestor) {
+      queryBuilder = queryBuilder.or('assigned_to.eq.$userId,assignee_user_ids.cs.{$userId},created_by.eq.$userId');
+    }
+
+    final response = await queryBuilder.order('created_at', ascending: false);
     return response;
   }
 
   @override
   Future<List<Map<String, dynamic>>> getProjectSubTasks(String projectId) async {
-    final response = await _client
+    // Obter usuário autenticado
+    final currentUser = authModule.currentUser;
+    if (currentUser == null) {
+      debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
+      return [];
+    }
+
+    final userId = currentUser.id;
+
+    // Verificar se o usuário tem acesso ao projeto
+    final hasAccess = await _checkProjectAccess(projectId, userId);
+    if (!hasAccess) {
+      debugPrint('⚠️ Usuário não tem acesso ao projeto $projectId');
+      return [];
+    }
+
+    // Verificar se o usuário é admin/gestor (vê todas as tarefas) ou usuário comum (vê apenas suas tarefas)
+    final isAdminOrGestor = await _isAdminOrGestor(userId);
+
+    var queryBuilder = _client
         .from('tasks')
         .select('''
-          id, title, status, priority, assigned_to, due_date, created_at, updated_at,
+          id, title, status, priority, assigned_to, assignee_user_ids, due_date, created_at, updated_at,
           updated_by, created_by, parent_task_id,
           assignee_profile:profiles!tasks_assigned_to_fkey(full_name, email, avatar_url),
           updated_by_profile:profiles!tasks_updated_by_fkey(full_name, email, avatar_url)
         ''')
         .eq('project_id', projectId)
-        .not('parent_task_id', 'is', null)
-        .order('created_at', ascending: false);
+        .not('parent_task_id', 'is', null);
+
+    // Se não for admin/gestor, filtrar apenas tarefas atribuídas ao usuário OU criadas por ele
+    if (!isAdminOrGestor) {
+      queryBuilder = queryBuilder.or('assigned_to.eq.$userId,assignee_user_ids.cs.{$userId},created_by.eq.$userId');
+    }
+
+    final response = await queryBuilder.order('created_at', ascending: false);
     return response;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getTaskSubTasks(String taskId) async {
+    // Obter usuário autenticado
+    final currentUser = authModule.currentUser;
+    if (currentUser == null) {
+      debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
+      return [];
+    }
+
+    final userId = currentUser.id;
+
+    // Verificar se o usuário tem acesso à tarefa pai
+    final hasAccess = await _checkTaskAccess(taskId, userId);
+    if (!hasAccess) {
+      debugPrint('⚠️ Usuário não tem acesso à tarefa $taskId');
+      return [];
+    }
+
+    final response = await _client
+        .from('tasks')
+        .select('''
+          id, title, status, priority, assigned_to, assignee_user_ids, due_date, created_at, updated_at, created_by,
+          assignee_profile:profiles!tasks_assigned_to_fkey(full_name, email, avatar_url)
+        ''')
+        .eq('parent_task_id', taskId)
+        .order('created_at', ascending: false);
+
+    return response;
+  }
+
+  /// Verifica se o usuário é admin ou gestor
+  Future<bool> _isAdminOrGestor(String userId) async {
+    try {
+      final profileResponse = await _client
+          .from('profiles')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (profileResponse == null) return false;
+
+      final role = (profileResponse['role'] as String?)?.toLowerCase();
+      return role == 'admin' || role == 'gestor';
+    } catch (e) {
+      debugPrint('❌ Erro ao verificar role do usuário: $e');
+      return false;
+    }
+  }
+
+  /// Verifica se o usuário tem acesso a um projeto
+  /// Retorna true se o usuário é owner, membro ou tem tarefas no projeto
+  Future<bool> _checkProjectAccess(String projectId, String userId) async {
+    try {
+      // Verificar se é owner do projeto
+      final projectResponse = await _client
+          .from('projects')
+          .select('owner_id')
+          .eq('id', projectId)
+          .maybeSingle();
+
+      if (projectResponse != null && projectResponse['owner_id'] == userId) {
+        return true;
+      }
+
+      // Verificar se é membro do projeto
+      final memberResponse = await _client
+          .from('project_members')
+          .select('user_id')
+          .eq('project_id', projectId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (memberResponse != null) {
+        return true;
+      }
+
+      // Verificar se tem tarefas atribuídas no projeto OU criadas pelo usuário
+      final taskResponse = await _client
+          .from('tasks')
+          .select('id')
+          .eq('project_id', projectId)
+          .or('assigned_to.eq.$userId,assignee_user_ids.cs.{$userId},created_by.eq.$userId')
+          .limit(1)
+          .maybeSingle();
+
+      return taskResponse != null;
+    } catch (e) {
+      debugPrint('❌ Erro ao verificar acesso ao projeto: $e');
+      return false;
+    }
+  }
+
+  /// Verifica se o usuário tem acesso a uma tarefa
+  /// Retorna true se o usuário é responsável, criador, membro do projeto ou owner do projeto
+  Future<bool> _checkTaskAccess(String taskId, String userId) async {
+    try {
+      final taskResponse = await _client
+          .from('tasks')
+          .select('project_id, assigned_to, assignee_user_ids, created_by')
+          .eq('id', taskId)
+          .maybeSingle();
+
+      if (taskResponse == null) return false;
+
+      // Verificar se é o criador da tarefa
+      if (taskResponse['created_by'] == userId) {
+        return true;
+      }
+
+      // Verificar se é responsável direto
+      if (taskResponse['assigned_to'] == userId) {
+        return true;
+      }
+
+      // Verificar se está na lista de responsáveis
+      final assigneeUserIds = taskResponse['assignee_user_ids'] as List?;
+      if (assigneeUserIds != null && assigneeUserIds.contains(userId)) {
+        return true;
+      }
+
+      // Verificar acesso ao projeto
+      final projectId = taskResponse['project_id'] as String?;
+      if (projectId != null) {
+        return await _checkProjectAccess(projectId, userId);
+      }
+
+      return false;
+    } catch (e) {
+      debugPrint('❌ Erro ao verificar acesso à tarefa: $e');
+      return false;
+    }
   }
 
   @override
@@ -160,6 +449,7 @@ class TasksRepository implements TasksContract {
     String? description,
     required String projectId,
     String? assignedTo,
+    List<String>? assigneeUserIds,
     String status = 'todo',
     String priority = 'medium',
     DateTime? startDate,
@@ -171,15 +461,24 @@ class TasksRepository implements TasksContract {
     final user = authModule.currentUser;
     if (user == null) throw Exception('Usuário não autenticado');
 
+    final orgId = OrganizationContext.currentOrganizationId;
+    if (orgId == null) throw Exception('Nenhuma organização ativa');
+
     final taskData = <String, dynamic>{
       'title': title.trim(),
       'description': description?.trim(),
       'project_id': projectId,
+      'organization_id': orgId,
       'created_by': user.id,
       'assigned_to': assignedTo,
       'status': status,
       'priority': priority,
     };
+
+    // Adicionar múltiplos responsáveis se fornecido
+    if (assigneeUserIds != null && assigneeUserIds.isNotEmpty) {
+      taskData['assignee_user_ids'] = assigneeUserIds;
+    }
 
     if (parentTaskId != null) {
       taskData['parent_task_id'] = parentTaskId;
@@ -255,6 +554,7 @@ class TasksRepository implements TasksContract {
     String? title,
     String? description,
     String? assignedTo,
+    List<String>? assigneeUserIds,
     String? status,
     String? priority,
     DateTime? startDate,
@@ -323,6 +623,11 @@ class TasksRepository implements TasksContract {
     if (actualHours != null) updateData['actual_hours'] = actualHours;
     if (tags != null) updateData['tags'] = tags;
     if (completedAt != null) updateData['completed_at'] = completedAt.toIso8601String();
+
+    // Adicionar múltiplos responsáveis se fornecido
+    if (assigneeUserIds != null) {
+      updateData['assignee_user_ids'] = assigneeUserIds;
+    }
 
     if (startDate != null) {
       updateData['start_date'] = startDate.toIso8601String().split('T')[0];
@@ -661,8 +966,6 @@ class TasksRepository implements TasksContract {
           .select('id, status')
           .eq('parent_task_id', taskId);
 
-      debugPrint('🔍 Task ${task['id']}: ${subTasks.length} subtasks encontradas');
-
       // Se não tem subtasks, garantir que não está em "waiting"
       if (subTasks.isEmpty) {
         if (task['status'] == 'waiting') {
@@ -674,21 +977,13 @@ class TasksRepository implements TasksContract {
                 'previous_status': null,
               })
               .eq('id', taskId);
-          debugPrint('✅ Task sem subtasks: status restaurado para $previousStatus');
         }
         return;
       }
 
       // Verificar se todas as subtasks estão concluídas
-      final allCompleted = subTasks.every((st) =>
-        st['status'] == 'completed' || st['status'] == 'done'
-      );
-
-      final hasIncomplete = subTasks.any((st) =>
-        st['status'] != 'completed' && st['status'] != 'done'
-      );
-
-      debugPrint('📊 Subtasks: ${subTasks.length} total, todas concluídas: $allCompleted, tem incompletas: $hasIncomplete');
+      final allCompleted = subTasks.every((st) => st['status'] == 'completed');
+      final hasIncomplete = subTasks.any((st) => st['status'] != 'completed');
 
       final currentStatus = task['status'] as String;
 
@@ -701,19 +996,16 @@ class TasksRepository implements TasksContract {
               'previous_status': currentStatus,
             })
             .eq('id', taskId);
-        debugPrint('✅ Task mudou para "aguardando" (status anterior: $currentStatus)');
       }
       // Se todas as subtasks foram concluídas e está em "waiting"
       else if (allCompleted && currentStatus == 'waiting') {
-        final previousStatus = task['previous_status'] ?? 'todo';
         await _client
             .from('tasks')
             .update({
-              'status': previousStatus,
+              'status': 'review',
               'previous_status': null,
             })
             .eq('id', taskId);
-        debugPrint('✅ Todas as subtasks concluídas! Status restaurado para $previousStatus');
       }
     } catch (e) {
       debugPrint('❌ Erro ao atualizar status da task: $e');
@@ -735,9 +1027,7 @@ class TasksRepository implements TasksContract {
       }
 
       // Verificar se todas as subtasks estão concluídas
-      final allCompleted = subTasks.every((st) =>
-        st['status'] == 'completed' || st['status'] == 'done'
-      );
+      final allCompleted = subTasks.every((st) => st['status'] == 'completed');
 
       return allCompleted;
     } catch (e) {

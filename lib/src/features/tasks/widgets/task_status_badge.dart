@@ -48,48 +48,48 @@ class TaskStatusBadge extends StatelessWidget {
   _BadgeData _calculateBadge() {
     switch (status.toLowerCase()) {
       case 'todo':
-        // A fazer - Cinza
+        // A fazer - Cinza azulado suave
         return _BadgeData(
           label: 'A fazer',
-          backgroundColor: Colors.grey.shade700.withValues(alpha: 0.3),
-          textColor: Colors.grey.shade50,
+          backgroundColor: Colors.blueGrey.shade600.withValues(alpha: 0.25),
+          textColor: Colors.blueGrey.shade100,
         );
       case 'in_progress':
-        // Em andamento - Azul
+        // Em andamento - Azul suave
         return _BadgeData(
           label: 'Em andamento',
-          backgroundColor: Colors.blue.shade700.withValues(alpha: 0.3),
-          textColor: Colors.blue.shade50,
+          backgroundColor: Colors.indigo.shade600.withValues(alpha: 0.3),
+          textColor: Colors.indigo.shade100,
         );
       case 'review':
-        // Em revisão - Amarelo
+        // Em revisão - Amarelo suave
         return _BadgeData(
           label: 'Em revisão',
-          backgroundColor: Colors.yellow.shade700.withValues(alpha: 0.3),
-          textColor: Colors.yellow.shade50,
+          backgroundColor: Colors.amber.shade700.withValues(alpha: 0.3),
+          textColor: Colors.amber.shade100,
         );
       case 'waiting':
       case 'aguardando':
-        // Aguardando - Laranja
+        // Aguardando - Marrom suave
         return _BadgeData(
           label: 'Aguardando',
-          backgroundColor: Colors.orange.shade700.withValues(alpha: 0.3),
-          textColor: Colors.orange.shade50,
+          backgroundColor: Colors.brown.shade600.withValues(alpha: 0.3),
+          textColor: Colors.brown.shade100,
         );
       case 'completed':
       case 'done':
-        // Concluída - Verde
+        // Concluída - Verde suave
         return _BadgeData(
           label: 'Concluída',
           backgroundColor: Colors.green.shade700.withValues(alpha: 0.3),
-          textColor: Colors.green.shade50,
+          textColor: Colors.green.shade100,
         );
       case 'cancelled':
-        // Cancelada - Vermelho
+        // Cancelada - Rosa suave
         return _BadgeData(
           label: 'Cancelada',
-          backgroundColor: Colors.red.shade700.withValues(alpha: 0.3),
-          textColor: Colors.red.shade50,
+          backgroundColor: Colors.pink.shade800.withValues(alpha: 0.3),
+          textColor: Colors.pink.shade100,
         );
       default:
         return _BadgeData(

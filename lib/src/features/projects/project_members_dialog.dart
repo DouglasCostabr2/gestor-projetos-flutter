@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../../widgets/user_avatar_name.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import '../../../ui/molecules/user_avatar_name.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import 'package:my_business/modules/common/organization_context.dart';
 
 class ProjectMembersDialog extends StatefulWidget {
   final String projectId;
@@ -90,23 +91,39 @@ class _ProjectMembersDialogState extends State<ProjectMembersDialog> {
           .whereType<String>()
           .toSet();
 
-      final prof = await Supabase.instance.client
-          .from('profiles')
-          .select('id, full_name, email, role, avatar_url')
-          .inFilter('role', ['admin','funcionario'])
-          .order('email', ascending: true);
-      final all = List<Map<String, dynamic>>.from(prof);
+      // Buscar membros da organização atual usando RPC
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        if (!mounted) return;
+        setState(() {
+          _candidates = [];
+          _filteredCandidates = [];
+          _loadingCandidates = false;
+        });
+        return;
+      }
+
+      final orgMembers = await Supabase.instance.client.rpc(
+        'get_organization_members_with_profiles',
+        params: {'org_id': orgId},
+      );
+
+      final all = (orgMembers as List).map((m) {
+        final member = m as Map<String, dynamic>;
+        return {
+          'id': member['user_id'],
+          'full_name': member['full_name'],
+          'email': member['email'],
+          'avatar_url': member['avatar_url'],
+          'role': member['role'],
+        };
+      }).toList();
+
       final filtered = all.where((p) => !memberIds.contains(p['id'] as String?)).toList();
+
       if (!mounted) return;
       setState(() {
-        // Remover possíveis duplicados por id (defensivo)
-        final seen = <String>{};
-        _candidates = filtered.where((p) {
-          final id = p['id'] as String?;
-          if (id == null || seen.contains(id)) return false;
-          seen.add(id);
-          return true;
-        }).toList();
+        _candidates = filtered;
         if (_selectedUserId != null && memberIds.contains(_selectedUserId)) {
           _selectedUserId = null;
         }
@@ -146,10 +163,10 @@ class _ProjectMembersDialogState extends State<ProjectMembersDialog> {
             .maybeSingle();
 
         final role = (profile?['role'] as String?)?.toLowerCase();
-        if (role != 'admin' && role != 'gestor' && role != 'funcionario') {
+        if (role != 'admin' && role != 'gestor' && role != 'designer' && role != 'financeiro') {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Apenas Admin/Funcionário podem ser membros deste projeto.')),
+              const SnackBar(content: Text('Apenas Admin/Gestor/Designer/Financeiro podem ser membros deste projeto.')),
             );
           }
           return;

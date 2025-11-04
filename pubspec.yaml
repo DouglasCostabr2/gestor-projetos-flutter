@@ -1,5 +1,5 @@
-name: gestor_projetos_flutter
-description: "A new Flutter project."
+name: my_business
+description: "My Business - Gerenciador de Projetos e Tarefas"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ^3.8.1
@@ -29,6 +29,8 @@ environment:
 # versions available, run `flutter pub outdated`.
 dependencies:
   flutter:
+    sdk: flutter
+  flutter_localizations:
     sdk: flutter
 
   # The following adds the Cupertino Icons font to your application.
@@ -44,12 +46,12 @@ dependencies:
   mime: ^2.0.0
   path: ^1.9.1
   http: ^1.5.0
-  flutter_quill: ^11.4.2
-  flutter_quill_extensions: ^11.0.0
+  # Editor removido: flutter_quill (migrado para custom editor baseado em appflowy_editor)
   desktop_drop: ^0.6.1
   win32: ^5.14.0
   intl: ^0.20.2
   image: ^4.0.17
+  world_countries: ^3.8.0
   country_state_city: ^0.1.6
   font_awesome_flutter: ^10.10.0
   encrypt: ^5.0.3
@@ -58,6 +60,18 @@ dependencies:
   image_picker: ^1.2.0
   path_provider: ^2.1.5
   cached_network_image: ^3.4.1
+  shared_preferences: ^2.3.4
+  flutter_quill: ^11.5.0
+  flutter_quill_extensions: ^11.0.0
+  window_manager: ^0.5.1
+  provider: ^6.1.5+1
+  cpf_cnpj_validator: ^2.0.0
+  iban: ^1.1.0
+  intl_phone_field: ^3.2.0
+  brasil_fields: ^1.18.0
+  country_picker: ^2.0.27
+  package_info_plus: ^9.0.0
+  dio: ^5.9.0
 
 dev_dependencies:
   flutter_test:

@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../config/google_oauth_config.dart';
 import '../modules/modules.dart';
+import '../modules/common/organization_context.dart';
 
 /// Stores and retrieves OAuth tokens tied to current user using Supabase
 class OAuthTokenStore {
@@ -57,15 +58,105 @@ class OAuthTokenStore {
   }
 
   static Future<Map<String, dynamic>?> getToken(String provider) async {
+    debugPrint('🔍 GDrive OAuth: buscando token pessoal para provider=$provider');
     final user = authModule.currentUser;
-    if (user == null) return null;
-    final res = await _client
-        .from('user_oauth_tokens')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('provider', provider)
-        .maybeSingle();
-    return res;
+    if (user == null) {
+      debugPrint('⚠️ GDrive OAuth: usuário não autenticado, não pode buscar token pessoal');
+      return null;
+    }
+    try {
+      final res = await _client
+          .from('user_oauth_tokens')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('provider', provider)
+          .maybeSingle();
+      debugPrint('✅ GDrive OAuth: token pessoal encontrado: ${res != null ? "SIM" : "NÃO"}');
+      if (res != null) {
+        debugPrint('   - has refresh_token: ${res['refresh_token'] != null}');
+        debugPrint('   - has access_token: ${res['access_token'] != null}');
+      }
+      return res;
+    } catch (e) {
+      debugPrint('❌ GDrive OAuth: erro ao buscar token pessoal: $e');
+      return null;
+    }
+  }
+
+  /// Salva token compartilhado por organização
+  /// Apenas admin/gestor podem salvar
+  static Future<void> upsertSharedToken({
+    required String provider,
+    required String organizationId,
+    required String refreshToken,
+    String? accessToken,
+    DateTime? expiry,
+  }) async {
+    final user = authModule.currentUser;
+    if (user == null) throw Exception('Usuário não autenticado');
+
+    final payload = {
+      'provider': provider,
+      'organization_id': organizationId,
+      'refresh_token': refreshToken,
+      if (accessToken != null) 'access_token': accessToken,
+      if (expiry != null) 'access_token_expiry': expiry.toUtc().toIso8601String(),
+      'connected_by': user.id,
+      'connected_at': DateTime.now().toUtc().toIso8601String(),
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    };
+
+    try {
+      debugPrint('GDrive OAuth: salvando token compartilhado para org=$organizationId via upsert');
+      await _client.from('shared_oauth_tokens').upsert(payload, onConflict: 'provider,organization_id');
+    } catch (e) {
+      debugPrint('GDrive OAuth: falha ao salvar token compartilhado: $e');
+      rethrow;
+    }
+  }
+
+  /// Busca token compartilhado da organização
+  static Future<Map<String, dynamic>?> getSharedToken(String provider, String organizationId) async {
+    try {
+      debugPrint('🔍 GDrive OAuth: buscando token compartilhado para provider=$provider, org=$organizationId');
+      final res = await _client
+          .from('shared_oauth_tokens')
+          .select('*')
+          .eq('provider', provider)
+          .eq('organization_id', organizationId)
+          .maybeSingle();
+      debugPrint('✅ GDrive OAuth: token compartilhado encontrado: ${res != null ? "SIM" : "NÃO"}');
+      if (res != null) {
+        debugPrint('   - has refresh_token: ${res['refresh_token'] != null}');
+        debugPrint('   - has access_token: ${res['access_token'] != null}');
+        debugPrint('   - connected_by: ${res['connected_by']}');
+      }
+      return res;
+    } catch (e) {
+      debugPrint('❌ GDrive OAuth: erro ao buscar token compartilhado: $e');
+      return null;
+    }
+  }
+
+  /// Verifica se existe token compartilhado para a organização
+  static Future<bool> hasSharedToken(String provider, String organizationId) async {
+    final token = await getSharedToken(provider, organizationId);
+    return token != null && token['refresh_token'] != null;
+  }
+
+  /// Remove token compartilhado da organização (apenas admin/gestor)
+  static Future<void> removeSharedToken(String provider, String organizationId) async {
+    try {
+      debugPrint('GDrive OAuth: removendo token compartilhado para org=$organizationId');
+      await _client
+          .from('shared_oauth_tokens')
+          .delete()
+          .eq('provider', provider)
+          .eq('organization_id', organizationId);
+    } catch (e) {
+      debugPrint('GDrive OAuth: erro ao remover token compartilhado: $e');
+      rethrow;
+    }
   }
 }
 
@@ -89,42 +180,82 @@ class GoogleDriveOAuthService {
   Uri? lastAuthUrl; // exposto para UI, se precisar exibir manualmente
 
   /// Returns an authenticated client if a refresh token is stored; otherwise throws [ConsentRequired]
+  ///
+  /// Uso:
+  /// - Somente token compartilhado por organização (shared_oauth_tokens)
+  /// - Sem fallback para token pessoal
   Future<auth.AuthClient> getAuthedClient() async {
-    final stored = await OAuthTokenStore.getToken('google');
+    debugPrint('🔐🔐🔐 GDrive OAuth: getAuthedClient() chamado');
 
-    if (stored != null && stored['refresh_token'] != null) {
-      final refreshToken = stored['refresh_token'] as String;
-      final creds = auth.AccessCredentials(
-        auth.AccessToken('Bearer', stored['access_token'] ?? '', DateTime.now().toUtc().subtract(const Duration(minutes: 1))),
-        refreshToken,
-        GoogleOAuthConfig.scopes,
-      );
+    // Obter organization_id do contexto
+    final organizationId = OrganizationContext.currentOrganizationId;
 
-      final base = http.Client();
-      try {
-        final refreshed = await auth.refreshCredentials(_clientId, creds, base);
-        await OAuthTokenStore.upsertToken(
-          provider: 'google',
-          refreshToken: refreshToken,
-          accessToken: refreshed.accessToken.data,
-          expiry: refreshed.accessToken.expiry,
+    if (organizationId != null) {
+      // 1. Tentar token compartilhado da organização primeiro
+      debugPrint('🔍🔍🔍 GDrive OAuth: verificando token compartilhado para org=$organizationId...');
+      final sharedToken = await OAuthTokenStore.getSharedToken('google', organizationId);
+      debugPrint('🔍🔍🔍 GDrive OAuth: sharedToken obtido: ${sharedToken != null}');
+      if (sharedToken != null && sharedToken['refresh_token'] != null) {
+        debugPrint('✅✅✅ GDrive OAuth: usando token compartilhado da organização');
+        final refreshToken = sharedToken['refresh_token'] as String;
+        final creds = auth.AccessCredentials(
+          auth.AccessToken('Bearer', sharedToken['access_token'] ?? '', DateTime.now().toUtc().subtract(const Duration(minutes: 1))),
+          refreshToken,
+          GoogleOAuthConfig.scopes,
         );
-        return auth.authenticatedClient(base, refreshed);
-      } catch (e) {
-        base.close();
-        debugPrint('GDrive OAuth: falha ao renovar token via refresh: $e');
-        throw ConsentRequired();
+
+        final base = http.Client();
+        try {
+          debugPrint('🔄🔄🔄 GDrive OAuth: renovando token compartilhado...');
+          final refreshed = await auth.refreshCredentials(_clientId, creds, base);
+          debugPrint('🔄🔄🔄 GDrive OAuth: token renovado, atualizando no DB...');
+          // Atualizar token compartilhado
+          await OAuthTokenStore.upsertSharedToken(
+            provider: 'google',
+            organizationId: organizationId,
+            refreshToken: refreshToken,
+            accessToken: refreshed.accessToken.data,
+            expiry: refreshed.accessToken.expiry,
+          );
+          debugPrint('✅✅✅ GDrive OAuth: token compartilhado renovado com sucesso');
+          return auth.authenticatedClient(base, refreshed);
+        } catch (e) {
+          base.close();
+          debugPrint('❌❌❌ GDrive OAuth: falha ao renovar token compartilhado: $e');
+          throw ConsentRequired();
+        }
+      } else {
+        debugPrint('⚠️⚠️⚠️ GDrive OAuth: nenhum token compartilhado encontrado para a organização');
       }
+    } else {
+      debugPrint('⚠️⚠️⚠️ GDrive OAuth: nenhuma organização ativa no contexto');
+      throw ConsentRequired();
     }
+
+
 
     debugPrint('GDrive OAuth: nenhum token armazenado, solicitando consentimento');
     throw ConsentRequired();
   }
 
   /// Loopback consent: abre navegador e fica escutando localhost; se falhar abre manualmente
-  Future<auth.AuthClient> connectWithLoopback({void Function(Uri url, bool opened)? onAuthUrl}) async {
+  ///
+  /// [saveAsShared] - Sempre true (somente token compartilhado por organização)
+  /// [organizationId] - ID da organização (obrigatório)
+  Future<auth.AuthClient> connectWithLoopback({
+    void Function(Uri url, bool opened)? onAuthUrl,
+    bool saveAsShared = false,
+    String? organizationId,
+  }) async {
     if (GoogleOAuthConfig.clientId.isEmpty || GoogleOAuthConfig.clientSecret.isEmpty) {
       throw Exception('Client ID/Secret não configurados (--dart-define)');
+    }
+
+    if (saveAsShared && organizationId == null) {
+      throw Exception('organization_id é obrigatório quando saveAsShared=true');
+    }
+    if (!saveAsShared) {
+      throw Exception('Somente conta compartilhada é suportada neste aplicativo (por organização).');
     }
 
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -220,13 +351,19 @@ class GoogleDriveOAuthService {
       GoogleOAuthConfig.scopes,
     );
 
-    await OAuthTokenStore.upsertToken(
-      provider: 'google',
-      refreshToken: refreshToken,
-      accessToken: creds.accessToken.data,
-      expiry: creds.accessToken.expiry,
-    );
-    debugPrint('GDrive OAuth: token salvo no Supabase');
+    // Salvar token (compartilhado ou pessoal)
+    if (saveAsShared) {
+      await OAuthTokenStore.upsertSharedToken(
+        provider: 'google',
+        organizationId: organizationId!,
+        refreshToken: refreshToken,
+        accessToken: creds.accessToken.data,
+        expiry: creds.accessToken.expiry,
+      );
+      debugPrint('GDrive OAuth: token compartilhado salvo no Supabase para org=$organizationId');
+    } else {
+      throw Exception('Somente conta compartilhada é suportada neste aplicativo (por organização).');
+    }
 
     final base = http.Client();
     return auth.authenticatedClient(base, creds);
@@ -269,48 +406,84 @@ class GoogleDriveOAuthService {
 
   String _escape(String s) => s.replaceAll("'", "\\'");
 
+  /// Helper para obter o nome da organização atual
+  /// Se organizationName for fornecido, usa ele. Caso contrário, obtém do contexto.
+  String _getOrganizationName(String? organizationName) {
+    if (organizationName != null && organizationName.isNotEmpty) {
+      return organizationName;
+    }
+    final orgName = OrganizationContext.currentOrganization?['name'] as String?;
+    if (orgName == null || orgName.isEmpty) {
+      throw Exception('Nenhuma organização ativa. Conecte-se a uma organização primeiro.');
+    }
+    return orgName;
+  }
+
   Future<String> ensureRootFolder(auth.AuthClient client) async {
     final api = await _drive(client);
     return _findOrCreateFolder(api, 'Gestor de Projetos');
   }
 
-  Future<String> ensureClientsFolder(auth.AuthClient client) async {
+  /// Cria estrutura: Gestor de Projetos/Organizações/
+  Future<String> ensureOrganizationsFolder(auth.AuthClient client) async {
     final api = await _drive(client);
     final rootId = await ensureRootFolder(client);
-    return _findOrCreateFolder(api, 'Clientes', parentId: rootId);
+    return _findOrCreateFolder(api, 'Organizações', parentId: rootId);
   }
 
-  Future<String> ensureClientFolder(auth.AuthClient client, String clientName) async {
+  /// Cria estrutura: Gestor de Projetos/Organizações/{organizationName}/
+  Future<String> ensureOrganizationFolder(auth.AuthClient client, String organizationName) async {
     final api = await _drive(client);
-    final clientsId = await ensureClientsFolder(client);
+    final organizationsId = await ensureOrganizationsFolder(client);
+    return _findOrCreateFolder(api, _sanitize(organizationName), parentId: organizationsId);
+  }
+
+  /// Cria estrutura: Gestor de Projetos/Organizações/{organizationName}/Clientes/
+  Future<String> ensureClientsFolder(auth.AuthClient client, {String? organizationName}) async {
+    final orgName = _getOrganizationName(organizationName);
+    final api = await _drive(client);
+    final orgId = await ensureOrganizationFolder(client, orgName);
+    return _findOrCreateFolder(api, 'Clientes', parentId: orgId);
+  }
+
+  /// Cria estrutura: Gestor de Projetos/Organizações/{organizationName}/Clientes/{clientName}/
+  Future<String> ensureClientFolder(auth.AuthClient client, String clientName, {String? organizationName}) async {
+    final orgName = _getOrganizationName(organizationName);
+    final api = await _drive(client);
+    final clientsId = await ensureClientsFolder(client, organizationName: orgName);
     return _findOrCreateFolder(api, _sanitize(clientName), parentId: clientsId);
   }
 
-  Future<String> ensureCompanyFolder(auth.AuthClient client, String clientName, String companyName) async {
+  /// Cria estrutura: Gestor de Projetos/Organizações/{organizationName}/Clientes/{clientName}/{companyName}/
+  Future<String> ensureCompanyFolder(auth.AuthClient client, String clientName, String companyName, {String? organizationName}) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
-    final clientId = await ensureClientFolder(client, clientName);
+    final clientId = await ensureClientFolder(client, clientName, organizationName: orgName);
     return _findOrCreateFolder(api, _sanitize(companyName), parentId: clientId);
   }
 
-  /// Cria estrutura: Gestor de Projetos/{Cliente}/{Projeto}/
+  /// Cria estrutura: Gestor de Projetos/Organizações/{organizationName}/Clientes/{clientName}/{projectName}/
   /// Mantido para retrocompatibilidade (projetos sem empresa)
-  Future<String> ensureProjectFolder(auth.AuthClient client, String clientName, String projectName) async {
+  Future<String> ensureProjectFolder(auth.AuthClient client, String clientName, String projectName, {String? organizationName}) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
-    final clientId = await ensureClientFolder(client, clientName);
+    final clientId = await ensureClientFolder(client, clientName, organizationName: orgName);
     return _findOrCreateFolder(api, _sanitize(projectName), parentId: clientId);
   }
 
-  /// Cria estrutura: Gestor de Projetos/{Cliente}/{Empresa}/{Projeto}/
+  /// Cria estrutura: Gestor de Projetos/Organizações/{organizationName}/Clientes/{clientName}/{companyName}/{projectName}/
   /// Use esta função quando o projeto tiver uma empresa associada
-  Future<String> ensureProjectFolderWithCompany(auth.AuthClient client, String clientName, String companyName, String projectName) async {
+  Future<String> ensureProjectFolderWithCompany(auth.AuthClient client, String clientName, String companyName, String projectName, {String? organizationName}) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
-    final companyId = await ensureCompanyFolder(client, clientName, companyName);
+    final companyId = await ensureCompanyFolder(client, clientName, companyName, organizationName: orgName);
     return _findOrCreateFolder(api, _sanitize(projectName), parentId: companyId);
   }
 
-  Future<String> ensureTaskFolder(auth.AuthClient client, String clientName, String projectName, String taskName) async {
+  Future<String> ensureTaskFolder(auth.AuthClient client, String clientName, String projectName, String taskName, {String? organizationName}) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
-    final projectId = await ensureProjectFolder(client, clientName, projectName);
+    final projectId = await ensureProjectFolder(client, clientName, projectName, organizationName: orgName);
     final base = _sanitize(taskName);
     final withCheck = '$base ✅';
     // try to find either normal or checked folder first
@@ -325,10 +498,11 @@ class GoogleDriveOAuthService {
     return _findOrCreateFolder(api, base, parentId: projectId);
   }
 
-  /// Cria estrutura de tarefa com empresa: Gestor de Projetos/{Cliente}/{Empresa}/{Projeto}/{Tarefa}/
-  Future<String> ensureTaskFolderWithCompany(auth.AuthClient client, String clientName, String companyName, String projectName, String taskName) async {
+  /// Cria estrutura de tarefa com empresa: Gestor de Projetos/Organizações/{Org}/Clientes/{Cliente}/{Empresa}/{Projeto}/{Tarefa}/
+  Future<String> ensureTaskFolderWithCompany(auth.AuthClient client, String clientName, String companyName, String projectName, String taskName, {String? organizationName}) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
-    final projectId = await ensureProjectFolderWithCompany(client, clientName, companyName, projectName);
+    final projectId = await ensureProjectFolderWithCompany(client, clientName, companyName, projectName, organizationName: orgName);
     final base = _sanitize(taskName);
     final withCheck = '$base ✅';
     // try to find either normal or checked folder first
@@ -349,9 +523,11 @@ class GoogleDriveOAuthService {
     required String clientName,
     required String projectName,
     required String taskName,
+    String? organizationName,
   }) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
-    final projectId = await ensureProjectFolder(client, clientName, projectName);
+    final projectId = await ensureProjectFolder(client, clientName, projectName, organizationName: orgName);
     final base = _sanitize(taskName);
     final withCheck = '$base ✅';
 
@@ -382,9 +558,11 @@ class GoogleDriveOAuthService {
     required String clientName,
     required String projectName,
     required String taskName,
+    String? organizationName,
   }) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
-    final projectId = await ensureProjectFolder(client, clientName, projectName);
+    final projectId = await ensureProjectFolder(client, clientName, projectName, organizationName: orgName);
     final base = _sanitize(taskName);
     final withCheck = '$base ✅';
 
@@ -424,19 +602,40 @@ class GoogleDriveOAuthService {
     required String filename,
     required List<int> bytes,
     String? mimeType,
+    String? organizationName,
   }) async {
-    final api = await _drive(client);
-    final taskFolder = await ensureTaskFolder(client, clientName, projectName, taskName);
+    debugPrint('🔵 [Drive] uploadToTaskFolder INICIADO');
+    debugPrint('   📁 Cliente: $clientName');
+    debugPrint('   📁 Projeto: $projectName');
+    debugPrint('   📁 Tarefa: $taskName');
+    debugPrint('   📄 Arquivo: $filename (${bytes.length} bytes)');
 
+    debugPrint('🔵 [Drive] Obtendo API do Drive...');
+    final api = await _drive(client);
+    debugPrint('✅ [Drive] API obtida com sucesso');
+
+    debugPrint('🔵 [Drive] Garantindo pasta da tarefa...');
+    final taskFolder = await ensureTaskFolder(client, clientName, projectName, taskName, organizationName: organizationName);
+    debugPrint('✅ [Drive] Pasta da tarefa: $taskFolder');
+
+    debugPrint('🔵 [Drive] Criando objeto File...');
     final file = drive.File()
       ..name = filename
       ..parents = [taskFolder];
+    debugPrint('✅ [Drive] Objeto File criado');
 
     final contentType = mimeType ?? mime.lookupMimeType(filename) ?? 'application/octet-stream';
+    debugPrint('🔵 [Drive] Content-Type: $contentType');
+
+    debugPrint('🔵 [Drive] Criando Media stream...');
     final media = drive.Media(Stream.value(bytes), bytes.length, contentType: contentType);
+    debugPrint('✅ [Drive] Media stream criado');
 
+    debugPrint('🔵 [Drive] Enviando arquivo para o Drive...');
     final created = await api.files.create(file, uploadMedia: media, $fields: 'id');
+    debugPrint('✅ [Drive] Arquivo enviado! ID: ${created.id}');
 
+    debugPrint('🔵 [Drive] Tornando arquivo público...');
     try {
       await api.permissions.create(
         drive.Permission()
@@ -444,20 +643,163 @@ class GoogleDriveOAuthService {
           ..role = 'reader',
         created.id!,
       );
+      debugPrint('✅ [Drive] Arquivo tornado público');
     } catch (e) {
+      debugPrint('⚠️ [Drive] Falha ao tornar arquivo público: $e');
       debugPrint('Falha ao tornar arquivo público (link): $e');
     }
 
+    debugPrint('🔵 [Drive] Obtendo metadados do arquivo...');
     final f = await api.files.get(created.id!, $fields: 'id,thumbnailLink') as drive.File;
     final id = f.id!;
     final publicViewUrl = Uri.https('drive.google.com', '/uc', {'export': 'view', 'id': id}).toString();
+    debugPrint('✅ [Drive] Metadados obtidos');
+    debugPrint('   🔗 URL pública: $publicViewUrl');
 
+    debugPrint('✅ [Drive] uploadToTaskFolder CONCLUÍDO');
     return UploadedDriveFile(
       id: id,
       publicViewUrl: publicViewUrl,
       thumbnailLink: f.thumbnailLink,
     );
   }
+
+  /// Upload usando Resumable Upload API do Google Drive (para arquivos grandes)
+  /// Permite uploads de qualquer tamanho com progresso real e sem travar a UI
+  Future<UploadedDriveFile> uploadToTaskFolderResumable({
+    required auth.AuthClient client,
+    required String clientName,
+    required String projectName,
+    required String taskName,
+    required String filename,
+    required List<int> bytes,
+    String? mimeType,
+    required Function(double progress) onProgress,
+    String? organizationName,
+    String? companyName,
+  }) async {
+    debugPrint('🔵 [Drive Resumable] Upload INICIADO');
+    debugPrint('   📁 Cliente: $clientName');
+    debugPrint('   📁 Projeto: $projectName');
+    debugPrint('   📁 Tarefa: $taskName');
+    debugPrint('   📄 Arquivo: $filename (${bytes.length} bytes)');
+
+    final taskFolder = companyName != null && companyName.isNotEmpty
+        ? await ensureTaskFolderWithCompany(client, clientName, companyName, projectName, taskName, organizationName: organizationName)
+        : await ensureTaskFolder(client, clientName, projectName, taskName, organizationName: organizationName);
+    final contentType = mimeType ?? mime.lookupMimeType(filename) ?? 'application/octet-stream';
+
+    // PASSO 1: Iniciar sessão de upload resumable
+    debugPrint('🔵 [Drive Resumable] Iniciando sessão de upload...');
+    final metadata = {
+      'name': filename,
+      'parents': [taskFolder],
+    };
+
+    final initResponse = await http.post(
+      Uri.parse('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable'),
+      headers: {
+        'Authorization': 'Bearer ${client.credentials.accessToken.data}',
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': contentType,
+        'X-Upload-Content-Length': bytes.length.toString(),
+      },
+      body: convert.jsonEncode(metadata),
+    );
+
+    if (initResponse.statusCode != 200) {
+      throw Exception('Falha ao iniciar upload resumable: ${initResponse.statusCode} - ${initResponse.body}');
+    }
+
+    final uploadUrl = initResponse.headers['location'];
+    if (uploadUrl == null) {
+      throw Exception('URL de upload não retornada');
+    }
+
+    debugPrint('✅ [Drive Resumable] Sessão iniciada. URL: $uploadUrl');
+
+    // PASSO 2: Enviar arquivo em chunks
+    // Usar chunks de 10 MB para upload suave sem travar a UI
+    const chunkSize = 10 * 1024 * 1024; // 10 MB por chunk
+    int uploadedBytes = 0;
+
+    debugPrint('🔵 [Drive Resumable] Enviando arquivo em chunks de ${chunkSize ~/ 1024 ~/ 1024} MB...');
+
+    while (uploadedBytes < bytes.length) {
+      final end = (uploadedBytes + chunkSize < bytes.length)
+          ? uploadedBytes + chunkSize
+          : bytes.length;
+
+      final chunk = bytes.sublist(uploadedBytes, end);
+      final contentRange = 'bytes $uploadedBytes-${end - 1}/${bytes.length}';
+
+      debugPrint('   📤 Enviando chunk: $contentRange');
+
+      final chunkResponse = await http.put(
+        Uri.parse(uploadUrl),
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': chunk.length.toString(),
+          'Content-Range': contentRange,
+        },
+        body: chunk,
+      );
+
+      // Status 308 = Resume Incomplete (continuar enviando)
+      // Status 200 ou 201 = Upload completo
+      if (chunkResponse.statusCode == 308) {
+        // Continuar enviando
+        uploadedBytes = end;
+        final progress = uploadedBytes / bytes.length;
+        onProgress(progress);
+        debugPrint('   ✅ Chunk enviado. Progresso: ${(progress * 100).toStringAsFixed(1)}%');
+
+        // Delay mínimo para permitir que a UI atualize
+        await Future.delayed(const Duration(milliseconds: 1));
+      } else if (chunkResponse.statusCode == 200 || chunkResponse.statusCode == 201) {
+        // Upload completo!
+        uploadedBytes = bytes.length;
+        onProgress(1.0);
+        debugPrint('✅ [Drive Resumable] Upload completo!');
+
+        final fileData = convert.jsonDecode(chunkResponse.body);
+        final fileId = fileData['id'] as String;
+
+        // PASSO 3: Tornar arquivo público
+        debugPrint('🔵 [Drive Resumable] Tornando arquivo público...');
+        try {
+          final api = await _drive(client);
+          await api.permissions.create(
+            drive.Permission()
+              ..type = 'anyone'
+              ..role = 'reader',
+            fileId,
+          );
+          debugPrint('✅ [Drive Resumable] Arquivo tornado público');
+        } catch (e) {
+          debugPrint('⚠️ [Drive Resumable] Falha ao tornar público: $e');
+        }
+
+        // PASSO 4: Obter metadados
+        debugPrint('🔵 [Drive Resumable] Obtendo metadados...');
+        final api = await _drive(client);
+        final file = await api.files.get(fileId, $fields: 'id,thumbnailLink') as drive.File;
+        final publicViewUrl = Uri.https('drive.google.com', '/uc', {'export': 'view', 'id': fileId}).toString();
+
+        debugPrint('✅ [Drive Resumable] Upload CONCLUÍDO');
+        return UploadedDriveFile(
+          id: fileId,
+          publicViewUrl: publicViewUrl,
+          thumbnailLink: file.thumbnailLink,
+        );
+      } else {
+        throw Exception('Erro no upload do chunk: ${chunkResponse.statusCode} - ${chunkResponse.body}');
+      }
+    }
+
+    throw Exception('Upload não foi concluído corretamente');
+  }
+
   Future<UploadedDriveFile> uploadToProjectFolder({
     required auth.AuthClient client,
     required String clientName,
@@ -465,9 +807,10 @@ class GoogleDriveOAuthService {
     required String filename,
     required List<int> bytes,
     String? mimeType,
+    String? organizationName,
   }) async {
     final api = await _drive(client);
-    final projectFolder = await ensureProjectFolder(client, clientName, projectName);
+    final projectFolder = await ensureProjectFolder(client, clientName, projectName, organizationName: organizationName);
 
     final file = drive.File()
       ..name = filename
@@ -500,11 +843,12 @@ class GoogleDriveOAuthService {
     );
   }
 
-  Future<String> ensureProjectSubfolder(auth.AuthClient client, String clientName, String projectName, String subfolderName, {String? companyName}) async {
+  Future<String> ensureProjectSubfolder(auth.AuthClient client, String clientName, String projectName, String subfolderName, {String? companyName, String? organizationName}) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
     final projectId = companyName != null && companyName.isNotEmpty
-        ? await ensureProjectFolderWithCompany(client, clientName, companyName, projectName)
-        : await ensureProjectFolder(client, clientName, projectName);
+        ? await ensureProjectFolderWithCompany(client, clientName, companyName, projectName, organizationName: orgName)
+        : await ensureProjectFolder(client, clientName, projectName, organizationName: orgName);
     return _findOrCreateFolder(api, _sanitize(subfolderName), parentId: projectId);
   }
 
@@ -614,25 +958,27 @@ class GoogleDriveOAuthService {
     required String taskName,
     required String subfolderName,
     String? companyName,
+    String? organizationName,
   }) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
     final taskFolder = companyName != null && companyName.isNotEmpty
-        ? await ensureTaskFolderWithCompany(client, clientName, companyName, projectName, taskName)
-        : await ensureTaskFolder(client, clientName, projectName, taskName);
+        ? await ensureTaskFolderWithCompany(client, clientName, companyName, projectName, taskName, organizationName: orgName)
+        : await ensureTaskFolder(client, clientName, projectName, taskName, organizationName: orgName);
     final sub = _sanitize(subfolderName);
     return _findOrCreateFolder(api, sub, parentId: taskFolder);
   }
 
-  Future<String> ensureAssetsFolder(auth.AuthClient client, String clientName, String projectName, String taskName, {String? companyName}) {
-    return ensureTaskSubfolder(client: client, clientName: clientName, projectName: projectName, taskName: taskName, subfolderName: 'Assets', companyName: companyName);
+  Future<String> ensureAssetsFolder(auth.AuthClient client, String clientName, String projectName, String taskName, {String? companyName, String? organizationName}) {
+    return ensureTaskSubfolder(client: client, clientName: clientName, projectName: projectName, taskName: taskName, subfolderName: 'Assets', companyName: companyName, organizationName: organizationName);
   }
 
-  Future<String> ensureBriefingFolder(auth.AuthClient client, String clientName, String projectName, String taskName, {String? companyName}) {
-    return ensureTaskSubfolder(client: client, clientName: clientName, projectName: projectName, taskName: taskName, subfolderName: 'Briefing', companyName: companyName);
+  Future<String> ensureBriefingFolder(auth.AuthClient client, String clientName, String projectName, String taskName, {String? companyName, String? organizationName}) {
+    return ensureTaskSubfolder(client: client, clientName: clientName, projectName: projectName, taskName: taskName, subfolderName: 'Briefing', companyName: companyName, organizationName: organizationName);
   }
 
-  Future<String> ensureCommentsFolder(auth.AuthClient client, String clientName, String projectName, String taskName, {String? companyName}) {
-    return ensureTaskSubfolder(client: client, clientName: clientName, projectName: projectName, taskName: taskName, subfolderName: 'Comentarios', companyName: companyName);
+  Future<String> ensureCommentsFolder(auth.AuthClient client, String clientName, String projectName, String taskName, {String? companyName, String? organizationName}) {
+    return ensureTaskSubfolder(client: client, clientName: clientName, projectName: projectName, taskName: taskName, subfolderName: 'Comentarios', companyName: companyName, organizationName: organizationName);
   }
 
   Future<UploadedDriveFile> uploadToTaskSubfolder({
@@ -645,6 +991,7 @@ class GoogleDriveOAuthService {
     required List<int> bytes,
     String? mimeType,
     String? companyName,
+    String? organizationName,
   }) async {
     final api = await _drive(client);
     final subfolder = await ensureTaskSubfolder(
@@ -654,6 +1001,7 @@ class GoogleDriveOAuthService {
       taskName: taskName,
       subfolderName: subfolderName,
       companyName: companyName,
+      organizationName: organizationName,
     );
 
     final file = drive.File()
@@ -685,6 +1033,147 @@ class GoogleDriveOAuthService {
       publicViewUrl: publicViewUrl,
       thumbnailLink: f.thumbnailLink,
     );
+  }
+
+  /// Upload file to task subfolder using Resumable Upload API (for large files)
+  Future<UploadedDriveFile> uploadToTaskSubfolderResumable({
+    required auth.AuthClient client,
+    required String clientName,
+    required String projectName,
+    required String taskName,
+    required String subfolderName,
+    required String filename,
+    required List<int> bytes,
+    String? mimeType,
+    String? companyName,
+    Function(double progress)? onProgress,
+  }) async {
+    debugPrint('🔵 [Drive Resumable Subfolder] Upload INICIADO');
+    debugPrint('   📁 Cliente: $clientName');
+    debugPrint('   📁 Projeto: $projectName');
+    debugPrint('   📁 Tarefa: $taskName');
+    debugPrint('   📁 Subpasta: $subfolderName');
+    debugPrint('   📄 Arquivo: $filename (${bytes.length} bytes)');
+
+    final subfolder = await ensureTaskSubfolder(
+      client: client,
+      clientName: clientName,
+      projectName: projectName,
+      taskName: taskName,
+      subfolderName: subfolderName,
+      companyName: companyName,
+    );
+    final contentType = mimeType ?? mime.lookupMimeType(filename) ?? 'application/octet-stream';
+
+    // PASSO 1: Iniciar sessão de upload resumable
+    debugPrint('🔵 [Drive Resumable Subfolder] Iniciando sessão de upload...');
+    final metadata = {
+      'name': filename,
+      'parents': [subfolder],
+    };
+
+    final initResponse = await http.post(
+      Uri.parse('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable'),
+      headers: {
+        'Authorization': 'Bearer ${client.credentials.accessToken.data}',
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': contentType,
+        'X-Upload-Content-Length': bytes.length.toString(),
+      },
+      body: convert.jsonEncode(metadata),
+    );
+
+    if (initResponse.statusCode != 200) {
+      throw Exception('Falha ao iniciar sessão de upload: ${initResponse.statusCode} - ${initResponse.body}');
+    }
+
+    final uploadUrl = initResponse.headers['location'];
+    if (uploadUrl == null) {
+      throw Exception('URL de upload não retornada');
+    }
+
+    debugPrint('✅ [Drive Resumable Subfolder] Sessão iniciada. URL: $uploadUrl');
+
+    // PASSO 2: Enviar arquivo em chunks
+    // Usar chunks de 10 MB para upload suave sem travar a UI
+    const chunkSize = 10 * 1024 * 1024; // 10 MB por chunk
+    int uploadedBytes = 0;
+
+    debugPrint('🔵 [Drive Resumable Subfolder] Enviando arquivo em chunks de ${chunkSize ~/ 1024 ~/ 1024} MB...');
+
+    while (uploadedBytes < bytes.length) {
+      final end = (uploadedBytes + chunkSize < bytes.length)
+          ? uploadedBytes + chunkSize
+          : bytes.length;
+
+      final chunk = bytes.sublist(uploadedBytes, end);
+      final contentRange = 'bytes $uploadedBytes-${end - 1}/${bytes.length}';
+
+      debugPrint('   📤 Enviando chunk: $contentRange');
+
+      final chunkResponse = await http.put(
+        Uri.parse(uploadUrl),
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': chunk.length.toString(),
+          'Content-Range': contentRange,
+        },
+        body: chunk,
+      );
+
+      // Status 308 = Resume Incomplete (continuar enviando)
+      // Status 200 ou 201 = Upload completo
+      if (chunkResponse.statusCode == 308) {
+        // Continuar enviando
+        uploadedBytes = end;
+        final progress = uploadedBytes / bytes.length;
+        onProgress?.call(progress);
+        debugPrint('   ✅ Chunk enviado. Progresso: ${(progress * 100).toStringAsFixed(1)}%');
+
+        // Delay mínimo para permitir que a UI atualize
+        await Future.delayed(const Duration(milliseconds: 1));
+      } else if (chunkResponse.statusCode == 200 || chunkResponse.statusCode == 201) {
+        // Upload completo!
+        uploadedBytes = bytes.length;
+        onProgress?.call(1.0);
+        debugPrint('✅ [Drive Resumable Subfolder] Upload completo!');
+
+        final fileData = convert.jsonDecode(chunkResponse.body);
+        final fileId = fileData['id'] as String;
+
+        // PASSO 3: Tornar arquivo público
+        debugPrint('🔵 [Drive Resumable Subfolder] Tornando arquivo público...');
+        try {
+          final api = await _drive(client);
+          await api.permissions.create(
+            drive.Permission()
+              ..type = 'anyone'
+              ..role = 'reader',
+            fileId,
+          );
+          debugPrint('✅ [Drive Resumable Subfolder] Arquivo tornado público');
+        } catch (e) {
+          debugPrint('⚠️ [Drive Resumable Subfolder] Falha ao tornar público: $e');
+        }
+
+        // PASSO 4: Obter metadados
+        debugPrint('🔵 [Drive Resumable Subfolder] Obtendo metadados...');
+        final api = await _drive(client);
+        final file = await api.files.get(fileId, $fields: 'id,thumbnailLink') as drive.File;
+        final publicViewUrl = Uri.https('drive.google.com', '/uc', {'export': 'view', 'id': fileId}).toString();
+
+        debugPrint('✅ [Drive Resumable Subfolder] Upload CONCLUÍDO');
+        return UploadedDriveFile(
+          id: fileId,
+          publicViewUrl: publicViewUrl,
+          thumbnailLink: file.thumbnailLink,
+        );
+      } else {
+        throw Exception('Erro no upload do chunk: ${chunkResponse.statusCode} - ${chunkResponse.body}');
+      }
+    }
+
+    throw Exception('Upload não foi concluído corretamente');
   }
 
 
@@ -918,6 +1407,46 @@ class GoogleDriveOAuthService {
       debugPrint('Drive delete: successfully deleted company folder: $companyName');
     } catch (e) {
       debugPrint('Drive delete: failed to delete company folder: $e');
+    }
+  }
+
+  /// Deleta a pasta da organização no Google Drive
+  /// Estrutura: Gestor de Projetos/Organizações/{organizationName}/
+  /// Isso deletará recursivamente todos os clientes, projetos e tarefas da organização
+  Future<void> deleteOrganizationFolder({
+    required auth.AuthClient client,
+    required String organizationName,
+  }) async {
+    try {
+      debugPrint('🗑️ Deletando pasta da organização no Google Drive: $organizationName');
+      final api = await _drive(client);
+
+      // Buscar pasta "Organizações"
+      final organizationsId = await ensureOrganizationsFolder(client);
+
+      // Buscar pasta da organização dentro de "Organizações"
+      final sanitizedOrgName = _sanitize(organizationName);
+      final q = [
+        "mimeType = 'application/vnd.google-apps.folder'",
+        "name = '${_escape(sanitizedOrgName)}'",
+        "'${_escape(organizationsId)}' in parents",
+        'trashed = false',
+      ].join(' and ');
+
+      final res = await api.files.list(q: q, $fields: 'files(id,name)');
+
+      if (res.files != null && res.files!.isNotEmpty) {
+        final orgFolderId = res.files!.first.id!;
+        debugPrint('   📁 Pasta encontrada: ${res.files!.first.name} (ID: $orgFolderId)');
+        debugPrint('   🗑️ Deletando pasta recursivamente...');
+        await api.files.delete(orgFolderId);
+        debugPrint('   ✅ Pasta da organização deletada com sucesso');
+      } else {
+        debugPrint('   ⚠️ Pasta da organização não encontrada no Drive');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Erro ao deletar pasta da organização no Google Drive: $e');
+      // Não propagar o erro para não bloquear a exclusão da organização
     }
   }
 
@@ -1290,13 +1819,15 @@ class GoogleDriveOAuthService {
     String taskName,
     String subTaskName, {
     String? companyName,
+    String? organizationName,
   }) async {
+    final orgName = _getOrganizationName(organizationName);
     final api = await _drive(client);
 
     // Primeiro, garantir que a pasta da tarefa principal existe
     final taskFolderId = companyName != null && companyName.isNotEmpty
-        ? await ensureTaskFolderWithCompany(client, clientName, companyName, projectName, taskName)
-        : await ensureTaskFolder(client, clientName, projectName, taskName);
+        ? await ensureTaskFolderWithCompany(client, clientName, companyName, projectName, taskName, organizationName: orgName)
+        : await ensureTaskFolder(client, clientName, projectName, taskName, organizationName: orgName);
 
     // Criar/buscar a pasta "Subtask" dentro da pasta da tarefa
     final subtaskContainerId = await _findOrCreateFolder(api, 'Subtask', parentId: taskFolderId);
@@ -1546,6 +2077,21 @@ class GoogleDriveOAuthService {
     } catch (e) {
       debugPrint('⚠️ Erro ao renomear pasta da subtarefa no Google Drive: $e');
     }
+  }
+
+  /// Verifica se existe token compartilhado para a organização
+  Future<bool> hasSharedToken(String organizationId) async {
+    return await OAuthTokenStore.hasSharedToken('google', organizationId);
+  }
+
+  /// Obtém informações sobre o token compartilhado da organização (quem conectou, quando, etc.)
+  Future<Map<String, dynamic>?> getSharedTokenInfo(String organizationId) async {
+    return await OAuthTokenStore.getSharedToken('google', organizationId);
+  }
+
+  /// Remove token compartilhado da organização (apenas admin/gestor)
+  Future<void> disconnectShared(String organizationId) async {
+    await OAuthTokenStore.removeSharedToken('google', organizationId);
   }
 }
 

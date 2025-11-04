@@ -49,72 +49,72 @@ class ProjectStatusBadge extends StatelessWidget {
     switch (status.toLowerCase()) {
       case 'not_started':
       case 'nao_iniciado':
-        // Não iniciado - Cinza
+        // Não iniciado - Cinza suave
         return _BadgeData(
           label: 'Não iniciado',
-          backgroundColor: Colors.grey.shade700.withValues(alpha: 0.3),
-          textColor: Colors.grey.shade50,
+          backgroundColor: Colors.grey.shade600.withValues(alpha: 0.25),
+          textColor: Colors.grey.shade100,
         );
       case 'negotiation':
       case 'em_negociacao':
-        // Em negociação - Roxo
+        // Em negociação - Roxo suave
         return _BadgeData(
           label: 'Em negociação',
-          backgroundColor: Colors.purple.shade700.withValues(alpha: 0.3),
-          textColor: Colors.purple.shade50,
+          backgroundColor: Colors.purple.shade600.withValues(alpha: 0.3),
+          textColor: Colors.purple.shade100,
         );
       case 'in_progress':
       case 'em_andamento':
-        // Em andamento - Azul
+        // Em andamento - Azul suave
         return _BadgeData(
           label: 'Em andamento',
-          backgroundColor: Colors.blue.shade700.withValues(alpha: 0.3),
-          textColor: Colors.blue.shade50,
+          backgroundColor: Colors.blue.shade600.withValues(alpha: 0.3),
+          textColor: Colors.blue.shade100,
         );
       case 'paused':
       case 'pausado':
-        // Pausado - Laranja
+        // Pausado - Laranja suave
         return _BadgeData(
           label: 'Pausado',
-          backgroundColor: Colors.orange.shade700.withValues(alpha: 0.3),
-          textColor: Colors.orange.shade50,
+          backgroundColor: Colors.orange.shade600.withValues(alpha: 0.3),
+          textColor: Colors.orange.shade100,
         );
       case 'completed':
       case 'concluido':
-        // Concluído - Verde
+        // Concluído - Verde suave
         return _BadgeData(
           label: 'Concluído',
           backgroundColor: Colors.green.shade700.withValues(alpha: 0.3),
-          textColor: Colors.green.shade50,
+          textColor: Colors.green.shade100,
         );
       case 'cancelled':
       case 'cancelado':
-        // Cancelado - Vermelho
+        // Cancelado - Vermelho suave
         return _BadgeData(
           label: 'Cancelado',
           backgroundColor: Colors.red.shade700.withValues(alpha: 0.3),
-          textColor: Colors.red.shade50,
+          textColor: Colors.red.shade100,
         );
       // Manter compatibilidade com status antigo
       case 'active':
       case 'ativo':
         return _BadgeData(
           label: 'Em andamento',
-          backgroundColor: Colors.blue.shade700.withValues(alpha: 0.3),
-          textColor: Colors.blue.shade50,
+          backgroundColor: Colors.blue.shade600.withValues(alpha: 0.3),
+          textColor: Colors.blue.shade100,
         );
       case 'inactive':
       case 'inativo':
         return _BadgeData(
           label: 'Pausado',
-          backgroundColor: Colors.orange.shade700.withValues(alpha: 0.3),
-          textColor: Colors.orange.shade50,
+          backgroundColor: Colors.orange.shade600.withValues(alpha: 0.3),
+          textColor: Colors.orange.shade100,
         );
       default:
         return _BadgeData(
           label: status,
-          backgroundColor: Colors.grey.shade700.withValues(alpha: 0.3),
-          textColor: Colors.grey.shade50,
+          backgroundColor: Colors.grey.shade600.withValues(alpha: 0.25),
+          textColor: Colors.grey.shade100,
         );
     }
   }

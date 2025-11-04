@@ -48,32 +48,32 @@ class TaskPriorityBadge extends StatelessWidget {
   _BadgeData _calculateBadge() {
     switch (priority.toLowerCase()) {
       case 'low':
-        // Baixa - Azul
+        // Baixa - Ciano suave
         return _BadgeData(
           label: 'Baixa',
-          backgroundColor: Colors.blue.shade700.withValues(alpha: 0.3),
-          textColor: Colors.blue.shade50,
+          backgroundColor: Colors.cyan.shade600.withValues(alpha: 0.25),
+          textColor: Colors.cyan.shade100,
         );
       case 'medium':
-        // Média - Verde
+        // Média - Lima suave
         return _BadgeData(
           label: 'Média',
-          backgroundColor: Colors.green.shade700.withValues(alpha: 0.3),
-          textColor: Colors.green.shade50,
+          backgroundColor: Colors.lime.shade700.withValues(alpha: 0.3),
+          textColor: Colors.lime.shade100,
         );
       case 'high':
-        // Alta - Amarela
+        // Alta - Laranja suave
         return _BadgeData(
           label: 'Alta',
-          backgroundColor: Colors.yellow.shade700.withValues(alpha: 0.3),
-          textColor: Colors.yellow.shade50,
+          backgroundColor: Colors.deepOrange.shade600.withValues(alpha: 0.3),
+          textColor: Colors.deepOrange.shade100,
         );
       case 'urgent':
-        // Urgente - Vermelho
+        // Urgente - Vermelho suave
         return _BadgeData(
           label: 'Urgente',
-          backgroundColor: Colors.red.shade700.withValues(alpha: 0.3),
-          textColor: Colors.red.shade50,
+          backgroundColor: Colors.red.shade800.withValues(alpha: 0.35),
+          textColor: Colors.red.shade100,
         );
       default:
         return _BadgeData(

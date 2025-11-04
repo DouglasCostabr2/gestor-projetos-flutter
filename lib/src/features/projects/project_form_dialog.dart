@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:gestor_projetos_flutter/src/utils/money.dart';
-import 'package:gestor_projetos_flutter/widgets/standard_dialog.dart';
-import 'package:gestor_projetos_flutter/widgets/reorderable_drag_list.dart';
-import 'package:gestor_projetos_flutter/widgets/tabs/tabs.dart';
-import 'package:gestor_projetos_flutter/modules/projects/module.dart';
-import 'package:gestor_projetos_flutter/widgets/dropdowns/dropdowns.dart';
-import 'package:gestor_projetos_flutter/widgets/inputs/inputs.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/src/utils/money.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
+import 'package:my_business/ui/organisms/lists/lists.dart';
+import 'package:my_business/ui/organisms/tabs/tabs.dart';
+import 'package:my_business/modules/projects/module.dart';
+import 'package:my_business/modules/common/organization_context.dart';
+import 'package:my_business/ui/molecules/dropdowns/dropdowns.dart';
+import 'package:my_business/ui/molecules/containers/dashed_container.dart';
+import 'package:my_business/ui/molecules/containers/section_container.dart';
+import 'package:my_business/ui/atoms/inputs/inputs.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import 'package:my_business/ui/theme/ui_constants.dart';
+import 'package:my_business/ui/molecules/inputs/mention_text_field.dart';
+import 'package:my_business/ui/molecules/inputs/mention_text_area.dart';
+import 'package:my_business/services/mentions_service.dart';
 
 import '../../state/app_state_scope.dart';
 import 'widgets/project_status_field.dart';
@@ -25,11 +32,14 @@ class ProjectFormDialog extends StatefulWidget {
 class _ProjectFormDialogState extends State<ProjectFormDialog> {
   final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
+  final _description = TextEditingController(); // Controller para descrição com menções
   String _descriptionText = ''; // Texto da descrição (plain text)
   String _descriptionJson = ''; // JSON da descrição (rich text - AppFlowy Editor)
   final _valueText = TextEditingController();
-  bool _projectValueOverridden = false;
   String _currencyCode = 'BRL'; // BRL | USD | EUR
+
+  // Descontos (lista de descontos)
+  final List<_DiscountItem> _discounts = [];
   String _status = 'not_started'; // Status do projeto
   String? _clientId; // usado quando fixedClientId == null
   String? _companyId; // usado para associar projeto à empresa
@@ -56,8 +66,9 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
 
     if (i != null) {
       _name.text = (i['name'] ?? '').toString();
-      final vc = i['value_cents'] as int?;
-      if (vc != null) _valueText.text = _formatCents(vc).replaceAll('.', ',');
+      _description.text = _descriptionText; // Inicializar controller com texto da descrição
+      // Não carregar value_cents aqui, pois será calculado automaticamente
+      // a partir dos produtos e custos adicionais
       final cur = i['currency_code'] as String?;
       if (cur != null && ['BRL', 'USD', 'EUR'].contains(cur)) _currencyCode = cur;
       // Inicializar status (normalizar status antigos)
@@ -73,13 +84,12 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
       _companyId ??= i['company_id'] as String?;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await _loadAdditionalCosts(i['id'] as String);
+        await _loadDiscounts(i['id'] as String);
         await _loadCatalogItems(i['id'] as String);
         if (!mounted) return;
         setState(() {
-          // Só preenche automaticamente quando o valor do projeto está zerado e o usuário ainda não alterou manualmente
-          if (!_projectValueOverridden && _projectValueCents == 0 && _catalogItems.isNotEmpty) {
-            _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
-          }
+          // Atualizar o valor do projeto com o total calculado
+          _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
         });
       });
     }
@@ -89,7 +99,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
     try {
       final rows = await Supabase.instance.client
           .from('project_additional_costs')
-          .select('description, amount_cents')
+          .select('description, amount_cents, type')
           .eq('project_id', projectId);
       setState(() {
         _costs.clear();
@@ -99,10 +109,36 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
           item.descController.text = (m['description'] as String?) ?? '';
           final cents = (m['amount_cents'] as int?) ?? 0;
           item.valueController.text = _formatCents(cents).replaceAll('.', ',');
+          item.type = (m['type'] as String?) ?? 'fixed'; // Carregar tipo
           _costs.add(item);
         }
       });
-    } catch (_) {}
+    } catch (e) {
+      // Silently fail - costs are optional
+    }
+  }
+
+  Future<void> _loadDiscounts(String projectId) async {
+    try {
+      final rows = await Supabase.instance.client
+          .from('project_discounts')
+          .select('description, value_cents, type')
+          .eq('project_id', projectId);
+      setState(() {
+        _discounts.clear();
+        for (final r in rows as List<dynamic>) {
+          final m = r as Map<String, dynamic>;
+          final item = _DiscountItem();
+          item.descController.text = (m['description'] as String?) ?? '';
+          final cents = (m['value_cents'] as int?) ?? 0;
+          item.valueController.text = _formatCents(cents).replaceAll('.', ',');
+          item.type = (m['type'] as String?) ?? 'percentage'; // Carregar tipo
+          _discounts.add(item);
+        }
+      });
+    } catch (e) {
+      // Silently fail - discounts are optional
+    }
   }
 
   Future<void> _loadCatalogItems(String projectId) async {
@@ -165,25 +201,30 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
           final id = (m['item_id'] ?? '').toString();
           final key = '$kind:$id';
           final thumb = thumbByKey[key];
+          final priceCents = (m['unit_price_cents'] as int?) ?? 0;
           _catalogItems.add(_CatalogItem(
             itemType: kind,
             itemId: id,
             name: (m['name'] as String?) ?? '-',
             currency: (m['currency_code'] as String?) ?? _currencyCode,
-            priceCents: (m['unit_price_cents'] as int?) ?? 0,
+            priceCents: priceCents,
             thumbUrl: thumb,
             comment: (m['comment'] as String?),
           ));
         }
       });
-    } catch (_) {}
+    } catch (e) {
+      // Silently fail - catalog items are optional
+    }
   }
 
   @override
   void dispose() {
     _name.dispose();
+    _description.dispose();
     _valueText.dispose();
     for (final c in _costs) { c.dispose(); }
+    for (final item in _catalogItems) { item.dispose(); }
     super.dispose();
   }
 
@@ -315,47 +356,107 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
     }
   }
 
-  int get _projectValueCents => _parseMoneyToCents(_valueText.text);
-
   int get _catalogSumCents => _catalogItems.where((it) => it.currency == _currencyCode).fold<int>(0, (sum, it) => sum + it.priceCents);
-  int get _additionalCostsSumCents => _costs.fold<int>(0, (sum, c) => sum + _parseMoneyToCents(c.valueController.text));
 
-  int get _autoTotalCents => _catalogSumCents + _additionalCostsSumCents;
+  int get _additionalCostsSumCents {
+    // Calcular custos progressivamente: cada porcentagem é calculada sobre o subtotal acumulado
+    int runningTotal = _catalogSumCents;
+    for (final c in _costs) {
+      final costValue = _parseMoneyToCents(c.valueController.text);
+      if (c.type == 'percentage') {
+        // Porcentagem sobre o subtotal acumulado até agora
+        runningTotal += (runningTotal * costValue / 10000).round();
+      } else {
+        // Valor fixo
+        runningTotal += costValue;
+      }
+    }
+    return runningTotal - _catalogSumCents; // Retornar apenas a soma dos custos
+  }
+
+  int get _discountCents {
+    final subtotal = _catalogSumCents + _additionalCostsSumCents;
+    // Calcular descontos progressivamente
+    int totalDiscount = 0;
+    int remainingSubtotal = subtotal;
+    for (final d in _discounts) {
+      final discountValue = _parseMoneyToCents(d.valueController.text);
+      int thisDiscount = 0;
+      if (d.type == 'percentage') {
+        // Porcentagem sobre o subtotal restante
+        thisDiscount = (remainingSubtotal * discountValue / 10000).round();
+      } else {
+        // Valor fixo
+        thisDiscount = discountValue;
+      }
+      totalDiscount += thisDiscount;
+      remainingSubtotal -= thisDiscount;
+    }
+    return totalDiscount;
+  }
+
+  int get _autoTotalCents {
+    final subtotal = _catalogSumCents + _additionalCostsSumCents;
+    final discount = _discountCents;
+    final total = subtotal - discount;
+    return total > 0 ? total : 0; // Não permitir valores negativos
+  }
+
+  // Verificar se o desconto excede o subtotal
+  bool get _hasExcessiveDiscount {
+    final subtotal = _catalogSumCents + _additionalCostsSumCents;
+    final discount = _discountCents;
+    return discount > subtotal;
+  }
 
 
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
     if (widget.fixedClientId == null && (_clientId == null || _clientId!.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selecione um cliente')));
       return;
     }
+
     setState(() => _saving = true);
     try {
       final client = Supabase.instance.client;
       final uid = client.auth.currentUser?.id;
       final descPlainText = _descriptionText.trim();
       final descJson = _descriptionJson.trim();
+
       final base = <String, dynamic>{
         'name': _name.text.trim(),
         'description': descPlainText.isEmpty ? null : descPlainText,
         'description_json': descJson.isEmpty ? null : descJson, // Salvar JSON do rich text
         'currency_code': _currencyCode,
-        'value_cents': (_projectValueCents > 0 ? _projectValueCents : _autoTotalCents),
+        'value_cents': _autoTotalCents, // Sempre salvar o total calculado
       };
       String? projectId;
       if (widget.initial == null) {
+        // Obter organization_id
+        final orgId = OrganizationContext.currentOrganizationId;
+        if (orgId == null) throw Exception('Nenhuma organização ativa');
+
         final payload = {
           ...base,
           'client_id': widget.fixedClientId ?? _clientId,
           'company_id': _companyId,
           'owner_id': uid,
           'status': _status,
+          'organization_id': orgId,
           if (uid != null) 'created_by': uid,
           if (uid != null) 'updated_by': uid,
         };
+
+        debugPrint('📋 Criando projeto: ${base['name']} (org: $orgId)');
+
         final inserted = await client.from('projects').insert(payload).select('id').maybeSingle();
         projectId = (inserted?['id'] ?? '').toString();
+
+        debugPrint('✅ Projeto criado com sucesso: $projectId');
       } else {
         projectId = (widget.initial!['id'] ?? '').toString();
         final payload = {
@@ -365,31 +466,87 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
           if (uid != null) 'updated_by': uid,
           'updated_at': DateTime.now().toIso8601String(),
         };
-        // Usar o módulo para atualizar o projeto (isso vai renomear a pasta no Google Drive se necessário)
+        // Usar o módulo para atualizar o projeto (isso vai renomerar a pasta no Google Drive se necessário)
         await projectsModule.updateProject(
           projectId: projectId,
           updates: payload,
         );
       }
       if (projectId.isNotEmpty) {
+        // Salvar menções do título e descrição
+        final mentionsService = MentionsService();
+        try {
+          await mentionsService.saveProjectMentions(
+            projectId: projectId,
+            fieldName: 'name',
+            content: _name.text,
+          );
+        } catch (e) {
+          debugPrint('Erro ao salvar menções do título: $e');
+        }
+
+        try {
+          await mentionsService.saveProjectMentions(
+            projectId: projectId,
+            fieldName: 'description',
+            content: _description.text,
+          );
+        } catch (e) {
+          debugPrint('Erro ao salvar menções da descrição: $e');
+        }
+
         // Replace custos adicionais de forma isolada
         try {
           await client.from('project_additional_costs').delete().eq('project_id', projectId);
           if (_costs.isNotEmpty) {
-            final rows = _costs.map((c) => {
-                  'project_id': projectId,
-                  'description': c.descController.text.trim().isEmpty ? null : c.descController.text.trim(),
-                  'amount_cents': _parseMoneyToCents(c.valueController.text),
-                  'currency_code': _currencyCode,
-                  if (uid != null) 'created_by': uid,
-                }).toList();
+            final rows = _costs.asMap().entries.map((entry) {
+              final index = entry.key;
+              final c = entry.value;
+              // Se a descrição estiver vazia, usar descrição padrão
+              final description = c.descController.text.trim().isEmpty
+                  ? 'Custo adicional ${index + 1}'
+                  : c.descController.text.trim();
+              return {
+                'project_id': projectId,
+                'description': description,
+                'amount_cents': _parseMoneyToCents(c.valueController.text),
+                'currency_code': _currencyCode,
+                'type': c.type,
+                if (uid != null) 'created_by': uid,
+              };
+            }).toList();
             if (rows.isNotEmpty) {
               await client.from('project_additional_costs').insert(rows);
             }
           }
         } catch (e) {
-          debugPrint('Falha ao salvar custos adicionais: $e');
           // Prosseguir mesmo que custos adicionais falhem
+        }
+
+        // Replace descontos de forma isolada
+        try {
+          await client.from('project_discounts').delete().eq('project_id', projectId);
+          if (_discounts.isNotEmpty) {
+            final rows = _discounts.asMap().entries.map((entry) {
+              final index = entry.key;
+              final d = entry.value;
+              // Se a descrição estiver vazia, usar descrição padrão
+              final description = d.descController.text.trim().isEmpty
+                  ? 'Desconto ${index + 1}'
+                  : d.descController.text.trim();
+              return {
+                'project_id': projectId,
+                'description': description,
+                'value_cents': _parseMoneyToCents(d.valueController.text),
+                'type': d.type,
+              };
+            }).toList();
+            if (rows.isNotEmpty) {
+              await client.from('project_discounts').insert(rows);
+            }
+          }
+        } catch (e) {
+          // Prosseguir mesmo que descontos falhem
         }
         if (_catalogItems.isNotEmpty) {
           final rows = _catalogItems.asMap().entries.map((e) { final idx = e.key; final it = e.value; return {
@@ -503,6 +660,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('🔷 ProjectFormDialog.build() chamado');
     final appState = AppStateScope.of(context);
     final canEditFinancial = appState.isAdmin || appState.isFinanceiro; // controla edição
     final isEdit = widget.initial != null;
@@ -513,6 +671,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
       height: StandardDialog.heightMedium,
       showCloseButton: false,
       isLoading: _saving,
+      customActionsLayout: true, // Usa layout customizado para o footer
       actions: _buildActions(canEditFinancial),
       child: Form(
         key: _formKey,
@@ -532,51 +691,49 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
                             label: (item['name'] ?? '-') as String,
                           )).toList();
                         },
-                        onChanged: (v) {
+                        onChanged: (v) async {
                           setState(() {
                             _clientId = v;
-                            _companyId = null;
+                            _companyId = null; // Limpa a empresa atual
                           });
+                          // Carrega automaticamente a primeira empresa do cliente
+                          if (v != null) {
+                            try {
+                              final companies = await Supabase.instance.client
+                                  .from('companies')
+                                  .select('id')
+                                  .eq('client_id', v)
+                                  .limit(1);
+                              if (companies.isNotEmpty && mounted) {
+                                setState(() {
+                                  _companyId = companies.first['id'] as String?;
+                                });
+                              }
+                            } catch (_) {
+                              // Ignora erro ao carregar empresa
+                            }
+                          }
                         },
                         labelText: 'Cliente',
                         emptyMessage: 'Nenhum cliente cadastrado',
                         width: 300,
                       ),
                     if (widget.fixedClientId == null) const SizedBox(height: 12),
-                    if (widget.fixedCompanyId == null)
-                      AsyncDropdownField<String>(
-                        value: _companyId,
-                        loadItems: () async {
-                          if (_clientId == null) return [];
-                          final rows = await Supabase.instance.client
-                              .from('companies')
-                              .select('id, name')
-                              .eq('client_id', _clientId!)
-                              .order('name');
-                          return (rows as List).map((item) => SearchableDropdownItem(
-                            value: item['id'] as String,
-                            label: (item['name'] ?? '-') as String,
-                          )).toList();
-                        },
-                        onChanged: (v) => setState(() => _companyId = v),
-                        labelText: 'Empresa',
-                        dependencies: [_clientId],
-                        enabled: _clientId != null,
-                        emptyMessage: 'Selecione um cliente primeiro',
-                        width: 300,
-                      ),
-                    if (widget.fixedCompanyId == null) const SizedBox(height: 12),
-                    GenericTextField(
+                    MentionTextField(
                       controller: _name,
-                      labelText: 'Nome *',
+                      decoration: const InputDecoration(labelText: 'Nome *'),
                       validator: (v) => v == null || v.trim().isEmpty ? 'Informe o nome' : null,
+                      maxLines: 1,
+                      onMentionsChanged: (userIds) {
+                        // Menções serão salvas ao salvar o projeto
+                      },
                     ),
                     const SizedBox(height: 12),
-                    // Campo de texto simples para descrição
-                    GenericTextArea(
-                      initialValue: _descriptionText,
+                    // Campo de descrição com suporte a menções
+                    MentionTextArea(
+                      controller: _description,
                       labelText: 'Descrição',
-                      hintText: 'Descrição do projeto...',
+                      hintText: 'Descrição do projeto... (digite @ para mencionar)',
                       minLines: 3,
                       maxLines: 8,
                       enabled: !_saving,
@@ -584,6 +741,9 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
                         setState(() {
                           _descriptionText = text;
                         });
+                      },
+                      onMentionsChanged: (userIds) {
+                        // Menções serão salvas ao salvar o projeto
                       },
                     ),
                     const SizedBox(height: 12),
@@ -598,99 +758,46 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
                       enabled: !_saving,
                     ),
                     const SizedBox(height: 12),
-                    if (_catalogItems.isNotEmpty && canEditFinancial) ...[
-                      const SizedBox(height: 6),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Wrap(
-                          alignment: WrapAlignment.end,
-                          spacing: 16,
-                          runSpacing: 8,
-                          children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.shopping_bag_outlined, size: 16),
-                                const SizedBox(width: 4),
-                                Text('${_currencySymbol(_currencyCode)} ${_formatCents(_catalogSumCents).replaceAll('.', ',')}', style: Theme.of(context).textTheme.bodySmall),
-                              ],
-                            ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.add_circle_outline, size: 16),
-                                const SizedBox(width: 4),
-                                Text('${_currencySymbol(_currencyCode)} ${_formatCents(_additionalCostsSumCents).replaceAll('.', ',')}', style: Theme.of(context).textTheme.bodySmall),
-                              ],
-                            ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.calculate_outlined, size: 16),
-                                const SizedBox(width: 4),
-                                Text('${_currencySymbol(_currencyCode)} ${_formatCents(_autoTotalCents).replaceAll('.', ',')}', style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                    // Custos adicionais
-                    Row(children: [
-                      if (canEditFinancial)
-                        IconTextButton(onPressed: () => setState(() => _costs.add(_CostItem())), icon: Icons.add, label: 'Adicionar custo'),
-                      const Spacer(),
-                      Text('Custos adicionais', style: Theme.of(context).textTheme.titleMedium),
-                    ]),
-                    const SizedBox(height: 8),
-                    Column(children: _costs.asMap().entries.map((e) {
-                      final i = e.key; final c = e.value;
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(children: [
-                          Expanded(flex: 2, child: GenericTextField(controller: c.descController, enabled: canEditFinancial, labelText: 'Descrição')),
-                          const SizedBox(width: 8),
-                          Expanded(child: GenericNumberField(controller: c.valueController, enabled: canEditFinancial, allowDecimals: true, labelText: 'Valor', prefixText: '${_currencySymbol(_currencyCode)} ', onChanged: (_) {
-                            setState(() {
-                              if (!_projectValueOverridden) {
-                                _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
-                              }
-                            });
-                          })),
-                          const SizedBox(width: 8),
-                          if (canEditFinancial)
-                            IconOnlyButton(onPressed: () => setState(() => _costs.removeAt(i)), icon: Icons.delete_outline, tooltip: 'Remover'),
-                        ]),
-                      );
-                    }).toList()),
-                    const SizedBox(height: 8),
                     // Itens catálogo
-                    Row(children: [
-                      IconTextButton(
-                        onPressed: () async {
-
-                          final selected = await showDialog<_CatalogItem>(
-                            context: context,
-                            builder: (_) => _SelectCatalogItemDialog(currency: _currencyCode),
-                          );
-                          if (selected != null) {
-                            setState(() {
-                              _catalogItems.add(selected);
-                              if (!_projectValueOverridden && _catalogItems.isNotEmpty) {
-                                _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                    SectionContainer(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _DashedActionBox(
+                            onTap: () async {
+                              final selected = await showDialog<_CatalogItem>(
+                                context: context,
+                                builder: (_) => _SelectCatalogItemDialog(currency: _currencyCode),
+                              );
+                              if (selected != null) {
+                                setState(() {
+                                  _catalogItems.add(selected);
+                                  // Sempre atualizar o valor do projeto
+                                  _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                                });
                               }
-                            });
-                          }
-                        },
-                        icon: Icons.shopping_cart,
-                        label: 'Adicionar do Catálogo',
-                      ),
-                      const Spacer(),
-                      Text('Itens do Catálogo', style: Theme.of(context).textTheme.titleMedium),
-                    ]),
-                    const SizedBox(height: 8),
-                    ReorderableDragList<_CatalogItem>(
+                            },
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.inventory_2_outlined,
+                                  size: 20,
+                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  'Adicionar produto',
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (_catalogItems.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            ReorderableDragList<_CatalogItem>(
                       items: _catalogItems,
                       enabled: true,
                       onReorder: (oldIndex, newIndex) {
@@ -723,19 +830,19 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
                               Expanded(
                                 flex: 2,
                                 child: GenericNumberField(
-                                  key: ValueKey('price_${it.itemType}_${it.itemId}_${it.currency}_${it.priceCents}'),
-                                  initialValue: (it.priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ','),
+                                  key: ValueKey('price_${it.uniqueId}'),
+                                  controller: it.priceController,
                                   enabled: canEditFinancial,
                                   allowDecimals: true,
                                   labelText: 'Preço',
                                   prefixText: '${_currencySymbol(it.currency)} ',
                                   onChanged: (v) {
                                     final cents = _parseMoneyToCents(v);
+                                    // Atualiza apenas o valor em centavos, sem recriar o item
+                                    it.updatePriceCents(cents);
                                     setState(() {
-                                      _catalogItems[index] = it.copyWith(priceCents: cents);
-                                      if (!_projectValueOverridden && _catalogItems.isNotEmpty) {
-                                        _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
-                                      }
+                                      // Sempre atualizar o valor do projeto
+                                      _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
                                     });
                                   },
                                 ),
@@ -766,15 +873,14 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
                                     },
                                   );
                                   if (text != null) {
-                                    setState(() { _catalogItems[index] = it.copyWith(comment: text); });
+                                    setState(() { it.updateComment(text); });
                                   }
                                 },
                               ),
                               IconOnlyButton(icon: Icons.delete_outline, tooltip: 'Remover', onPressed: () => setState(() {
                                 _catalogItems.removeAt(index);
-                                if (!_projectValueOverridden) {
-                                  _valueText.text = _catalogItems.isEmpty ? _valueText.text : _formatCents(_autoTotalCents).replaceAll('.', ',');
-                                }
+                                // Sempre atualizar o valor do projeto
+                                _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
                               })),
                             ]),
                             if (it.itemType == 'package') ...[
@@ -847,7 +953,167 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
                       },
                       getKey: (it) => it.uniqueId,
                       emptyWidget: const Text('Nenhum item vinculado'),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
+                    const SizedBox(height: 16),
+                    // Custos adicionais
+                    Row(children: [
+                      if (canEditFinancial)
+                        IconTextButton(
+                          onPressed: () {
+                            setState(() {
+                              _costs.add(_CostItem());
+                              // Sempre atualizar o valor do projeto
+                              _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                            });
+                          },
+                          icon: Icons.add,
+                          label: 'Adicionar custo',
+                        ),
+                      const Spacer(),
+                      Text('Custos adicionais', style: Theme.of(context).textTheme.titleMedium),
+                    ]),
+                    const SizedBox(height: 8),
+                    Column(children: _costs.asMap().entries.map((e) {
+                      final i = e.key; final c = e.value;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(children: [
+                          Expanded(flex: 2, child: GenericTextField(controller: c.descController, enabled: canEditFinancial, labelText: 'Descrição')),
+                          const SizedBox(width: 8),
+                          // Tipo de custo (% ou símbolo da moeda)
+                          SizedBox(
+                            width: 120,
+                            child: GenericDropdownField<String>(
+                              value: c.type,
+                              items: [
+                                DropdownItem(value: 'percentage', label: '%'),
+                                DropdownItem(value: 'fixed', label: _currencySymbol(_currencyCode)),
+                              ],
+                              onChanged: canEditFinancial ? (v) {
+                                if (v == null) return;
+                                setState(() {
+                                  c.type = v;
+                                  // Atualizar o valor do projeto
+                                  _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                                });
+                              } : null,
+                              labelText: 'Tipo',
+                              enabled: canEditFinancial,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(child: GenericNumberField(
+                            controller: c.valueController,
+                            enabled: canEditFinancial,
+                            allowDecimals: true,
+                            labelText: 'Valor',
+                            suffixText: c.type == 'percentage' ? '%' : null,
+                            prefixText: c.type == 'fixed' ? '${_currencySymbol(_currencyCode)} ' : null,
+                            onChanged: (_) {
+                              setState(() {
+                                // Sempre atualizar o valor do projeto
+                                _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                              });
+                            },
+                          )),
+                          const SizedBox(width: 8),
+                          if (canEditFinancial)
+                            IconOnlyButton(
+                              onPressed: () {
+                                setState(() {
+                                  _costs.removeAt(i);
+                                  // Sempre atualizar o valor do projeto
+                                  _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                                });
+                              },
+                              icon: Icons.delete_outline,
+                              tooltip: 'Remover',
+                            ),
+                        ]),
+                      );
+                    }).toList()),
+                    const SizedBox(height: 16),
+                    // Descontos
+                    Row(children: [
+                      if (canEditFinancial)
+                        IconTextButton(
+                          onPressed: () {
+                            setState(() {
+                              _discounts.add(_DiscountItem());
+                              // Sempre atualizar o valor do projeto
+                              _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                            });
+                          },
+                          icon: Icons.add,
+                          label: 'Adicionar desconto',
+                        ),
+                      const Spacer(),
+                      Text('Descontos', style: Theme.of(context).textTheme.titleMedium),
+                    ]),
+                    const SizedBox(height: 8),
+                    Column(children: _discounts.asMap().entries.map((e) {
+                      final i = e.key; final d = e.value;
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(children: [
+                          Expanded(flex: 2, child: GenericTextField(controller: d.descController, enabled: canEditFinancial, labelText: 'Descrição')),
+                          const SizedBox(width: 8),
+                          // Tipo de desconto (% ou símbolo da moeda)
+                          SizedBox(
+                            width: 120,
+                            child: GenericDropdownField<String>(
+                              value: d.type,
+                              items: [
+                                DropdownItem(value: 'percentage', label: '%'),
+                                DropdownItem(value: 'fixed', label: _currencySymbol(_currencyCode)),
+                              ],
+                              onChanged: canEditFinancial ? (v) {
+                                if (v == null) return;
+                                setState(() {
+                                  d.type = v;
+                                  // Atualizar o valor do projeto
+                                  _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                                });
+                              } : null,
+                              labelText: 'Tipo',
+                              enabled: canEditFinancial,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(child: GenericNumberField(
+                            controller: d.valueController,
+                            enabled: canEditFinancial,
+                            allowDecimals: true,
+                            labelText: 'Valor',
+                            suffixText: d.type == 'percentage' ? '%' : null,
+                            prefixText: d.type == 'fixed' ? '${_currencySymbol(_currencyCode)} ' : null,
+                            onChanged: (_) {
+                              setState(() {
+                                // Sempre atualizar o valor do projeto
+                                _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                              });
+                            },
+                          )),
+                          const SizedBox(width: 8),
+                          if (canEditFinancial)
+                            IconOnlyButton(
+                              onPressed: () {
+                                setState(() {
+                                  _discounts.removeAt(i);
+                                  // Sempre atualizar o valor do projeto
+                                  _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ',');
+                                });
+                              },
+                              icon: Icons.delete_outline,
+                              tooltip: 'Remover',
+                            ),
+                        ]),
+                      );
+                    }).toList()),
           ],
         ),
       ),
@@ -855,40 +1121,146 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
   }
 
   List<Widget> _buildActions(bool canEditFinancial) {
-    return [
+    // Criar widget de totais
+    final totalsWidget = _catalogItems.isNotEmpty && canEditFinancial
+        ? Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A1A1A),
+              border: Border.all(color: const Color(0xFF2A2A2A)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  child: Tooltip(
+                    message: 'Total dos produtos do catálogo',
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.shopping_bag_outlined, size: 16),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            '${_currencySymbol(_currencyCode)} ${_formatCents(_catalogSumCents).replaceAll('.', ',')}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Tooltip(
+                    message: 'Total dos custos adicionais',
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.add_circle_outline, size: 16),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            '${_currencySymbol(_currencyCode)} ${_formatCents(_additionalCostsSumCents).replaceAll('.', ',')}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Tooltip(
+                    message: 'Total geral (catálogo + custos adicionais)',
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.calculate_outlined, size: 16),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            '${_currencySymbol(_currencyCode)} ${_formatCents(_autoTotalCents).replaceAll('.', ',')}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.bold),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        : null;
+
+    // Criar linha de botões
+    final buttonsRow = [
       // Moeda
-      SizedBox(
+      GenericDropdownField<String>(
+        value: ['BRL','USD','EUR'].contains(_currencyCode) ? _currencyCode : 'BRL',
+        items: const [
+          DropdownItem(value: 'BRL', label: 'Real (BRL)'),
+          DropdownItem(value: 'USD', label: 'Dólar (USD)'),
+          DropdownItem(value: 'EUR', label: 'Euro (EUR)'),
+        ],
+        onChanged: canEditFinancial ? (v) async {
+          if (v == null || v == _currencyCode) return;
+          setState(() { _currencyCode = v; });
+          // Reprecificar itens para a moeda selecionada
+          await _repriceCatalogItemsForCurrency(v);
+          // Sempre atualizar o valor do projeto
+          setState(() { _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ','); });
+        } : null,
+        labelText: 'Moeda',
+        enabled: canEditFinancial,
         width: 150,
-        child: DropdownButtonFormField<String>(
-          initialValue: ['BRL','USD','EUR'].contains(_currencyCode) ? _currencyCode : 'BRL',
-          items: const [
-            DropdownMenuItem(value: 'BRL', child: Text('Real (BRL)')),
-            DropdownMenuItem(value: 'USD', child: Text('Dólar (USD)')),
-            DropdownMenuItem(value: 'EUR', child: Text('Euro (EUR)')),
-          ],
-          onChanged: canEditFinancial ? (v) async {
-            if (v == null || v == _currencyCode) return;
-            setState(() { _currencyCode = v; });
-            // Reprecificar itens para a moeda selecionada
-            await _repriceCatalogItemsForCurrency(v);
-            if (!_projectValueOverridden && _catalogItems.isNotEmpty) {
-              setState(() { _valueText.text = _formatCents(_autoTotalCents).replaceAll('.', ','); });
-            }
-          } : null,
-          decoration: const InputDecoration(labelText: 'Moeda'),
-        ),
+        openUpwards: true, // Abre para cima pois está no footer
       ),
       const SizedBox(width: 12),
       // Valor do projeto
       SizedBox(
         width: 200,
-        child: GenericNumberField(
-          controller: _valueText,
-          enabled: canEditFinancial,
-          allowDecimals: true,
-          labelText: 'Valor do projeto',
-          prefixText: '${_currencySymbol(_currencyCode)} ',
-          onChanged: (_) { setState(() { _projectValueOverridden = true; }); },
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GenericNumberField(
+              controller: _valueText,
+              enabled: true, // Habilitado para manter texto branco, mas será recalculado automaticamente
+              allowDecimals: true,
+              labelText: 'Valor do projeto',
+              prefixText: '${_currencySymbol(_currencyCode)} ',
+              onChanged: (_) {
+                // Ignorar mudanças manuais - o valor será recalculado automaticamente
+                // quando produtos/custos/desconto mudarem
+              },
+            ),
+            if (_hasExcessiveDiscount)
+              Padding(
+                padding: const EdgeInsets.only(top: 4, left: 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, size: 14, color: Theme.of(context).colorScheme.error),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        'Desconto excede o valor',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.error,
+                          fontSize: 11,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ),
       ),
       const Spacer(),
@@ -897,9 +1269,30 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
         label: 'Cancelar',
       ),
       PrimaryButton(
-        onPressed: _saving ? null : _save,
+        onPressed: _saving ? null : () {
+          debugPrint('🟡 Botão Salvar PRESSIONADO!');
+          _save();
+        },
         label: 'Salvar',
         isLoading: _saving,
+      ),
+    ];
+
+    // Sempre retorna os botões, com ou sem totais
+    return [
+      SizedBox(
+        width: double.infinity,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (totalsWidget != null) ...[
+              totalsWidget,
+              const SizedBox(height: 12),
+            ],
+            Row(children: buttonsRow),
+          ],
+        ),
       ),
     ];
   }
@@ -908,6 +1301,14 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
 class _CostItem {
   final TextEditingController descController = TextEditingController();
   final TextEditingController valueController = TextEditingController();
+  String type = 'percentage'; // 'percentage' ou 'fixed'
+  void dispose() { descController.dispose(); valueController.dispose(); }
+}
+
+class _DiscountItem {
+  final TextEditingController descController = TextEditingController();
+  final TextEditingController valueController = TextEditingController();
+  String type = 'percentage'; // 'percentage' ou 'fixed'
   void dispose() { descController.dispose(); valueController.dispose(); }
 }
 
@@ -917,9 +1318,10 @@ class _CatalogItem {
   final String itemId;
   final String name;
   final String currency;
-  final int priceCents;
+  int priceCents; // Mutável para permitir atualização sem recriar o objeto
   final String? thumbUrl;
-  final String? comment; // Comentário específico deste projeto
+  String? comment; // Comentário específico deste projeto (mutável)
+  final TextEditingController priceController; // Controller para o campo de preço
 
   _CatalogItem({
     String? uniqueId,
@@ -930,7 +1332,20 @@ class _CatalogItem {
     required this.priceCents,
     this.thumbUrl,
     this.comment,
-  }) : uniqueId = uniqueId ?? '${DateTime.now().millisecondsSinceEpoch}_${itemType}_$itemId';
+  }) : uniqueId = uniqueId ?? '${DateTime.now().millisecondsSinceEpoch}_${itemType}_$itemId',
+       priceController = TextEditingController(
+         text: (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ','),
+       );
+
+  // Método para atualizar o preço sem recriar o objeto
+  void updatePriceCents(int cents) {
+    priceCents = cents;
+  }
+
+  // Método para atualizar o comentário sem recriar o objeto
+  void updateComment(String? newComment) {
+    comment = newComment;
+  }
 
   _CatalogItem copyWith({
     String? uniqueId,
@@ -941,16 +1356,30 @@ class _CatalogItem {
     int? priceCents,
     String? thumbUrl,
     String? comment,
-  }) => _CatalogItem(
-    uniqueId: uniqueId ?? this.uniqueId,
-    itemType: itemType ?? this.itemType,
-    itemId: itemId ?? this.itemId,
-    name: name ?? this.name,
-    currency: currency ?? this.currency,
-    priceCents: priceCents ?? this.priceCents,
-    thumbUrl: thumbUrl ?? this.thumbUrl,
-    comment: comment ?? this.comment,
-  );
+  }) {
+    final newItem = _CatalogItem(
+      uniqueId: uniqueId ?? this.uniqueId,
+      itemType: itemType ?? this.itemType,
+      itemId: itemId ?? this.itemId,
+      name: name ?? this.name,
+      currency: currency ?? this.currency,
+      priceCents: priceCents ?? this.priceCents,
+      thumbUrl: thumbUrl ?? this.thumbUrl,
+      comment: comment ?? this.comment,
+    );
+    // Se o preço mudou, atualiza o controller
+    if (priceCents != null && priceCents != this.priceCents) {
+      newItem.priceController.text = (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ',');
+    } else {
+      // Mantém o texto atual do controller (preserva o que o usuário está digitando)
+      newItem.priceController.text = priceController.text;
+    }
+    return newItem;
+  }
+
+  void dispose() {
+    priceController.dispose();
+  }
 }
 
 
@@ -974,15 +1403,39 @@ class _SelectCatalogItemDialogState extends State<_SelectCatalogItemDialog> {
     setState(() { _loading = true; _error = null; });
     try {
       final client = Supabase.instance.client;
-      final prods = await client.from('products').select('id, name, currency_code, price_cents, price_map, image_url, image_thumb_url, image_drive_file_id').order('name');
-      final packs = await client.from('packages').select('id, name, currency_code, price_cents, price_map, image_url, image_thumb_url, image_drive_file_id').order('name');
+
+      // Obter organization_id
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        throw Exception('Nenhuma organização ativa');
+      }
+
+      debugPrint('🛍️ Carregando catálogo para organização: $orgId');
+
+      // Filtrar produtos e pacotes por organization_id
+      final prods = await client
+          .from('products')
+          .select('id, name, currency_code, price_cents, price_map, image_url, image_thumb_url, image_drive_file_id')
+          .eq('organization_id', orgId)
+          .order('name');
+
+      final packs = await client
+          .from('packages')
+          .select('id, name, currency_code, price_cents, price_map, image_url, image_thumb_url, image_drive_file_id')
+          .eq('organization_id', orgId)
+          .order('name');
+
       if (!mounted) return;
+
+      debugPrint('✅ Catálogo carregado: ${(prods as List).length} produtos, ${(packs as List).length} pacotes');
+
       setState(() {
-        _products = List<Map<String, dynamic>>.from(prods as List? ?? []);
-        _packages = List<Map<String, dynamic>>.from(packs as List? ?? []);
+        _products = List<Map<String, dynamic>>.from(prods);
+        _packages = List<Map<String, dynamic>>.from(packs);
         _loading = false;
       });
     } catch (e) {
+      debugPrint('❌ Erro ao carregar catálogo: $e');
       if (!mounted) return; setState(() { _error = 'Falha ao carregar catálogo'; _loading = false; });
     }
   }
@@ -1097,3 +1550,57 @@ class _SelectCatalogItemDialogState extends State<_SelectCatalogItemDialog> {
   }
 }
 
+/// Componente de botão com borda tracejada e hover effect
+/// Usado para ações de adicionar (produtos, custos, etc.)
+class _DashedActionBox extends StatefulWidget {
+  final VoidCallback? onTap;
+  final Widget child;
+
+  const _DashedActionBox({
+    required this.onTap,
+    required this.child,
+  });
+
+  @override
+  State<_DashedActionBox> createState() => _DashedActionBoxState();
+}
+
+class _DashedActionBoxState extends State<_DashedActionBox> {
+  bool _isHover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: _isHover ? 0.8 : 0.5);
+
+    final overlay = _isHover
+        ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06)
+        : Colors.transparent;
+
+    final box = DashedContainer(
+      color: borderColor,
+      strokeWidth: UIConst.dashedStroke,
+      dashLength: UIConst.dashLengthDefault,
+      dashGap: UIConst.dashGapDefault,
+      borderRadius: UIConst.radiusSmall,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        color: overlay,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        child: widget.child,
+      ),
+    );
+
+    return InkWell(
+      onHover: (h) => setState(() => _isHover = h),
+      hoverColor: Colors.transparent,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      mouseCursor: SystemMouseCursors.click,
+      borderRadius: BorderRadius.circular(UIConst.radiusSmall),
+      onTap: widget.onTap,
+      child: box,
+    );
+  }
+}

@@ -1,14 +1,14 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:gestor_projetos_flutter/src/utils/money.dart';
+import 'package:my_business/src/utils/money.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:googleapis_auth/auth_io.dart' as auth;
 import '../../../../services/google_drive_oauth_service.dart';
-import '../../../../widgets/drive_connect_dialog.dart';
-import '../../../../widgets/standard_dialog.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import '../../../../ui/organisms/dialogs/drive_connect_dialog.dart';
+import '../../../../ui/organisms/dialogs/standard_dialog.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 
 import '../../../state/app_state_scope.dart';
 

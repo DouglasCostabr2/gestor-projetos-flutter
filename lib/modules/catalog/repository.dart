@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
+import '../common/organization_context.dart';
 import 'contract.dart';
 
 /// Implementação do contrato de catálogo
@@ -10,9 +11,20 @@ class CatalogRepository implements CatalogContract {
   @override
   Future<List<Map<String, dynamic>>> getProducts() async {
     try {
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
+        return [];
+      }
+
       final response = await _client
           .from('products')
-          .select('*')
+          .select('''
+            *,
+            created_by_profile:created_by(id, full_name, avatar_url),
+            updated_by_profile:updated_by(id, full_name, avatar_url)
+          ''')
+          .eq('organization_id', orgId)
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
@@ -39,9 +51,20 @@ class CatalogRepository implements CatalogContract {
   @override
   Future<List<Map<String, dynamic>>> getPackages() async {
     try {
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
+        return [];
+      }
+
       final response = await _client
           .from('packages')
-          .select('*')
+          .select('''
+            *,
+            created_by_profile:created_by(id, full_name, avatar_url),
+            updated_by_profile:updated_by(id, full_name, avatar_url)
+          ''')
+          .eq('organization_id', orgId)
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
@@ -68,9 +91,16 @@ class CatalogRepository implements CatalogContract {
   @override
   Future<List<Map<String, dynamic>>> getCategories() async {
     try {
+      final orgId = OrganizationContext.currentOrganizationId;
+      if (orgId == null) {
+        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
+        return [];
+      }
+
       final response = await _client
           .from('product_categories')
           .select('*')
+          .eq('organization_id', orgId)
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
@@ -92,6 +122,9 @@ class CatalogRepository implements CatalogContract {
     String? imageDriveFileId,
     String? imageThumbUrl,
   }) async {
+    final orgId = OrganizationContext.currentOrganizationId;
+    if (orgId == null) throw Exception('Nenhuma organização ativa');
+
     final productData = <String, dynamic>{
       'name': name.trim(),
       'description': description?.trim(),
@@ -99,17 +132,23 @@ class CatalogRepository implements CatalogContract {
       'category_id': categoryId,
       'currency_code': currencyCode,
       'price_cents': priceCents,
+      'organization_id': orgId,
       if (priceMap != null) 'price_map': priceMap,
       'image_url': imageUrl,
       'image_drive_file_id': imageDriveFileId,
       'image_thumb_url': imageThumbUrl,
     };
 
+    debugPrint('🛍️ Criando produto: $name (org: $orgId)');
+
     final response = await _client
         .from('products')
         .insert(productData)
         .select()
         .single();
+
+    debugPrint('✅ Produto criado com sucesso: ${response['id']}');
+
     return response;
   }
 
@@ -148,6 +187,9 @@ class CatalogRepository implements CatalogContract {
     String? imageDriveFileId,
     String? imageThumbUrl,
   }) async {
+    final orgId = OrganizationContext.currentOrganizationId;
+    if (orgId == null) throw Exception('Nenhuma organização ativa');
+
     final packageData = <String, dynamic>{
       'name': name.trim(),
       'description': description?.trim(),
@@ -155,17 +197,23 @@ class CatalogRepository implements CatalogContract {
       'category_id': categoryId,
       'currency_code': currencyCode,
       'price_cents': priceCents,
+      'organization_id': orgId,
       if (priceMap != null) 'price_map': priceMap,
       'image_url': imageUrl,
       'image_drive_file_id': imageDriveFileId,
       'image_thumb_url': imageThumbUrl,
     };
 
+    debugPrint('📦 Criando pacote: $name (org: $orgId)');
+
     final response = await _client
         .from('packages')
         .insert(packageData)
         .select()
         .single();
+
+    debugPrint('✅ Pacote criado com sucesso: ${response['id']}');
+
     return response;
   }
 

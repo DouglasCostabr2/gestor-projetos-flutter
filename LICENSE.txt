@@ -1,0 +1,37 @@
+GESTOR DE PROJETOS - LICENÇA DE SOFTWARE
+
+Versão 1.0.0
+Data: 2025-10-28
+
+TERMOS E CONDIÇÕES
+
+1. CONCESSÃO DE LICENÇA
+Este software é fornecido "como está" para uso pessoal e profissional.
+
+2. RESTRIÇÕES
+Você não pode:
+- Modificar, traduzir ou criar trabalhos derivados
+- Descompilar, desassemblar ou fazer engenharia reversa
+- Vender, alugar ou emprestar o software
+- Usar para fins ilegais
+
+3. ISENÇÃO DE RESPONSABILIDADE
+O software é fornecido sem garantias de qualquer tipo, expressas ou implícitas.
+O autor não é responsável por danos diretos, indiretos, incidentais ou consequentes.
+
+4. LIMITAÇÃO DE RESPONSABILIDADE
+Em nenhum caso o autor será responsável por qualquer dano resultante do uso
+ou incapacidade de usar este software.
+
+5. RESCISÃO
+Esta licença é válida até ser rescindida. Seus direitos sob esta licença
+serão rescindidos automaticamente sem aviso se você violar qualquer termo.
+
+6. LEI APLICÁVEL
+Esta licença é regida pelas leis do Brasil.
+
+7. CONTATO
+Para questões sobre esta licença, entre em contato através do GitHub.
+
+Copyright (C) 2025 Douglas Costa. Todos os direitos reservados.
+

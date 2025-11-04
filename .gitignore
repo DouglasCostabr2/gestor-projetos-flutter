@@ -43,3 +43,23 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Windows build artifacts
+/windows/flutter/ephemeral/
+
+# Installer output
+/installer/Output/
+
+# Supabase local config (se houver)
+/supabase/.env
+/supabase/.env.local
+
+# Sensitive files
+*.pfx
+*.p12
+*.key
+*.pem
+
+# IDE
+.vscode/settings.json
+.vscode/launch.json

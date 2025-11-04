@@ -5,7 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image/image.dart' as img;
 import '../../state/app_state_scope.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -93,11 +93,24 @@ class _SettingsPageState extends State<SettingsPage> {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) throw Exception('Usuário não autenticado');
 
+      final newFullName = _fullNameController.text.trim();
+
+      // Verificar se o nome já existe (exceto para o próprio usuário)
+      final existingUsers = await Supabase.instance.client
+          .from('profiles')
+          .select('id')
+          .eq('full_name', newFullName)
+          .neq('id', user.id);
+
+      if (existingUsers.isNotEmpty) {
+        throw Exception('Este nome já está em uso por outro usuário. Por favor, escolha um nome diferente.');
+      }
+
       // Atualizar perfil
       await Supabase.instance.client
           .from('profiles')
           .update({
-            'full_name': _fullNameController.text.trim(),
+            'full_name': newFullName,
             'phone': _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
           })
           .eq('id', user.id);
@@ -169,6 +182,14 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _uploadAvatar() async {
+    // Obter organization_id ANTES de qualquer operação async
+    final appState = AppStateScope.of(context);
+    final organizationId = appState.currentOrganizationId;
+    if (organizationId == null) {
+      setState(() => _error = 'Nenhuma organização ativa');
+      return;
+    }
+
     try {
       // Selecionar arquivo
       final result = await FilePicker.platform.pickFiles(
@@ -241,7 +262,7 @@ class _SettingsPageState extends State<SettingsPage> {
               .replaceAll(RegExp(r'^-|-$'), '');
 
       final fileName = 'avatar-$userName.jpg';
-      final path = 'avatars/$fileName';
+      final path = '$organizationId/$fileName';
 
       // Deletar avatar antigo se existir (para liberar espaço)
       try {
@@ -255,16 +276,29 @@ class _SettingsPageState extends State<SettingsPage> {
         if (profile != null && profile['avatar_url'] != null) {
           final oldUrl = profile['avatar_url'] as String;
           // Extrair o caminho do arquivo da URL
-          // URL format: https://.../storage/v1/object/public/avatars/avatar_xxx.jpg
+          // URL format: https://.../storage/v1/object/public/avatars/{org_id}/avatar_xxx.jpg
           final uri = Uri.parse(oldUrl);
           final pathSegments = uri.pathSegments;
-          if (pathSegments.length >= 4 && pathSegments[pathSegments.length - 2] == 'avatars') {
-            final oldPath = 'avatars/${pathSegments.last}';
+          // Verificar se é formato novo (com org_id) ou legado (sem org_id)
+          if (pathSegments.length >= 5 && pathSegments[pathSegments.length - 3] == 'avatars') {
+            // Formato novo: avatars/{org_id}/avatar_xxx.jpg
+            final oldPath = '${pathSegments[pathSegments.length - 2]}/${pathSegments.last}';
             try {
               await Supabase.instance.client.storage
                   .from('avatars')
                   .remove([oldPath]);
               debugPrint('✅ Avatar antigo deletado: $oldPath');
+            } catch (e) {
+              debugPrint('⚠️ Erro ao deletar avatar antigo (pode não existir): $e');
+            }
+          } else if (pathSegments.length >= 4 && pathSegments[pathSegments.length - 2] == 'avatars') {
+            // Formato legado: avatars/avatar_xxx.jpg
+            final oldPath = pathSegments.last;
+            try {
+              await Supabase.instance.client.storage
+                  .from('avatars')
+                  .remove([oldPath]);
+              debugPrint('✅ Avatar antigo (legado) deletado: $oldPath');
             } catch (e) {
               debugPrint('⚠️ Erro ao deletar avatar antigo (pode não existir): $e');
             }

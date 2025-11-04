@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:gestor_projetos_flutter/widgets/dropdowns/dropdowns.dart';
+import 'package:my_business/ui/molecules/dropdowns/dropdowns.dart';
 
 /// Widget reutilizável para campo de seleção de prioridade
 ///
@@ -34,17 +34,22 @@ class TaskPriorityField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GenericDropdownField<String>(
-      value: priority,
-      items: const [
-        DropdownItem(value: 'low', label: 'Baixa'),
-        DropdownItem(value: 'medium', label: 'Média'),
-        DropdownItem(value: 'high', label: 'Alta'),
-        DropdownItem(value: 'urgent', label: 'Urgente'),
-      ],
-      onChanged: (v) => onPriorityChanged(v ?? 'medium'),
-      labelText: 'Prioridade',
-      enabled: enabled,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return GenericDropdownField<String>(
+          value: priority,
+          items: const [
+            DropdownItem(value: 'low', label: 'Baixa'),
+            DropdownItem(value: 'medium', label: 'Média'),
+            DropdownItem(value: 'high', label: 'Alta'),
+            DropdownItem(value: 'urgent', label: 'Urgente'),
+          ],
+          onChanged: (v) => onPriorityChanged(v ?? 'medium'),
+          labelText: 'Prioridade',
+          enabled: enabled,
+          width: constraints.maxWidth,
+        );
+      },
     );
   }
 }

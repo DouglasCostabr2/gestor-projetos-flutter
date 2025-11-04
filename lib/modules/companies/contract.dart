@@ -24,6 +24,11 @@ abstract class CompaniesContract {
     String? website,
     String? notes,
     String status = 'active',
+    String? taxId,
+    String? taxIdType,
+    String? legalName,
+    String? stateRegistration,
+    String? municipalRegistration,
   });
 
   /// Atualizar uma empresa
@@ -40,6 +45,11 @@ abstract class CompaniesContract {
     String? website,
     String? notes,
     String? status,
+    String? taxId,
+    String? taxIdType,
+    String? legalName,
+    String? stateRegistration,
+    String? municipalRegistration,
   });
 
   /// Deletar uma empresa
@@ -52,5 +62,13 @@ abstract class CompaniesContract {
   /// Buscar projetos de uma empresa com estatísticas agregadas
   /// OTIMIZAÇÃO: Usa RPC function para evitar N+1 queries
   Future<List<Map<String, dynamic>>> getCompanyProjectsWithStats(String companyId);
+
+  /// Atualizar dados fiscais e bancários (JSONB)
+  Future<void> updateFiscalBankData({
+    required String companyId,
+    String? fiscalCountry,
+    Map<String, dynamic>? fiscalData,
+    Map<String, dynamic>? bankData,
+  });
 }
 

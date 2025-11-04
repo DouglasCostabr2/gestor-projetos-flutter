@@ -1,10 +1,12 @@
 import 'package:flutter/widgets.dart';
-import 'tab_manager.dart';
+import 'interfaces/tab_manager_interface.dart';
 
 /// InheritedWidget que fornece acesso ao TabManager em toda a árvore de widgets
+///
+/// Usa a interface ITabManager para permitir desacoplamento e facilitar testes.
 class TabManagerScope extends InheritedWidget {
-  final TabManager tabManager;
-  
+  final ITabManager tabManager;
+
   const TabManagerScope({
     super.key,
     required this.tabManager,
@@ -12,14 +14,14 @@ class TabManagerScope extends InheritedWidget {
   });
 
   /// Obtém o TabManager do contexto
-  static TabManager of(BuildContext context) {
+  static ITabManager of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<TabManagerScope>();
     assert(scope != null, 'TabManagerScope not found in context');
     return scope!.tabManager;
   }
 
   /// Tenta obter o TabManager do contexto, retorna null se não encontrado
-  static TabManager? maybeOf(BuildContext context) {
+  static ITabManager? maybeOf(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<TabManagerScope>();
     return scope?.tabManager;
   }

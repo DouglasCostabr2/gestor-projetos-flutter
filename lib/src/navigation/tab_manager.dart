@@ -1,19 +1,29 @@
 import 'package:flutter/material.dart';
 import 'tab_item.dart';
+import 'interfaces/tab_manager_interface.dart';
 
 /// Gerenciador de abas que mantém o estado de todas as abas abertas
-class TabManager extends ChangeNotifier {
+///
+/// Implementa a interface ITabManager para permitir desacoplamento
+/// e facilitar testes com mocks.
+class TabManager extends ChangeNotifier implements ITabManager {
   final List<TabItem> _tabs = [];
   int _currentIndex = 0;
 
   // Histórico de navegação para cada aba (índice da aba -> lista de TabItems)
   final Map<int, List<TabItem>> _tabHistory = {};
 
+  @override
   List<TabItem> get tabs => List.unmodifiable(_tabs);
+
+  @override
   int get currentIndex => _currentIndex;
+
+  @override
   TabItem? get currentTab => _tabs.isEmpty ? null : _tabs[_currentIndex];
 
   /// Verifica se a aba atual pode voltar
+  @override
   bool canGoBack() {
     if (_currentIndex < 0 || _currentIndex >= _tabs.length) return false;
     final history = _tabHistory[_currentIndex];
@@ -21,6 +31,7 @@ class TabManager extends ChangeNotifier {
   }
 
   /// Volta para a página anterior na aba atual
+  @override
   void goBack() {
     if (!canGoBack()) return;
 
@@ -36,6 +47,7 @@ class TabManager extends ChangeNotifier {
   }
 
   /// Adiciona uma nova aba
+  @override
   void addTab(TabItem tab, {bool allowDuplicates = false}) {
     debugPrint('🔍 TabManager.addTab chamado:');
     debugPrint('   ID da nova aba: "${tab.id}"');
@@ -68,6 +80,7 @@ class TabManager extends ChangeNotifier {
   }
 
   /// Remove uma aba pelo índice
+  @override
   void removeTab(int index) {
     debugPrint('🗑️ TabManager.removeTab chamado:');
     debugPrint('   Índice a remover: $index');
@@ -119,6 +132,7 @@ class TabManager extends ChangeNotifier {
   }
 
   /// Seleciona uma aba pelo índice
+  @override
   void selectTab(int index) {
     if (index >= 0 && index < _tabs.length) {
       _currentIndex = index;
@@ -127,6 +141,7 @@ class TabManager extends ChangeNotifier {
   }
 
   /// Seleciona uma aba pelo ID
+  @override
   void selectTabById(String id) {
     final index = _tabs.indexWhere((t) => t.id == id);
     if (index != -1) {
@@ -135,6 +150,7 @@ class TabManager extends ChangeNotifier {
   }
 
   /// Atualiza o título de uma aba
+  @override
   void updateTabTitle(String id, String newTitle) {
     final index = _tabs.indexWhere((t) => t.id == id);
     if (index != -1) {
@@ -156,6 +172,7 @@ class TabManager extends ChangeNotifier {
   }
 
   /// Atualiza uma aba completamente (incluindo ID)
+  @override
   void updateTab(int index, TabItem newTab, {bool saveToHistory = true}) {
     if (index >= 0 && index < _tabs.length) {
       // Salvar a aba atual no histórico antes de atualizar
@@ -176,6 +193,7 @@ class TabManager extends ChangeNotifier {
   }
 
   /// Fecha todas as abas exceto a especificada
+  @override
   void closeOtherTabs(int index) {
     if (index < 0 || index >= _tabs.length) return;
     
@@ -188,15 +206,26 @@ class TabManager extends ChangeNotifier {
   }
 
   /// Fecha todas as abas
+  @override
   void closeAllTabs() {
     _tabs.removeWhere((tab) => tab.canClose);
-    
+
     if (_tabs.isEmpty) {
       _currentIndex = 0;
     } else if (_currentIndex >= _tabs.length) {
       _currentIndex = _tabs.length - 1;
     }
-    
+
+    notifyListeners();
+  }
+
+  /// Limpa todas as abas e histórico
+  @override
+  void clearAllTabs() {
+    debugPrint('🧹 TabManager.clearAllTabs: Limpando todas as abas e histórico');
+    _tabs.clear();
+    _tabHistory.clear();
+    _currentIndex = 0;
     notifyListeners();
   }
 }

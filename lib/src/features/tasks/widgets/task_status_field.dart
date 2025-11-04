@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:gestor_projetos_flutter/modules/modules.dart';
-import 'package:gestor_projetos_flutter/widgets/dropdowns/dropdowns.dart';
+import 'package:my_business/modules/modules.dart';
+import 'package:my_business/ui/molecules/dropdowns/dropdowns.dart';
 
 /// Widget reutilizável para campo de seleção de status
 ///
@@ -49,7 +49,7 @@ class TaskStatusField extends StatelessWidget {
         DropdownItem(value: 'completed', label: 'Concluída'),
       ],
       onChanged: (v) => onStatusChanged(v ?? 'todo'),
-      labelText: 'Status',
+      textStyle: Theme.of(context).textTheme.bodySmall,
       enabled: enabled,
       onBeforeChanged: (newValue) async {
         // Validar se pode concluir a task

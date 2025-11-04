@@ -2,23 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../state/app_state_scope.dart';
 import '../../state/app_state.dart';
 import '../../navigation/tab_manager_scope.dart';
 import '../../navigation/tab_item.dart';
-import '../../widgets/dynamic_paginated_table.dart';
-import '../../../widgets/user_avatar_name.dart';
+import '../../../ui/organisms/tables/dynamic_paginated_table.dart';
+import 'package:my_business/ui/molecules/user_avatar_name.dart';
 import '../companies/company_detail_page.dart';
 import '../companies/companies_page.dart';
-import '../../../widgets/reusable_data_table.dart';
-import '../../../widgets/standard_dialog.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
-import '../../../widgets/table_search_filter_bar.dart';
-import '../../../widgets/tabs/tabs.dart';
+import '../../../ui/organisms/tables/reusable_data_table.dart';
+import '../../../ui/organisms/dialogs/standard_dialog.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/loaders/loaders.dart';
+import 'package:my_business/ui/organisms/tables/table_search_filter_bar.dart';
+import '../../../ui/organisms/tabs/tabs.dart';
+import 'package:my_business/ui/organisms/cards/cards.dart';
 import 'widgets/client_form.dart';
 import 'widgets/client_financial_section.dart';
-import 'clients_page_backup.dart';
+import 'widgets/client_info_card_items.dart';
+import 'clients_page.dart';
+// import 'clients_page_backup.dart'; // Backup file not used
 
 
 
@@ -36,6 +39,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   List<Map<String, dynamic>> _filteredCompanies = [];
   bool _companiesLoading = true;
   Set<String> _selectedCompanies = {};
+  bool _showMoreInfo = false; // Estado do botão "Mais Informações"
 
   // Filtros e pesquisa
   String _searchQuery = '';
@@ -115,35 +119,320 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
   Future<Map<String, dynamic>?> _loadClient() async {
     final res = await Supabase.instance.client
         .from('clients')
-        .select('id, name, category, category_id, email, phone, country, state, city, avatar_url, client_categories:category_id(name)')
+        .select('id, name, category, category_id, email, phone, country, state, city, avatar_url, notes, status, social_networks, client_categories:category_id(name)')
         .eq('id', widget.clientId)
         .maybeSingle();
     return res;
   }
 
-  void _copyEmail(String email) {
-    Clipboard.setData(ClipboardData(text: email));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Email copiado: $email'),
-        duration: const Duration(seconds: 2),
+  /// Constrói os cards de informações do cliente (similar ao design das outras páginas)
+  Widget _buildClientInfoCards({
+    required BuildContext context,
+    required Map<String, dynamic> client,
+  }) {
+    // Card esquerdo: Nome, Categoria, Status, Telefone
+    final leftCardItems = <InfoCardItem>[
+      ClientInfoCardItems.buildClientNameItem(context, client),
+      ClientInfoCardItems.buildCategoryItem(context, client),
+      ClientInfoCardItems.buildStatusItem(client),
+      ClientInfoCardItems.buildPhoneItem(context, client),
+    ];
+
+    // Card direito: Notas/Observações + Botão "Mais Informações"
+    final rightCardItems = <InfoCardItem>[
+      ClientInfoCardItems.buildNotesItem(context, client),
+      ClientInfoCardItems.buildMoreInfoButton(
+        onTap: () {
+          setState(() {
+            _showMoreInfo = !_showMoreInfo;
+          });
+        },
+      ),
+    ];
+
+    return InfoCardsSection(
+      leftCard: InfoCard(
+        items: leftCardItems,
+        minWidth: 120,
+        minHeight: 104,
+        totalItems: 4, // Forçar uso de Wrap (mesmo padrão das outras páginas)
+        debugEmoji: '👤',
+        debugDescription: 'Informações do Cliente',
+      ),
+      rightCard: InfoCard(
+        items: rightCardItems,
+        minWidth: 120,
+        minHeight: 104,
+        totalItems: 4, // Forçar uso de Wrap (mesmo padrão das outras páginas)
+        debugEmoji: '📝',
+        debugDescription: 'Notas e Mais Informações',
       ),
     );
   }
 
-  void _openWhatsApp(String phone) async {
-    // Remove caracteres não numéricos
-    final cleanPhone = phone.replaceAll(RegExp(r'[^\d+]'), '');
-    final url = Uri.parse('https://wa.me/$cleanPhone');
+  /// Constrói a seção expansível com informações adicionais
+  Widget _buildMoreInfoSection({
+    required BuildContext context,
+    required Map<String, dynamic> client,
+  }) {
+    final email = client['email'] as String?;
+    final country = client['country'] as String?;
+    final state = client['state'] as String?;
+    final city = client['city'] as String?;
+    final socialNetworks = client['social_networks'] as List<dynamic>?;
 
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível abrir o WhatsApp')),
-      );
-    }
+    // Filtrar redes sociais que têm valores
+    final validNetworks = socialNetworks
+        ?.where((network) {
+          final name = network['name'] as String?;
+          final url = network['url'] as String?;
+          return name != null && name.isNotEmpty && url != null && url.isNotEmpty;
+        })
+        .toList() ?? [];
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      alignment: Alignment.topCenter,
+      child: _showMoreInfo
+          ? Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(top: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  width: 1,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Título da seção
+                  Text(
+                    'Informações Adicionais',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Email
+                  if (email != null && email.isNotEmpty) ...[
+                    Text(
+                      'Email',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    _buildEmailChip(context, email),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // Localização
+                  if (country != null || state != null || city != null) ...[
+                    Text(
+                      'Localização',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        if (country != null && country.isNotEmpty) ...[
+                          _buildInfoChip(context, 'País', country),
+                          const SizedBox(width: 8),
+                        ],
+                        if (state != null && state.isNotEmpty) ...[
+                          _buildInfoChip(context, 'Estado', state),
+                          const SizedBox(width: 8),
+                        ],
+                        if (city != null && city.isNotEmpty)
+                          _buildInfoChip(context, 'Cidade', city),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // Redes Sociais
+                  if (validNetworks.isNotEmpty) ...[
+                    Text(
+                      'Redes Sociais',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Colors.white70,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: validNetworks.map((network) {
+                        final name = network['name'] as String;
+                        final url = network['url'] as String;
+                        return _buildSocialNetworkChip(context, name, url);
+                      }).toList(),
+                    ),
+                  ],
+
+                  // Mensagem se não houver informações
+                  if ((email == null || email.isEmpty) &&
+                      (country == null || country.isEmpty) &&
+                      (state == null || state.isEmpty) &&
+                      (city == null || city.isEmpty) &&
+                      validNetworks.isEmpty)
+                    Text(
+                      'Nenhuma informação adicional disponível.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white54,
+                      ),
+                    ),
+                ],
+              ),
+            )
+          : const SizedBox(
+              width: double.infinity,
+              height: 0,
+            ),
+    );
+  }
+
+  /// Constrói um chip de email clicável
+  Widget _buildEmailChip(BuildContext context, String email) {
+    return InkWell(
+      onTap: () async {
+        final messenger = ScaffoldMessenger.of(context);
+        await Clipboard.setData(ClipboardData(text: email));
+        if (!mounted) return;
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Email "$email" copiado para a área de transferência'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A2A2A),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.email_outlined,
+              size: 14,
+              color: Colors.white70,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                email,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.white70,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 6),
+            const Icon(
+              Icons.copy,
+              size: 12,
+              color: Colors.white54,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Constrói um chip de informação
+  Widget _buildInfoChip(BuildContext context, String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A2A2A),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$label: ',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.white54,
+            ),
+          ),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Constrói um chip de rede social
+  Widget _buildSocialNetworkChip(BuildContext context, String name, String url) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A2A2A),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            _getSocialIcon(name),
+            size: 14,
+            color: Colors.white70,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            name,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '•',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.white54,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              url,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.white70,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Retorna o ícone apropriado para cada rede social
+  IconData _getSocialIcon(String networkName) {
+    final name = networkName.toLowerCase();
+    if (name.contains('instagram')) return FontAwesomeIcons.instagram;
+    if (name.contains('facebook')) return FontAwesomeIcons.facebook;
+    if (name.contains('linkedin')) return FontAwesomeIcons.linkedin;
+    if (name.contains('tiktok')) return FontAwesomeIcons.tiktok;
+    if (name.contains('twitter') || name.contains('x')) return FontAwesomeIcons.twitter;
+    if (name.contains('youtube')) return FontAwesomeIcons.youtube;
+    if (name.contains('whatsapp')) return FontAwesomeIcons.whatsapp;
+    return Icons.link;
   }
 
   Future<List<Map<String, dynamic>>> _loadCompanies() async {
@@ -281,54 +570,43 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 (c) {
                   final socialIcons = <Widget>[];
 
+                  // Tooltips desabilitados para evitar erro de múltiplos tickers
                   if (c['instagram_login'] != null && c['instagram_login'].toString().isNotEmpty) {
                     socialIcons.add(
-                      const Tooltip(
-                        message: 'Instagram',
-                        child: FaIcon(
-                          FontAwesomeIcons.instagram,
-                          size: 18,
-                          color: Colors.white,
-                        ),
+                      const FaIcon(
+                        FontAwesomeIcons.instagram,
+                        size: 18,
+                        color: Colors.white,
                       ),
                     );
                   }
 
                   if (c['facebook_login'] != null && c['facebook_login'].toString().isNotEmpty) {
                     socialIcons.add(
-                      const Tooltip(
-                        message: 'Facebook',
-                        child: FaIcon(
-                          FontAwesomeIcons.facebook,
-                          size: 18,
-                          color: Colors.white,
-                        ),
+                      const FaIcon(
+                        FontAwesomeIcons.facebook,
+                        size: 18,
+                        color: Colors.white,
                       ),
                     );
                   }
 
                   if (c['linkedin_login'] != null && c['linkedin_login'].toString().isNotEmpty) {
                     socialIcons.add(
-                      const Tooltip(
-                        message: 'LinkedIn',
-                        child: FaIcon(
-                          FontAwesomeIcons.linkedin,
-                          size: 18,
-                          color: Colors.white,
-                        ),
+                      const FaIcon(
+                        FontAwesomeIcons.linkedin,
+                        size: 18,
+                        color: Colors.white,
                       ),
                     );
                   }
 
                   if (c['tiktok_login'] != null && c['tiktok_login'].toString().isNotEmpty) {
                     socialIcons.add(
-                      const Tooltip(
-                        message: 'TikTok',
-                        child: FaIcon(
-                          FontAwesomeIcons.tiktok,
-                          size: 18,
-                          color: Colors.white,
-                        ),
+                      const FaIcon(
+                        FontAwesomeIcons.tiktok,
+                        size: 18,
+                        color: Colors.white,
                       ),
                     );
                   }
@@ -493,16 +771,94 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
     return ClientFinancialSection(clientId: widget.clientId);
   }
 
+  /// Constrói skeleton loading para a página de detalhes do cliente
+  Widget _buildClientDetailSkeleton() {
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Título skeleton
+          Row(
+            children: [
+              SkeletonLoader.circle(size: 48),
+              const SizedBox(width: 16),
+              SkeletonLoader.text(width: 200),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Card de informações skeleton
+          InfoCardSkeleton(itemCount: 8, minHeight: 140),
+          const SizedBox(height: 24),
+
+          // Tabs skeleton
+          Row(
+            children: [
+              SkeletonLoader.box(width: 120, height: 40, borderRadius: 8),
+              const SizedBox(width: 8),
+              SkeletonLoader.box(width: 120, height: 40, borderRadius: 8),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // Conteúdo skeleton
+          Expanded(
+            child: SkeletonLoader.box(
+              width: double.infinity,
+              height: double.infinity,
+              borderRadius: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = AppStateScope.of(context);
+
+    // Verificar permissão: apenas Admin, Gestor e Financeiro
+    if (!appState.isAdmin && !appState.isGestor && !appState.isFinanceiro) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.lock_outline,
+                size: 64,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Acesso Negado',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Apenas Administradores, Gestores e Financeiros podem acessar os detalhes do cliente.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Material(
       type: MaterialType.transparency,
       child: FutureBuilder<Map<String, dynamic>?>(
               future: _clientFuture,
               builder: (context, snapshot) {
                 if (snapshot.connectionState != ConnectionState.done) {
-                  return const Center(child: CircularProgressIndicator());
+                  return _buildClientDetailSkeleton();
                 }
                 if (snapshot.hasError) {
                   return Center(child: Text('Erro ao carregar cliente'));
@@ -594,117 +950,13 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              // Avatar
-                              CircleAvatar(
-                                radius: 24,
-                                backgroundImage: client['avatar_url'] != null &&
-                                                 (client['avatar_url'] as String).isNotEmpty
-                                    ? NetworkImage(client['avatar_url'])
-                                    : null,
-                                child: client['avatar_url'] == null ||
-                                       (client['avatar_url'] as String).isEmpty
-                                    ? const Icon(Icons.person, size: 24)
-                                    : null,
-                              ),
-                              const SizedBox(width: 16),
-                              // Nome
-                              Expanded(
-                                child: _Info('Nome', client['name'] ?? ''),
-                              ),
-                              const SizedBox(width: 24),
-                              // Categoria
-                              Expanded(
-                                child: _Info(
-                                  'Categoria',
-                                  client['client_categories']?['name'] ??
-                                  client['category'] ??
-                                  '-'
-                                ),
-                              ),
-                              const SizedBox(width: 24),
-                              // Email (clicável para copiar)
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Email', style: Theme.of(context).textTheme.labelMedium),
-                                    const SizedBox(height: 4),
-                                    InkWell(
-                                      onTap: () => _copyEmail(client['email']),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.email, size: 16, color: Colors.white),
-                                          const SizedBox(width: 8),
-                                          Flexible(
-                                            child: Text(
-                                              client['email'] ?? '-',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 24),
-                              // Telefone (clicável para WhatsApp)
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Telefone', style: Theme.of(context).textTheme.labelMedium),
-                                    const SizedBox(height: 4),
-                                    InkWell(
-                                      onTap: () => _openWhatsApp(client['phone']),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const _WhatsAppIcon(size: 16, color: Colors.white),
-                                          const SizedBox(width: 8),
-                                          Flexible(
-                                            child: Text(
-                                              client['phone'] ?? '-',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                decoration: TextDecoration.none,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 24),
-                              // País
-                              Expanded(
-                                child: _Info('País', client['country'] ?? '-'),
-                              ),
-                              const SizedBox(width: 8),
-                              // Estado
-                              Expanded(
-                                child: _Info('Estado', client['state'] ?? '-'),
-                              ),
-                              const SizedBox(width: 8),
-                              // Cidade
-                              Expanded(
-                                child: _Info('Cidade', client['city'] ?? '-'),
-                              ),
-                            ],
-                          ),
-                        ),
+                      _buildClientInfoCards(
+                        context: context,
+                        client: client,
+                      ),
+                      _buildMoreInfoSection(
+                        context: context,
+                        client: client,
                       ),
                       const SizedBox(height: 16),
                       // Tabs usando componente genérico
@@ -725,43 +977,6 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                 );
               },
             ),
-    );
-  }
-}
-
-class _Info extends StatelessWidget {
-  final String label;
-  final String value;
-  const _Info(this.label, this.value);
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: Theme.of(context).textTheme.labelMedium),
-        const SizedBox(height: 4),
-        Text(value, style: Theme.of(context).textTheme.titleSmall),
-      ],
-    );
-  }
-}
-
-class _WhatsAppIcon extends StatelessWidget {
-  final double size;
-  final Color color;
-
-  const _WhatsAppIcon({
-    required this.size,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return FaIcon(
-      FontAwesomeIcons.whatsapp,
-      size: size,
-      color: color,
     );
   }
 }

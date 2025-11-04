@@ -2,14 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:googleapis_auth/auth_io.dart' as auth;
 import '../../shared/quick_forms.dart';
-import '../../../../widgets/user_avatar_name.dart';
-import '../../../../widgets/standard_dialog.dart';
+import 'package:my_business/ui/molecules/user_avatar_name.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
 import '../../../../services/google_drive_oauth_service.dart';
 import '../task_detail_page.dart';
 import 'task_due_date_badge.dart';
 import 'task_status_badge.dart';
-import 'package:gestor_projetos_flutter/widgets/buttons/buttons.dart';
+import 'package:my_business/ui/atoms/buttons/buttons.dart';
 import '../../../../modules/tasks/module.dart';
+import '../../../state/app_state_scope.dart';
 
 /// Widget para exibir e gerenciar sub tasks de uma task
 class SubTasksSection extends StatefulWidget {
@@ -45,26 +46,38 @@ class _SubTasksSectionState extends State<SubTasksSection> {
   Future<void> _loadSubTasks() async {
     setState(() => _loading = true);
     try {
-      final res = await Supabase.instance.client
-          .from('tasks')
-          .select('''
-            id, title, status, priority, assigned_to, due_date, created_at, updated_at,
-            assignee_profile:profiles!tasks_assigned_to_fkey(full_name, email, avatar_url)
-          ''')
-          .eq('parent_task_id', widget.taskId)
-          .order('created_at', ascending: false);
+      // SEGURANÇA: Usar o módulo de tarefas que aplica filtros de acesso
+      final res = await tasksModule.getTaskSubTasks(widget.taskId);
 
       if (mounted) {
         setState(() {
-          _subTasks = List<Map<String, dynamic>>.from(res);
+          _subTasks = res;
           _loading = false;
         });
       }
     } catch (e) {
+      debugPrint('❌ Erro ao carregar subtarefas: $e');
       if (mounted) {
         setState(() => _loading = false);
       }
     }
+  }
+
+  bool _canEditSubTask(Map<String, dynamic> subTask) {
+    final appState = AppStateScope.of(context);
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    // Admin pode editar qualquer subtask
+    // Designers só podem editar subtasks que eles criaram
+    // Outros roles podem editar subtasks que criaram
+    return appState.isAdmin || subTask['created_by'] == currentUserId;
+  }
+
+  bool _canDeleteSubTask(Map<String, dynamic> subTask) {
+    final appState = AppStateScope.of(context);
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    // Admin pode deletar qualquer subtask
+    // Outros roles podem deletar subtasks que criaram
+    return appState.isAdmin || subTask['created_by'] == currentUserId;
   }
 
 
@@ -224,7 +237,7 @@ class _SubTasksSectionState extends State<SubTasksSection> {
                                 icon: Icons.edit,
                                 iconSize: 20,
                                 tooltip: 'Editar',
-                                onPressed: () async {
+                                onPressed: _canEditSubTask(subTask) ? () async {
                                   final changed = await showDialog<bool>(
                                     context: context,
                                     builder: (context) => SubTaskFormDialog(
@@ -238,13 +251,13 @@ class _SubTasksSectionState extends State<SubTasksSection> {
                                     _loadSubTasks();
                                     widget.onSubTaskChanged?.call();
                                   }
-                                },
+                                } : null,
                               ),
                               IconOnlyButton(
                                 icon: Icons.delete,
                                 iconSize: 20,
                                 tooltip: 'Excluir',
-                                onPressed: () async {
+                                onPressed: _canDeleteSubTask(subTask) ? () async {
                                   final confirm = await showDialog<bool>(
                                     context: context,
                                     builder: (context) => ConfirmDialog(
@@ -295,7 +308,7 @@ class _SubTasksSectionState extends State<SubTasksSection> {
                                     _loadSubTasks();
                                     widget.onSubTaskChanged?.call();
                                   }
-                                },
+                                } : null,
                               ),
                             ],
                           ),

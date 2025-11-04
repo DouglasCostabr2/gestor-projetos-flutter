@@ -11,7 +11,7 @@ class AppTheme {
 
   static ThemeData dark() {
     // Dark palette - EXACT colors from side menu for consistency across entire app
-    const accent = Color(0xFF7AB6FF); // subtle blue for accents/buttons
+    const accent = Color(0xFFFFFFFF); // white for accents/buttons
     final base = ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.dark);
     final scheme = base.copyWith(
       // Main background - same as side menu card
@@ -51,6 +51,10 @@ class AppTheme {
       borderSide: BorderSide(color: scheme.outlineVariant),
     );
 
+    // Focus color: slightly lighter gray than default outline
+    final focusBorderColor = Color.lerp(scheme.outlineVariant, Colors.white, 0.25)!;
+
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
@@ -80,17 +84,23 @@ class AppTheme {
 
       // Cards
       cardTheme: CardThemeData(
-        color: scheme.surfaceContainerLow,
-        surfaceTintColor: scheme.surfaceTint,
-        elevation: 1,
+        color: const Color(0xFF1A1A1A), // Mesma cor do cronômetro para consistência
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
 
       // Dialogs
       dialogTheme: DialogThemeData(
-        backgroundColor: scheme.surface,
-        surfaceTintColor: scheme.surfaceTint,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: const Color(0xFF151515), // Mesma cor do background das páginas
+        surfaceTintColor: Colors.transparent, // Remove o tint que altera a cor
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(
+            color: Color(0xFF2A2A2A), // Mesma cor das bordas do app
+            width: 1,
+          ),
+        ),
       ),
 
       // Buttons - matching side menu style (neutral gray, not blue)
@@ -199,7 +209,7 @@ class AppTheme {
         hintStyle: TextStyle(color: scheme.onSurfaceVariant.withValues(alpha: 0.7)),
         border: inputBorder,
         enabledBorder: inputBorder,
-        focusedBorder: inputBorder.copyWith(borderSide: BorderSide(color: scheme.primary, width: 2)),
+        focusedBorder: inputBorder.copyWith(borderSide: BorderSide(color: focusBorderColor, width: 2)),
         errorBorder: inputBorder.copyWith(borderSide: BorderSide(color: scheme.error)),
         focusedErrorBorder: inputBorder.copyWith(borderSide: BorderSide(color: scheme.error, width: 2)),
       ),
@@ -217,7 +227,7 @@ class AppTheme {
           hintStyle: TextStyle(color: scheme.onSurfaceVariant.withValues(alpha: 0.7)),
           border: inputBorder,
           enabledBorder: inputBorder,
-          focusedBorder: inputBorder.copyWith(borderSide: BorderSide(color: scheme.primary, width: 2)),
+          focusedBorder: inputBorder.copyWith(borderSide: BorderSide(color: focusBorderColor, width: 2)),
           errorBorder: inputBorder.copyWith(borderSide: BorderSide(color: scheme.error)),
           focusedErrorBorder: inputBorder.copyWith(borderSide: BorderSide(color: scheme.error, width: 2)),
         ),

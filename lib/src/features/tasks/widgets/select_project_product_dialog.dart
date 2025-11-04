@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
 
 class SelectProjectProductDialog extends StatefulWidget {
   final String projectId;
@@ -32,19 +33,39 @@ class _SelectProjectProductDialogState extends State<SelectProjectProductDialog>
     try {
       final client = Supabase.instance.client;
 
-      // Buscar produtos já vinculados a outras tasks
+      // Buscar produtos já vinculados a outras tasks DO MESMO PROJETO
       final linkedProducts = <String, Map<String, String>>{}; // productId+packageId -> {taskId, taskTitle}
       try {
-        final query = client
+        // Primeiro buscar todas as tasks do projeto atual
+        final projectTasks = await client
+            .from('tasks')
+            .select('id')
+            .eq('project_id', widget.projectId);
+
+        final projectTaskIds = (projectTasks as List)
+            .map((t) => t['id'] as String)
+            .toSet();
+
+        // Agora buscar produtos vinculados a essas tasks
+        final allTaskProducts = await client
             .from('task_products')
             .select('product_id, package_id, task_id, tasks:task_id(title)');
 
-        // Se estamos editando uma task, excluir produtos vinculados a ela
-        final linkedRows = widget.currentTaskId != null
-            ? await query.neq('task_id', widget.currentTaskId!)
-            : await query;
+        // Filtrar apenas produtos de tasks do projeto atual
+        final linkedRows = (allTaskProducts as List).where((row) {
+          final taskId = row['task_id'] as String?;
+          if (taskId == null) return false;
 
-        for (final row in (linkedRows as List)) {
+          // Excluir a task atual se estamos editando
+          if (widget.currentTaskId != null && taskId == widget.currentTaskId) {
+            return false;
+          }
+
+          // Incluir apenas se a task pertence ao projeto atual
+          return projectTaskIds.contains(taskId);
+        }).toList();
+
+        for (final row in linkedRows) {
           final productId = row['product_id'] as String?;
           final packageId = row['package_id'] as String?;
           final taskId = row['task_id'] as String?;
@@ -184,7 +205,7 @@ class _SelectProjectProductDialogState extends State<SelectProjectProductDialog>
   }
 
   void _showUnlinkDialog(BuildContext context, _Option option) {
-    showDialog(
+    DialogHelper.show(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Produto já vinculado'),
@@ -207,12 +228,44 @@ class _SelectProjectProductDialogState extends State<SelectProjectProductDialog>
               final messenger = ScaffoldMessenger.of(context);
 
               try {
-                await Supabase.instance.client
+                final client = Supabase.instance.client;
+                final userId = client.auth.currentUser?.id;
+
+                var deleteQuery = client
                     .from('task_products')
                     .delete()
                     .eq('task_id', option.linkedTaskId!)
-                    .eq('product_id', option.productId)
-                    .eq('package_id', option.packageId ?? '');
+                    .eq('product_id', option.productId);
+
+                if (option.packageId == null || option.packageId!.isEmpty) {
+                  // Quando o vínculo é direto (não veio de pacote), package_id é NULL na tabela
+                  // Usar IS NULL em vez de comparar com string vazia
+                  deleteQuery = deleteQuery.filter('package_id', 'is', null);
+                } else {
+                  deleteQuery = deleteQuery.eq('package_id', option.packageId!);
+                }
+
+                await deleteQuery;
+
+                // Registrar no histórico
+                if (userId != null) {
+                  try {
+                    final productLabel = option.packageName != null && option.packageName!.isNotEmpty
+                        ? '${option.label} (${option.packageName})'
+                        : option.label;
+
+                    await client.from('task_history').insert({
+                      'task_id': option.linkedTaskId!,
+                      'user_id': userId,
+                      'action': 'updated',
+                      'field_name': 'product_unlinked',
+                      'old_value': productLabel,
+                      'new_value': null,
+                    });
+                  } catch (e) {
+                    debugPrint('Erro ao registrar histórico de desvinculação: $e');
+                  }
+                }
 
                 // Retornar produto para vincular à nova task
                 if (mounted) {
@@ -250,96 +303,103 @@ class _SelectProjectProductDialogState extends State<SelectProjectProductDialog>
              ((o.packageName ?? '').toLowerCase().contains(q));
     }).toList();
 
-    return Dialog(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 720,
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
+    return StandardDialog(
+      title: 'Vincular produto do projeto',
+      width: 720,
+      height: MediaQuery.of(context).size.height * 0.85,
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('Cancelar'),
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(children: [
-                const Text('Vincular produto do projeto', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-                const Spacer(),
-                TextButton(onPressed: () => Navigator.pop(context, {'productId': null, 'packageId': null}), child: const Text('Sem vínculo')),
-                const SizedBox(width: 8),
-                FilledButton(onPressed: () => Navigator.pop(context, null), child: const Text('OK')),
-              ]),
-              const SizedBox(height: 12),
-              TextField(
-                decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Buscar por nome, comentário ou pacote'),
-                onChanged: (v) => setState(() => _query = v),
-              ),
-              const SizedBox(height: 12),
-              if (_loading) const LinearProgressIndicator(),
-              if (_error != null) Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-              const SizedBox(height: 8),
-              Expanded(
-                child: ListView.separated(
-                  itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final o = filtered[i];
-                    return ListTile(
-                      leading: _Thumb(url: o.thumbUrl),
-                      title: Row(
-                        children: [
-                          Expanded(child: Text(o.label)),
-                          if (o.isLinked)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.orange.withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.orange, width: 1),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.link, size: 14, color: Colors.orange),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    'Vinculado',
-                                    style: const TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
-                      subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        if (o.packageName != null && o.packageName!.isNotEmpty)
-                          Text('Pacote: ${o.packageName}', style: const TextStyle(fontSize: 12)),
-                        if (o.isLinked)
-                          Text('Task: ${o.linkedTaskTitle}', style: const TextStyle(fontSize: 12, color: Colors.orange)),
-                        if ((o.comment ?? '').isNotEmpty)
-                          Text(o.comment!, style: const TextStyle(fontSize: 12, color: Colors.amber)),
-                      ]),
-                      onTap: () {
-                        if (o.isLinked) {
-                          _showUnlinkDialog(context, o);
-                        } else {
-                          Navigator.pop(context, {
-                            'productId': o.productId,
-                            'packageId': o.packageId,
-                            'label': o.label,
-                            'packageName': o.packageName,
-                            'comment': o.comment,
-                            'thumbUrl': o.thumbUrl,
-                          });
-                        }
-                      },
-                      trailing: const Icon(Icons.chevron_right),
-                    );
-                  },
-                ),
-              ),
-            ],
+        FilledButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('OK'),
+        ),
+      ],
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            decoration: const InputDecoration(
+              prefixIcon: Icon(Icons.search),
+              hintText: 'Buscar por nome, comentário ou pacote',
+            ),
+            onChanged: (v) => setState(() => _query = v),
           ),
-        ),
+          const SizedBox(height: 12),
+          if (_loading) const LinearProgressIndicator(),
+          if (_error != null)
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          const SizedBox(height: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 460),
+            child: ListView.separated(
+              itemCount: filtered.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final o = filtered[i];
+                return ListTile(
+                  leading: _Thumb(url: o.thumbUrl),
+                  title: Row(
+                    children: [
+                      Expanded(child: Text(o.label)),
+                      if (o.isLinked)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Theme.of(context).colorScheme.outlineVariant, width: 1),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.link, size: 14, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Vinculado',
+                                style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7), fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (o.packageName != null && o.packageName!.isNotEmpty)
+                        Text('Pacote: ${o.packageName}', style: const TextStyle(fontSize: 12)),
+                      if (o.isLinked)
+                        Text('Task: ${o.linkedTaskTitle}', style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.65))),
+                      if ((o.comment ?? '').isNotEmpty)
+                        Text(o.comment!, style: const TextStyle(fontSize: 12, color: Colors.amber)),
+                    ],
+                  ),
+                  onTap: () {
+                    if (o.isLinked) {
+                      _showUnlinkDialog(context, o);
+                    } else {
+                      Navigator.pop(context, {
+                        'productId': o.productId,
+                        'packageId': o.packageId,
+                        'label': o.label,
+                        'packageName': o.packageName,
+                        'comment': o.comment,
+                        'thumbUrl': o.thumbUrl,
+                      });
+                    }
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
