@@ -1,7 +1,8 @@
 /// Exemplos de uso do sistema de atualização
-/// 
+///
 /// Este arquivo contém exemplos práticos de como usar o UpdateService
 /// e o UpdateDialog em diferentes cenários.
+library;
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -349,7 +350,7 @@ class UpdateNotificationExample extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.blue.withOpacity(0.1),
+      color: Colors.blue.withValues(alpha: 0.1),
       child: InkWell(
         onTap: onTap,
         child: Container(
