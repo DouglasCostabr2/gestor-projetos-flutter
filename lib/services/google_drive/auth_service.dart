@@ -105,19 +105,13 @@ class GoogleDriveAuthService {
     http.Client baseClient,
   ) async {
     try {
-      // Obter client ID e secret das variáveis de ambiente
-      // IMPORTANTE: Configure as variáveis de ambiente GOOGLE_OAUTH_CLIENT_ID e GOOGLE_OAUTH_CLIENT_SECRET
-      const clientIdString = String.fromEnvironment('GOOGLE_OAUTH_CLIENT_ID');
-      const clientSecret = String.fromEnvironment('GOOGLE_OAUTH_CLIENT_SECRET');
-
-      if (clientIdString.isEmpty || clientSecret.isEmpty) {
-        throw app_exceptions.AuthException(
-          'Credenciais do Google OAuth não configuradas. '
-          'Configure GOOGLE_OAUTH_CLIENT_ID e GOOGLE_OAUTH_CLIENT_SECRET.',
-        );
-      }
-
-      final clientId = ClientId(clientIdString, clientSecret);
+      // Credenciais do Google OAuth
+      // Para uso em produção, considere usar variáveis de ambiente
+      final clientId = ClientId(
+        '785385154853-mi7bsh7nbf5tgbufebv1k66qr67uph9u'
+        '.apps.googleusercontent.com',
+        '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',
+      );
 
       // Atualizar credenciais (refresh)
       final newCredentials = await refreshCredentials(

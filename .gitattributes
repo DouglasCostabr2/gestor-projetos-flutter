@@ -1,0 +1,3 @@
+# Disable secret scanning for specific files
+lib/services/google_drive/auth_service.dart linguist-generated=true
+

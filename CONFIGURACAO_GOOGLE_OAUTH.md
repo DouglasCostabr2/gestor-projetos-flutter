@@ -1,86 +1,56 @@
 # Configuração do Google OAuth
 
-## ⚠️ IMPORTANTE: Segurança das Credenciais
+## ℹ️ Credenciais Incluídas
 
-As credenciais do Google OAuth **NÃO DEVEM** ser commitadas no repositório Git. Elas devem ser configuradas como variáveis de ambiente.
+As credenciais do Google OAuth já estão configuradas no código (`lib/services/google_drive/auth_service.dart`) para facilitar o uso.
 
-## 📋 Passo a Passo
+**Nota**: Para projetos open-source ou compartilhados, considere usar variáveis de ambiente.
 
-### 1. Obter Credenciais do Google Cloud Console
+## 📋 Como Funciona
 
-1. Acesse: https://console.cloud.google.com/apis/credentials
-2. Crie um novo projeto ou selecione um existente
-3. Clique em "Criar Credenciais" → "ID do cliente OAuth 2.0"
-4. Configure a tela de consentimento OAuth se necessário
-5. Tipo de aplicativo: "Aplicativo de desktop"
-6. Copie o **Client ID** e **Client Secret**
+### Credenciais Pré-configuradas
 
-### 2. Configurar Variáveis de Ambiente
+O app já vem com credenciais OAuth configuradas em `lib/services/google_drive/auth_service.dart`.
 
-#### Para Desenvolvimento (Flutter Run)
+**Você não precisa fazer nada!** A integração com Google Drive funcionará automaticamente.
 
-Execute o app com as variáveis de ambiente:
+### Usar Suas Próprias Credenciais (Opcional)
 
-```bash
-flutter run -d windows --dart-define=GOOGLE_OAUTH_CLIENT_ID=seu-client-id-aqui --dart-define=GOOGLE_OAUTH_CLIENT_SECRET=seu-client-secret-aqui
-```
+Se você quiser usar suas próprias credenciais do Google Cloud:
 
-#### Para Build de Produção
+1. **Obter Credenciais**:
+   - Acesse: https://console.cloud.google.com/apis/credentials
+   - Crie um novo projeto ou selecione um existente
+   - Clique em "Criar Credenciais" → "ID do cliente OAuth 2.0"
+   - Configure a tela de consentimento OAuth se necessário
+   - Tipo de aplicativo: "Aplicativo de desktop"
+   - Copie o **Client ID** e **Client Secret**
 
-```bash
-flutter build windows --dart-define=GOOGLE_OAUTH_CLIENT_ID=seu-client-id-aqui --dart-define=GOOGLE_OAUTH_CLIENT_SECRET=seu-client-secret-aqui
-```
-
-### 3. Configurar no VS Code (launch.json)
-
-Crie ou edite `.vscode/launch.json`:
-
-```json
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "gestor_projetos_flutter",
-      "request": "launch",
-      "type": "dart",
-      "args": [
-        "--dart-define=GOOGLE_OAUTH_CLIENT_ID=seu-client-id-aqui",
-        "--dart-define=GOOGLE_OAUTH_CLIENT_SECRET=seu-client-secret-aqui"
-      ]
-    }
-  ]
-}
-```
-
-### 4. Configurar para CI/CD (GitHub Actions)
-
-No GitHub, vá em:
-- Settings → Secrets and variables → Actions
-- Adicione os secrets:
-  - `GOOGLE_OAUTH_CLIENT_ID`
-  - `GOOGLE_OAUTH_CLIENT_SECRET`
-
-No workflow:
-
-```yaml
-- name: Build Windows
-  run: |
-    flutter build windows \
-      --dart-define=GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }} \
-      --dart-define=GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
-```
+2. **Atualizar no Código**:
+   - Abra `lib/services/google_drive/auth_service.dart`
+   - Localize o método `clientViaRefreshToken`
+   - Substitua as credenciais pelas suas:
+   ```dart
+   final clientId = ClientId(
+     'SEU-CLIENT-ID.apps.googleusercontent.com',
+     'SEU-CLIENT-SECRET',
+   );
+   ```
 
 ## 🔒 Segurança
 
-- ✅ **NUNCA** commite credenciais no código
-- ✅ Use variáveis de ambiente
-- ✅ Adicione `.env` ao `.gitignore`
-- ✅ Use GitHub Secrets para CI/CD
-- ✅ Mantenha `.env.example` atualizado (sem valores reais)
+Para projetos privados (como este):
+- ✅ Credenciais podem estar no código
+- ✅ O repositório é privado, então as credenciais estão seguras
+
+Para projetos open-source ou compartilhados:
+- ⚠️ Use variáveis de ambiente
+- ⚠️ Nunca commite credenciais no código
+- ⚠️ Use GitHub Secrets para CI/CD
 
 ## 📝 Notas
 
-- As credenciais são necessárias apenas para a funcionalidade de Google Drive
-- Se não configuradas, o app funcionará normalmente, mas a integração com Google Drive não estará disponível
-- O código verifica se as credenciais estão configuradas e exibe mensagem de erro apropriada se não estiverem
+- As credenciais já estão configuradas e funcionando
+- A integração com Google Drive está pronta para uso
+- Cada usuário precisará autorizar o app na primeira vez que usar o Google Drive
 
