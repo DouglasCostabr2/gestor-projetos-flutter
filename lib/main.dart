@@ -134,34 +134,50 @@ class _MyAppState extends State<MyApp> with WindowListener {
 
   @override
   Future<void> onWindowClose() async {
-    // Verificar se há timer ativo
-    if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
-      final shouldClose = await TimerCloseConfirmationDialog.show(navigatorKey.currentContext!);
-      if (shouldClose != true) {
-        // Usuário cancelou o fechamento - não fazer nada
-        return;
+    // TIMEOUT GLOBAL: Garantir que o app SEMPRE feche em no máximo 5 segundos
+    // Isso evita travamentos causados por operações assíncronas que não completam
+    Future.delayed(const Duration(seconds: 5), () {
+      windowManager.destroy();
+    });
+
+    try {
+      // Verificar se há timer ativo
+      if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
+        final shouldClose = await TimerCloseConfirmationDialog.show(navigatorKey.currentContext!).timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => true, // Se o diálogo travar, fecha mesmo assim
+        );
+
+        if (shouldClose != true) {
+          // Usuário cancelou o fechamento - não fazer nada
+          return;
+        }
+
+        // Usuário confirmou - parar e salvar o timer antes de fechar
+        try {
+          if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
+            // Adicionar timeout de 2 segundos para evitar travamento
+            // skipNotify=true para não tentar atualizar widgets durante fechamento
+            await taskTimerService.stop(skipNotify: true).timeout(
+              const Duration(seconds: 2),
+              onTimeout: () {
+                return;
+              },
+            );
+          }
+        } catch (e) {
+          // Continua fechando mesmo com erro
+        }
       }
 
-      // Usuário confirmou - parar e salvar o timer antes de fechar
-      try {
-        if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
-          // Adicionar timeout de 3 segundos para evitar travamento
-          // skipNotify=true para não tentar atualizar widgets durante fechamento
-          await taskTimerService.stop(skipNotify: true).timeout(
-            const Duration(seconds: 3),
-            onTimeout: () {
-              return;
-            },
-          );
-        }
-      } catch (e) {
-        // Continua fechando mesmo com erro
-      }
+      // Sempre limpar todos os recursos antes de fechar
+      // (seja com timer ativo ou não)
+      await _cleanupBeforeClose();
+    } catch (e) {
+      // Qualquer erro: continua fechando
     }
 
-    // Sempre limpar todos os recursos antes de fechar
-    // (seja com timer ativo ou não)
-    await _cleanupBeforeClose();
+    // Fechar a janela
     await windowManager.destroy();
   }
 
@@ -169,10 +185,10 @@ class _MyAppState extends State<MyApp> with WindowListener {
   /// Isso garante que todas as subscriptions sejam canceladas e o app feche rapidamente
   Future<void> _cleanupBeforeClose() async {
     try {
-      // Executar todas as operações de limpeza em paralelo para máxima velocidade
+      // Executar todas as operações de limpeza com timeout de 2 segundos
       await Future.wait([
         // Limpar configuração do Supabase (cancela auth state listener global)
-        SupabaseConfig.dispose(),
+        SupabaseConfig.dispose().timeout(const Duration(seconds: 1), onTimeout: () {}),
 
         // Executar operações síncronas em um Future
         Future(() {
@@ -180,8 +196,11 @@ class _MyAppState extends State<MyApp> with WindowListener {
           notificationRealtimeService.disposeAll();
           _appState.dispose();
           SupabaseConfig.client.removeAllChannels();
-        }),
-      ], eagerError: false); // eagerError: false para não parar se uma falhar
+        }).timeout(const Duration(seconds: 1), onTimeout: () {}),
+      ], eagerError: false).timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => [],
+      );
     } catch (e) {
       // Continua fechando mesmo com erro
     }
