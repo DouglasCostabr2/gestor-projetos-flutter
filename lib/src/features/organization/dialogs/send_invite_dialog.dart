@@ -34,9 +34,21 @@ class _SendInviteDialogState extends State<SendInviteDialog> {
 
     setState(() => _loading = true);
     try {
+      final email = _emailController.text.trim().toLowerCase();
+
+      // Verificar se já existe convite pendente para este email
+      final invites = await organizationsModule.getOrganizationInvites(widget.organizationId);
+      final pendingInvite = invites.where((inv) =>
+        inv['email'] == email && inv['status'] == 'pending'
+      ).firstOrNull;
+
+      if (pendingInvite != null) {
+        throw Exception('Já existe um convite pendente para este email');
+      }
+
       await organizationsModule.createOrganizationInvite(
         organizationId: widget.organizationId,
-        email: _emailController.text.trim(),
+        email: email,
         role: _selectedRole,
       );
 
