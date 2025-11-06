@@ -21,6 +21,7 @@ import 'widgets/client_form.dart';
 import 'widgets/client_financial_section.dart';
 import 'widgets/client_info_card_items.dart';
 import 'clients_page.dart';
+import '../../../modules/companies/module.dart';
 // import 'clients_page_backup.dart'; // Backup file not used
 
 
@@ -714,15 +715,27 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
                   label: 'Duplicar',
                   onPressed: (c) async {
                     try {
-                      final formData = Map<String, dynamic>.from(c);
-                      formData.remove('id');
-                      formData.remove('created_at');
-                      formData.remove('updated_at');
-                      if (formData['name'] != null) {
-                        formData['name'] = '${formData['name']} (Cópia)';
-                      }
-
-                      await Supabase.instance.client.from('companies').insert(formData);
+                      // Usar o módulo de empresas para criar, passando apenas os campos necessários
+                      // Nota: Não copiar campos dinâmicos como 'updated_by_profile' e 'task_people'
+                      await companiesModule.createCompany(
+                        clientId: widget.clientId,
+                        name: '${c['name'] ?? ''} (Cópia)',
+                        email: c['email'],
+                        phone: c['phone'],
+                        address: c['address'],
+                        city: c['city'],
+                        state: c['state'],
+                        zipCode: c['zip_code'],
+                        country: c['country'],
+                        website: c['website'],
+                        notes: c['notes'],
+                        status: c['status'] ?? 'active',
+                        taxId: c['tax_id'],
+                        taxIdType: c['tax_id_type'],
+                        legalName: c['legal_name'],
+                        stateRegistration: c['state_registration'],
+                        municipalRegistration: c['municipal_registration'],
+                      );
 
                       if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
