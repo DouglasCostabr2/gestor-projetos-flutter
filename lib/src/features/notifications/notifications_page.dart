@@ -275,11 +275,13 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
   Future<void> _deleteNotification(String notificationId) async {
     // Atualização otimista
     models.Notification? deletedNotification;
+    bool wasUnread = false;
     if (mounted) {
       setState(() {
         final allIndex = _allNotifications.indexWhere((n) => n.id == notificationId);
         if (allIndex != -1) {
           deletedNotification = _allNotifications[allIndex];
+          wasUnread = !deletedNotification!.isRead;
           _allNotifications.removeAt(allIndex);
         }
 
@@ -289,6 +291,9 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
           _unreadCount--;
         }
       });
+
+      // Emitir evento local para atualização instantânea do badge
+      notificationEventBus.emitDeleted(notificationId, wasUnread);
     }
 
     try {
@@ -333,7 +338,10 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
     if (confirm == true) {
       try {
         await notificationsModule.deleteAllRead();
-        // A atualização será feita via realtime
+
+        // Recarregar notificações para atualizar a UI e o contador
+        await _loadNotifications();
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Notificações lidas deletadas')),
