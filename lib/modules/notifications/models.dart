@@ -3,6 +3,7 @@
 /// Tipos de notificação disponíveis no sistema
 enum NotificationType {
   taskAssigned('task_assigned', 'Tarefa Atribuída'),
+  taskUnassigned('task_unassigned', 'Removido de Tarefa'),
   taskDueSoon('task_due_soon', 'Tarefa Vence em Breve'),
   taskOverdue('task_overdue', 'Tarefa Vencida'),
   taskUpdated('task_updated', 'Tarefa Atualizada'),
@@ -37,6 +38,8 @@ enum NotificationType {
     switch (this) {
       case NotificationType.taskAssigned:
         return 'assignment_ind';
+      case NotificationType.taskUnassigned:
+        return 'person_remove';
       case NotificationType.taskDueSoon:
         return 'schedule';
       case NotificationType.taskOverdue:
@@ -75,6 +78,8 @@ enum NotificationType {
     switch (this) {
       case NotificationType.taskAssigned:
         return 0xFF7AB6FF; // Azul
+      case NotificationType.taskUnassigned:
+        return 0xFFFFA726; // Laranja
       case NotificationType.taskDueSoon:
         return 0xFFFFA726; // Laranja
       case NotificationType.taskOverdue:
