@@ -9,14 +9,12 @@ import 'core/di/service_registration.dart';
 import 'src/app_shell.dart';
 import 'src/navigation/route_observer.dart';
 import 'services/task_timer_service.dart';
-import 'services/notification_realtime_service.dart';
 
 import 'src/features/auth/login_page.dart';
 import 'src/features/auth/reset_password_page.dart';
 import 'src/state/app_state.dart';
 import 'src/state/app_state_scope.dart';
 import 'src/theme/app_theme.dart';
-import 'src/features/tasks/widgets/timer_close_confirmation_dialog.dart';
 import 'services/update_service.dart';
 import 'widgets/update_dialog.dart';
 
@@ -41,12 +39,11 @@ Future<void> main() async {
   // Inicializar window_manager
   await windowManager.ensureInitialized();
 
-  // Configurar para prevenir fechamento automático
+  // Configurar janela - SEM setPreventClose para permitir fechamento imediato
   WindowOptions windowOptions = const WindowOptions(
     skipTaskbar: false,
   );
   windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.setPreventClose(true);
     await windowManager.show();
     await windowManager.focus();
   });
@@ -130,80 +127,6 @@ class _MyAppState extends State<MyApp> with WindowListener {
   void dispose() {
     windowManager.removeListener(this);
     super.dispose();
-  }
-
-  @override
-  Future<void> onWindowClose() async {
-    // TIMEOUT GLOBAL: Garantir que o app SEMPRE feche em no máximo 5 segundos
-    // Isso evita travamentos causados por operações assíncronas que não completam
-    Future.delayed(const Duration(seconds: 5), () {
-      windowManager.destroy();
-    });
-
-    try {
-      // Verificar se há timer ativo
-      if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
-        final shouldClose = await TimerCloseConfirmationDialog.show(navigatorKey.currentContext!).timeout(
-          const Duration(seconds: 2),
-          onTimeout: () => true, // Se o diálogo travar, fecha mesmo assim
-        );
-
-        if (shouldClose != true) {
-          // Usuário cancelou o fechamento - não fazer nada
-          return;
-        }
-
-        // Usuário confirmou - parar e salvar o timer antes de fechar
-        try {
-          if (taskTimerService.isRunning || taskTimerService.activeTimeLogId != null) {
-            // Adicionar timeout de 2 segundos para evitar travamento
-            // skipNotify=true para não tentar atualizar widgets durante fechamento
-            await taskTimerService.stop(skipNotify: true).timeout(
-              const Duration(seconds: 2),
-              onTimeout: () {
-                return;
-              },
-            );
-          }
-        } catch (e) {
-          // Continua fechando mesmo com erro
-        }
-      }
-
-      // Sempre limpar todos os recursos antes de fechar
-      // (seja com timer ativo ou não)
-      await _cleanupBeforeClose();
-    } catch (e) {
-      // Qualquer erro: continua fechando
-    }
-
-    // Fechar a janela
-    await windowManager.destroy();
-  }
-
-  /// Limpa todos os recursos antes de fechar o app
-  /// Isso garante que todas as subscriptions sejam canceladas e o app feche rapidamente
-  Future<void> _cleanupBeforeClose() async {
-    try {
-      // Executar todas as operações de limpeza com timeout de 2 segundos
-      await Future.wait([
-        // Limpar configuração do Supabase (cancela auth state listener global)
-        SupabaseConfig.dispose().timeout(const Duration(seconds: 1), onTimeout: () {}),
-
-        // Executar operações síncronas em um Future
-        Future(() {
-          taskTimerService.dispose();
-          notificationRealtimeService.disposeAll();
-          _appState.dispose();
-          SupabaseConfig.client.removeAllChannels();
-        }).timeout(const Duration(seconds: 1), onTimeout: () {}),
-      ], eagerError: false).timeout(
-        const Duration(seconds: 2),
-        onTimeout: () => [],
-      );
-    } catch (e) {
-      // Continua fechando mesmo com erro
-    }
   }
 
   @override
