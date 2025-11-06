@@ -643,6 +643,10 @@ class TasksRepository implements TasksContract {
     }
     updateData['updated_at'] = DateTime.now().toIso8601String();
 
+    debugPrint('🔍 [TASK UPDATE] TaskId: $taskId');
+    debugPrint('🔍 [TASK UPDATE] assignedTo parameter: $assignedTo');
+    debugPrint('🔍 [TASK UPDATE] updateData: $updateData');
+
     try {
       final response = await _client
           .from('tasks')

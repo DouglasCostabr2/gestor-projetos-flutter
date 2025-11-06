@@ -39,5 +39,17 @@ abstract class AuthContract {
 
   /// Buscar usuário por email
   Future<List<Map<String, dynamic>>> getUserByEmail(String email);
+
+  /// Faz login com Google OAuth
+  Future<bool> signInWithGoogle();
+
+  /// Vincula conta Google a uma conta existente
+  Future<bool> linkGoogleAccount();
+
+  /// Desvincula conta Google
+  Future<bool> unlinkGoogleAccount();
+
+  /// Verifica se o usuário tem conta Google vinculada
+  bool get hasGoogleAccount;
 }
 

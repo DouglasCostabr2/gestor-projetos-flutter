@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:image/image.dart' as img;
 import '../../state/app_state_scope.dart';
 import 'package:my_business/ui/atoms/buttons/buttons.dart';
+import '../../../modules/modules.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -26,6 +27,8 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _loading = false;
   bool _savingProfile = false;
   bool _changingPassword = false;
+  bool _linkingGoogle = false;
+  bool _unlinkingGoogle = false;
   String? _error;
   String? _success;
   String? _avatarUrl;
@@ -162,6 +165,9 @@ class _SettingsPageState extends State<SettingsPage> {
         UserAttributes(password: _newPasswordController.text),
       );
 
+      // Forçar atualização do usuário
+      await Supabase.instance.client.auth.refreshSession();
+
       if (mounted) {
         setState(() {
           _success = 'Senha alterada com sucesso!';
@@ -177,6 +183,189 @@ class _SettingsPageState extends State<SettingsPage> {
     } finally {
       if (mounted) {
         setState(() => _changingPassword = false);
+      }
+    }
+  }
+
+  Future<void> _linkGoogleAccount() async {
+    setState(() {
+      _linkingGoogle = true;
+      _error = null;
+      _success = null;
+    });
+
+    try {
+      final success = await authModule.linkGoogleAccount();
+
+      if (mounted) {
+        if (success) {
+          // Aguardar um pouco para o Supabase atualizar o usuário
+          await Future.delayed(const Duration(milliseconds: 500));
+
+          // Forçar rebuild para atualizar o status da conta Google
+          setState(() {
+            _success = 'Conta Google vinculada com sucesso!';
+          });
+        } else {
+          setState(() => _error = 'Erro ao vincular conta Google');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        final errorMessage = e.toString().replaceFirst('Exception: ', '');
+
+        // Mostrar dialog com instruções se for erro de manual linking
+        if (errorMessage.contains('Vinculação manual está desabilitada')) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Vinculação Manual Desabilitada'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Para vincular sua conta Google, você precisa habilitar a vinculação manual no Supabase Dashboard.',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Passos para habilitar:'),
+                    const SizedBox(height: 8),
+                    const Text('1. Acesse o Supabase Dashboard'),
+                    const Text('2. Vá em Auth → Providers'),
+                    const Text('3. Role até "Security Settings"'),
+                    const Text('4. Habilite "Enable Manual Linking"'),
+                    const Text('5. Salve as configurações'),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Entendi'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          setState(() => _error = errorMessage);
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _linkingGoogle = false);
+      }
+    }
+  }
+
+  Future<void> _unlinkGoogleAccount() async {
+    // Confirmar antes de desvincular
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Desvincular Conta Google'),
+        content: const Text(
+          'Tem certeza que deseja desvincular sua conta Google?\n\n'
+          'Você ainda poderá fazer login com email e senha.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('Desvincular'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) {
+      return;
+    }
+
+    setState(() {
+      _unlinkingGoogle = true;
+      _error = null;
+      _success = null;
+    });
+
+    try {
+      final success = await authModule.unlinkGoogleAccount();
+
+      if (mounted) {
+        if (success) {
+          // Aguardar um pouco para o Supabase atualizar o usuário
+          await Future.delayed(const Duration(milliseconds: 500));
+
+          // Forçar rebuild para atualizar o status da conta Google
+          setState(() {
+            _success = 'Conta Google desvinculada com sucesso!';
+          });
+        } else {
+          setState(() => _error = 'Erro ao desvincular conta Google');
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        final errorMessage = e.toString().replaceFirst('Exception: ', '');
+
+        // Mostrar dialog se for erro de senha não definida
+        if (errorMessage.contains('definir uma senha')) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Defina uma Senha Primeiro'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(
+                      Icons.lock_outline,
+                      size: 48,
+                      color: Colors.orange,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Para desvincular sua conta Google, você precisa primeiro definir uma senha.',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text('Como fazer:'),
+                    const SizedBox(height: 8),
+                    const Text('1. Role para cima até a seção "Alterar Senha"'),
+                    const Text('2. Digite uma nova senha'),
+                    const Text('3. Confirme a senha'),
+                    const Text('4. Clique em "Alterar Senha"'),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Depois disso, você poderá desvincular sua conta Google com segurança.',
+                      style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Entendi'),
+                ),
+              ],
+            ),
+          );
+        } else {
+          setState(() => _error = errorMessage);
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _unlinkingGoogle = false);
       }
     }
   }
@@ -627,6 +816,84 @@ class _SettingsPageState extends State<SettingsPage> {
                           : const Icon(Icons.vpn_key),
                       label: Text(_changingPassword ? 'Alterando...' : 'Alterar Senha'),
                     ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Google Account Section
+          _buildSection(
+            title: 'Conta Google',
+            icon: Icons.g_mobiledata,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      authModule.hasGoogleAccount ? Icons.check_circle : Icons.cancel,
+                      color: authModule.hasGoogleAccount ? Colors.green : Colors.grey,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      authModule.hasGoogleAccount
+                          ? 'Conta Google vinculada'
+                          : 'Nenhuma conta Google vinculada',
+                      style: TextStyle(
+                        color: authModule.hasGoogleAccount ? Colors.green : Colors.grey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  authModule.hasGoogleAccount
+                      ? 'Você pode fazer login usando sua conta Google.'
+                      : 'Vincule sua conta Google para fazer login de forma mais rápida e segura.',
+                  style: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    if (authModule.hasGoogleAccount)
+                      ElevatedButton.icon(
+                        onPressed: _unlinkingGoogle ? null : _unlinkGoogleAccount,
+                        icon: _unlinkingGoogle
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.link_off),
+                        label: Text(_unlinkingGoogle ? 'Desvinculando...' : 'Desvincular'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red.shade700,
+                        ),
+                      )
+                    else
+                      ElevatedButton.icon(
+                        onPressed: _linkingGoogle ? null : _linkGoogleAccount,
+                        icon: _linkingGoogle
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.link),
+                        label: Text(_linkingGoogle ? 'Vinculando...' : 'Vincular Conta Google'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade700,
+                        ),
+                      ),
                   ],
                 ),
               ],

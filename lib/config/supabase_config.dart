@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:app_links/app_links.dart';
 
 /// Configuração do Supabase para o projeto
 class SupabaseConfig {
@@ -10,6 +11,7 @@ class SupabaseConfig {
 
   // Subscription para auth state changes (precisa ser cancelada no shutdown)
   static StreamSubscription<AuthState>? _authStateSubscription;
+  static StreamSubscription<Uri>? _deepLinkSubscription;
 
   /// Inicializa o cliente Supabase
   static Future<void> initialize() async {
@@ -29,6 +31,14 @@ class SupabaseConfig {
       debugPrint('👤 User: ${data.session?.user.email ?? "null"}');
       debugPrint('🆔 User ID: ${data.session?.user.id ?? "null"}');
     });
+
+    // Listener para deep links (OAuth callback)
+    final appLinks = AppLinks();
+    _deepLinkSubscription = appLinks.uriLinkStream.listen((uri) {
+      debugPrint('🔗 Deep Link recebido: $uri');
+      // O Supabase Flutter já processa automaticamente os deep links
+      // Mas vamos logar para debug
+    });
   }
 
   /// Limpa recursos do Supabase (deve ser chamado no shutdown do app)
@@ -36,6 +46,8 @@ class SupabaseConfig {
     debugPrint('🧹 [SupabaseConfig] Limpando recursos...');
     await _authStateSubscription?.cancel();
     _authStateSubscription = null;
+    await _deepLinkSubscription?.cancel();
+    _deepLinkSubscription = null;
     debugPrint('✅ [SupabaseConfig] Recursos limpos');
   }
 

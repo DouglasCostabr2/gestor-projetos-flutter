@@ -1185,6 +1185,88 @@ class GoogleDriveOAuthService {
     await api.files.delete(driveFileId);
   }
 
+  /// Busca um arquivo em uma subpasta do projeto
+  /// Retorna o file ID se encontrado, null caso contrário
+  Future<String?> findFileInProjectSubfolder({
+    required auth.AuthClient client,
+    required String clientName,
+    required String projectName,
+    required String subfolderName,
+    required String filename,
+    String? companyName,
+  }) async {
+    try {
+      final api = await _drive(client);
+
+      // Função auxiliar para buscar pasta
+      Future<String?> findFolder(String name, {String? parentId}) async {
+        final q = [
+          "mimeType='application/vnd.google-apps.folder'",
+          "name='$name'",
+          "trashed=false",
+          if (parentId != null) "'$parentId' in parents",
+        ].join(' and ');
+
+        final result = await api.files.list(q: q, spaces: 'drive', $fields: 'files(id, name)');
+        return result.files?.isNotEmpty == true ? result.files!.first.id : null;
+      }
+
+      // Navegar pela estrutura de pastas
+      final orgName = _getOrganizationName(null);
+      final clientsFolderId = await ensureClientsFolder(client, organizationName: orgName);
+      final clientFolderId = await findFolder(clientName, parentId: clientsFolderId);
+
+      if (clientFolderId == null) {
+        debugPrint('⚠️ Pasta do cliente não encontrada: $clientName');
+        return null;
+      }
+
+      String? projectParentId = clientFolderId;
+
+      // Se tiver empresa, buscar pasta da empresa
+      if (companyName != null && companyName.isNotEmpty) {
+        final companyFolderId = await findFolder(companyName, parentId: clientFolderId);
+        if (companyFolderId == null) {
+          debugPrint('⚠️ Pasta da empresa não encontrada: $companyName');
+          return null;
+        }
+        projectParentId = companyFolderId;
+      }
+
+      // Buscar pasta do projeto
+      final projectFolderId = await findFolder(projectName, parentId: projectParentId);
+      if (projectFolderId == null) {
+        debugPrint('⚠️ Pasta do projeto não encontrada: $projectName');
+        return null;
+      }
+
+      // Buscar subpasta (ex: "Invoices")
+      final subfolderId = await findFolder(subfolderName, parentId: projectFolderId);
+      if (subfolderId == null) {
+        debugPrint('⚠️ Subpasta não encontrada: $subfolderName');
+        return null;
+      }
+
+      // Buscar arquivo na subpasta
+      final q = [
+        "name='$filename'",
+        "trashed=false",
+        "'$subfolderId' in parents",
+      ].join(' and ');
+
+      final result = await api.files.list(q: q, spaces: 'drive', $fields: 'files(id, name)');
+
+      if (result.files?.isNotEmpty == true) {
+        return result.files!.first.id;
+      }
+
+      return null;
+    } catch (e) {
+      debugPrint('❌ Erro ao buscar arquivo no Drive: $e');
+      return null;
+    }
+  }
+
   // Best-effort deletion of the whole task folder and its contents
   Future<void> deleteTaskFolder({
     required auth.AuthClient client,

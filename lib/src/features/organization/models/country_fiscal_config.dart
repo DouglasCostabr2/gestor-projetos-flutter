@@ -72,6 +72,12 @@ class CountryFiscalRepository {
       countryName: name,
       fiscalFieldsIndividual: [
         FiscalField(
+          id: 'legal_name',
+          label: 'Full Name',
+          hint: 'Full legal name',
+          required: false,
+        ),
+        FiscalField(
           id: 'tax_id_individual',
           label: individualTaxLabel,
           hint: 'Individual tax identification',
@@ -79,6 +85,12 @@ class CountryFiscalRepository {
         ),
       ],
       fiscalFieldsBusiness: [
+        FiscalField(
+          id: 'legal_name',
+          label: 'Legal Business Name',
+          hint: 'Official registered business name',
+          required: false,
+        ),
         FiscalField(
           id: 'tax_id_business',
           label: businessTaxLabel,
@@ -110,6 +122,12 @@ class CountryFiscalRepository {
       countryName: 'Brasil',
       fiscalFieldsIndividual: [
         FiscalField(
+          id: 'legal_name',
+          label: 'Nome Completo',
+          hint: 'Ex: João da Silva',
+          required: false,
+        ),
+        FiscalField(
           id: 'cpf',
           label: 'CPF',
           hint: 'Ex: 123.456.789-00',
@@ -123,6 +141,12 @@ class CountryFiscalRepository {
         ),
       ],
       fiscalFieldsBusiness: [
+        FiscalField(
+          id: 'legal_name',
+          label: 'Razão Social',
+          hint: 'Ex: Empresa XYZ Ltda',
+          required: false,
+        ),
         FiscalField(
           id: 'cnpj',
           label: 'CNPJ',
@@ -188,6 +212,12 @@ class CountryFiscalRepository {
       countryName: 'United States',
       fiscalFieldsIndividual: [
         FiscalField(
+          id: 'legal_name',
+          label: 'Full Name',
+          hint: 'Ex: John Doe',
+          required: false,
+        ),
+        FiscalField(
           id: 'ssn',
           label: 'SSN (Social Security Number)',
           hint: 'Ex: 123-45-6789',
@@ -195,6 +225,12 @@ class CountryFiscalRepository {
         ),
       ],
       fiscalFieldsBusiness: [
+        FiscalField(
+          id: 'legal_name',
+          label: 'Legal Business Name',
+          hint: 'Ex: ABC Corporation',
+          required: false,
+        ),
         FiscalField(
           id: 'ein',
           label: 'EIN (Employer Identification Number)',
@@ -248,6 +284,12 @@ class CountryFiscalRepository {
       countryName: 'United Kingdom',
       fiscalFieldsIndividual: [
         FiscalField(
+          id: 'legal_name',
+          label: 'Full Name',
+          hint: 'Ex: John Smith',
+          required: false,
+        ),
+        FiscalField(
           id: 'nino',
           label: 'National Insurance Number',
           hint: 'Ex: QQ123456C',
@@ -255,6 +297,12 @@ class CountryFiscalRepository {
         ),
       ],
       fiscalFieldsBusiness: [
+        FiscalField(
+          id: 'legal_name',
+          label: 'Legal Business Name',
+          hint: 'Ex: Smith Ltd',
+          required: false,
+        ),
         FiscalField(
           id: 'vat',
           label: 'VAT Number',
@@ -434,6 +482,78 @@ class CountryFiscalRepository {
       ],
     ),
 
+    // Polônia
+    'PL': CountryFiscalConfig(
+      countryCode: 'PL',
+      countryName: 'Polska (Poland)',
+      fiscalFieldsIndividual: [
+        FiscalField(
+          id: 'legal_name',
+          label: 'Imię i Nazwisko (Full Name)',
+          hint: 'Ex: Jan Kowalski',
+          required: false,
+        ),
+        FiscalField(
+          id: 'tax_id_individual',
+          label: 'PESEL',
+          hint: 'Ex: 12345678901 (11 digits)',
+          required: true,
+        ),
+        FiscalField(
+          id: 'nip_individual',
+          label: 'NIP (Individual)',
+          hint: 'Ex: 1234567890 (10 digits)',
+          required: false,
+        ),
+      ],
+      fiscalFieldsBusiness: [
+        FiscalField(
+          id: 'legal_name',
+          label: 'Nazwa Firmy (Legal Business Name)',
+          hint: 'Ex: Kowalski Sp. z o.o.',
+          required: false,
+        ),
+        FiscalField(
+          id: 'tax_id',
+          label: 'NIP (Business)',
+          hint: 'Ex: PL1234567890',
+          required: true,
+        ),
+        FiscalField(
+          id: 'regon',
+          label: 'REGON',
+          hint: 'Ex: 123456789 (9 or 14 digits)',
+          required: false,
+        ),
+        FiscalField(
+          id: 'krs',
+          label: 'KRS',
+          hint: 'Ex: 0000123456 (10 digits)',
+          required: false,
+        ),
+      ],
+      bankFields: [
+        BankField(
+          id: 'bank_name',
+          label: 'Nazwa Banku (Bank Name)',
+          hint: 'Ex: PKO BP, mBank, ING',
+          required: true,
+        ),
+        BankField(
+          id: 'account_number',
+          label: 'Numer Konta (Account Number)',
+          hint: 'Ex: PL61109010140000071219812874 (IBAN)',
+          required: true,
+        ),
+        BankField(
+          id: 'swift',
+          label: 'SWIFT/BIC',
+          hint: 'Ex: PKOPPLPW',
+          required: false,
+        ),
+      ],
+    ),
+
     // Demais países com configuração simplificada
     'CA': _simpleConfig('CA', 'Canada', 'SIN (Social Insurance Number)', 'Business Number (BN)'),
     'DE': _simpleConfig('DE', 'Deutschland', 'Steuer-ID', 'USt-IdNr. (VAT)'),
@@ -453,6 +573,12 @@ class CountryFiscalRepository {
       countryName: countryName,
       fiscalFieldsIndividual: [
         FiscalField(
+          id: 'legal_name',
+          label: 'Full Name',
+          hint: 'Full legal name',
+          required: false,
+        ),
+        FiscalField(
           id: 'tax_id_individual',
           label: 'Personal Tax ID',
           hint: 'Individual tax identification number',
@@ -466,6 +592,12 @@ class CountryFiscalRepository {
         ),
       ],
       fiscalFieldsBusiness: [
+        FiscalField(
+          id: 'legal_name',
+          label: 'Legal Business Name',
+          hint: 'Official registered business name',
+          required: false,
+        ),
         FiscalField(
           id: 'tax_id',
           label: 'Tax Identification Number',

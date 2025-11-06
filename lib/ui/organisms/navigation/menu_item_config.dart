@@ -65,12 +65,7 @@ class MenuConfig {
       label: 'Organização',
       hasAccess: (role) => role.isAdmin, // Owner e Admin têm acesso
     ),
-    MenuItemConfig(
-      page: AppPage.configuracoes,
-      icon: Icons.settings,
-      label: 'Configurações',
-      hasAccess: (role) => true, // Todos têm acesso
-    ),
+    // Configurações removido - agora está apenas no rodapé do menu
   ];
 
   /// Retorna a configuração de um item pelo AppPage

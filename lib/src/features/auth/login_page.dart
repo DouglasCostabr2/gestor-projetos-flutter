@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../modules/modules.dart';
-import 'forgot_password_dialog.dart';
 
 class LoginPage extends StatefulWidget {
   final Future<void> Function() onLoggedIn;
@@ -15,6 +14,7 @@ class _LoginPageState extends State<LoginPage> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _loading = false;
+  bool _loadingGoogle = false;
   String? _error;
 
   @override
@@ -42,8 +42,25 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _loginWithGoogle() async {
+    setState(() { _loadingGoogle = true; _error = null; });
+    try {
+      final success = await authModule.signInWithGoogle();
+      if (success && mounted) {
+        await widget.onLoggedIn();
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Erro ao fazer login com Google');
+    } finally {
+      if (mounted) setState(() => _loadingGoogle = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    debugPrint('🟢 LoginPage build() - _loadingGoogle: $_loadingGoogle');
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
@@ -57,8 +74,15 @@ class _LoginPageState extends State<LoginPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Entrar', style: Theme.of(context).textTheme.headlineSmall),
-                  const SizedBox(height: 16),
+                  // Logo do app (horizontal)
+                  Center(
+                    child: Image.asset(
+                      'assets/images/app_logo_horizontal.png',
+                      height: 60,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
                   if (_error != null)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
@@ -76,26 +100,32 @@ class _LoginPageState extends State<LoginPage> {
                     obscureText: true,
                     onSubmitted: (_) => _login(),
                   ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: _loading
-                          ? null
-                          : () {
-                              showDialog(
-                                context: context,
-                                builder: (context) =>
-                                    const ForgotPasswordDialog(),
-                              );
-                            },
-                      child: const Text('Esqueci a Senha'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 24),
                   FilledButton(
                     onPressed: _loading ? null : _login,
                     child: _loading ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Entrar'),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(child: Divider(color: Theme.of(context).colorScheme.outline)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text('OU', style: Theme.of(context).textTheme.bodySmall),
+                      ),
+                      Expanded(child: Divider(color: Theme.of(context).colorScheme.outline)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: (_loading || _loadingGoogle) ? null : _loginWithGoogle,
+                    icon: _loadingGoogle
+                        ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.g_mobiledata, size: 24),
+                    label: const Text('Entrar com Google'),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
                   ),
                 ],
               ),

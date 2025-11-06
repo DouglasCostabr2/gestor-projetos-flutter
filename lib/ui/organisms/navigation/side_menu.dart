@@ -78,13 +78,6 @@ class SideMenu extends StatelessWidget {
                 onToggle: onToggle,
               ),
 
-              // Perfil
-              _ProfileSection(
-                collapsed: collapsed,
-                profile: profile,
-                userRole: userRole,
-              ),
-
               // Seletor de Organização
               OrganizationSwitcher(
                 appState: appState,
@@ -103,10 +96,13 @@ class SideMenu extends StatelessWidget {
                 ),
               ),
 
-              // Logout
-              _LogoutButton(
+              // Perfil + Configurações + Logout (movido para baixo)
+              _BottomSection(
                 collapsed: collapsed,
+                profile: profile,
+                userRole: userRole,
                 onLogout: onLogout,
+                onSelect: onSelect,
               ),
             ],
           ),
@@ -118,7 +114,7 @@ class SideMenu extends StatelessWidget {
 
 /// OTIMIZAÇÃO: Widget separado para o header
 /// Evita rebuilds desnecessários
-class _MenuHeader extends StatelessWidget {
+class _MenuHeader extends StatefulWidget {
   final bool collapsed;
   final VoidCallback onToggle;
 
@@ -128,23 +124,80 @@ class _MenuHeader extends StatelessWidget {
   });
 
   @override
+  State<_MenuHeader> createState() => _MenuHeaderState();
+}
+
+class _MenuHeaderState extends State<_MenuHeader> {
+  bool _isHovering = false;
+
+  @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 60,
-      child: collapsed
+      child: widget.collapsed
           ? Center(
-              child: IconOnlyButton(
-                icon: Icons.chevron_right,
-                onPressed: onToggle,
-                tooltip: 'Expandir',
+              child: GestureDetector(
+                onTap: widget.onToggle,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  onEnter: (_) => setState(() => _isHovering = true),
+                  onExit: (_) => setState(() => _isHovering = false),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          image: const DecorationImage(
+                            image: AssetImage('assets/images/app_logo.png'),
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                      // Botão com seta que aparece no hover
+                      AnimatedOpacity(
+                        opacity: _isHovering ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.7),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(
+                            Icons.chevron_right,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             )
           : Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: [
+                  // Logo do app
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      image: const DecorationImage(
+                        image: AssetImage('assets/images/app_logo.png'),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   Text(
-                    'Menu',
+                    'My Business',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w600,
                         ),
@@ -152,7 +205,7 @@ class _MenuHeader extends StatelessWidget {
                   const Spacer(),
                   IconOnlyButton(
                     icon: Icons.chevron_left,
-                    onPressed: onToggle,
+                    onPressed: widget.onToggle,
                     tooltip: 'Recolher',
                   ),
                 ],
@@ -162,41 +215,130 @@ class _MenuHeader extends StatelessWidget {
   }
 }
 
-/// OTIMIZAÇÃO: Widget separado para a seção de perfil
-class _ProfileSection extends StatelessWidget {
+/// OTIMIZAÇÃO: Widget separado para a seção inferior (Perfil com menu dropdown)
+class _BottomSection extends StatefulWidget {
   final bool collapsed;
   final Map<String, dynamic>? profile;
   final UserRole userRole;
+  final VoidCallback onLogout;
+  final void Function(int) onSelect;
 
-  const _ProfileSection({
+  const _BottomSection({
     required this.collapsed,
     required this.profile,
     required this.userRole,
+    required this.onLogout,
+    required this.onSelect,
   });
+
+  @override
+  State<_BottomSection> createState() => _BottomSectionState();
+}
+
+class _BottomSectionState extends State<_BottomSection> {
+  bool _menuExpanded = false;
+
+  void _toggleMenu() {
+    setState(() => _menuExpanded = !_menuExpanded);
+  }
+
+  void _closeMenu() {
+    if (mounted) {
+      setState(() => _menuExpanded = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (!collapsed) const Divider(height: 1, color: _kDividerColor),
+        // Menu expandido (aparece acima do divider com animação)
+        ClipRect(
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            alignment: Alignment.bottomCenter,
+            child: SizedBox(
+              width: double.infinity,
+              child: _menuExpanded && !widget.collapsed
+                  ? Container(
+                      width: double.infinity,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF1E1E1E),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Configurações
+                          InkWell(
+                            onTap: () {
+                              _closeMenu();
+                              Future.delayed(const Duration(milliseconds: 200), () {
+                                widget.onSelect(9);
+                              });
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              child: Row(
+                                children: const [
+                                  Icon(Icons.settings, size: 20, color: _kOnCard),
+                                  SizedBox(width: 12),
+                                  Text('Configurações', style: TextStyle(color: _kOnCard)),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const Divider(height: 1, color: _kBorderColor),
+                          // Sair
+                          InkWell(
+                            onTap: () {
+                              _closeMenu();
+                              Future.delayed(const Duration(milliseconds: 200), () {
+                                widget.onLogout();
+                              });
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              child: Row(
+                                children: const [
+                                  Icon(Icons.logout, size: 20, color: _kErrorRed),
+                                  SizedBox(width: 12),
+                                  Text('Sair', style: TextStyle(color: _kErrorRed)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ),
+
+        // Divider antes da seção
+        if (!widget.collapsed) const Divider(height: 1, color: _kDividerColor),
+
+        // Perfil com botão de menu
         Padding(
           padding: EdgeInsets.fromLTRB(
-            collapsed ? 0 : 16,
+            widget.collapsed ? 0 : 16,
             16,
-            collapsed ? 0 : 16,
-            8,
+            widget.collapsed ? 0 : 16,
+            16,
           ),
           child: Container(
-            padding: EdgeInsets.all(collapsed ? 0 : 8),
+            padding: EdgeInsets.all(widget.collapsed ? 0 : 8),
             decoration: const BoxDecoration(
               borderRadius: BorderRadius.all(Radius.circular(12)),
               color: Colors.transparent,
             ),
-            child: collapsed
-                ? Center(
+            child: widget.collapsed
+                ? GestureDetector(
+                    onTap: _toggleMenu,
                     child: CachedAvatar(
-                      avatarUrl: profile?['avatar_url'] as String?,
+                      avatarUrl: widget.profile?['avatar_url'] as String?,
                       radius: 20,
                       fallbackIcon: Icons.person,
                     ),
@@ -204,7 +346,7 @@ class _ProfileSection extends StatelessWidget {
                 : Row(
                     children: [
                       CachedAvatar(
-                        avatarUrl: profile?['avatar_url'] as String?,
+                        avatarUrl: widget.profile?['avatar_url'] as String?,
                         radius: 20,
                         fallbackIcon: Icons.person,
                       ),
@@ -214,7 +356,7 @@ class _ProfileSection extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              (profile?['full_name'] ?? 'Usuário') as String,
+                              (widget.profile?['full_name'] ?? 'Usuário') as String,
                               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                                     color: _kOnCard,
                                     fontWeight: FontWeight.w600,
@@ -222,7 +364,7 @@ class _ProfileSection extends StatelessWidget {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              userRole.label,
+                              widget.userRole.label,
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                     color: _kOnMuted,
                                   ),
@@ -230,15 +372,19 @@ class _ProfileSection extends StatelessWidget {
                           ],
                         ),
                       ),
+                      // Botão de menu "..."
+                      IconButton(
+                        onPressed: _toggleMenu,
+                        icon: Icon(
+                          _menuExpanded ? Icons.expand_less : Icons.more_vert,
+                          color: _kOnMuted,
+                        ),
+                        tooltip: 'Menu',
+                      ),
                     ],
                   ),
           ),
         ),
-        if (!collapsed)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Divider(color: _kDividerColor, height: 24),
-          ),
       ],
     );
   }
@@ -377,54 +523,6 @@ class _MenuItem extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: tile,
           );
-  }
-}
-
-/// OTIMIZAÇÃO: Widget separado para o botão de logout
-class _LogoutButton extends StatelessWidget {
-  final bool collapsed;
-  final VoidCallback onLogout;
-
-  const _LogoutButton({
-    required this.collapsed,
-    required this.onLogout,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        collapsed ? 0 : 12,
-        8,
-        collapsed ? 0 : 12,
-        16,
-      ),
-      child: collapsed
-          ? IconOnlyButton(
-              onPressed: onLogout,
-              icon: Icons.logout,
-              iconColor: _kErrorRed,
-              tooltip: 'Sair',
-            )
-          : SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                onPressed: onLogout,
-                style: TextButton.styleFrom(
-                  foregroundColor: _kErrorRed,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  shape: const RoundedRectangleBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(12)),
-                  ),
-                ),
-                icon: const Icon(Icons.logout),
-                label: const Text('Sair'),
-              ),
-            ),
-    );
   }
 }
 

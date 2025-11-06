@@ -951,14 +951,24 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
   }
 
   Future<void> _save() async {
-    if (_saving) return; // reentrancy guard
-    if (!_formKey.currentState!.validate()) return;
+    debugPrint('🔵 [QUICK TASK FORM] _save() CHAMADO!');
+    if (_saving) {
+      debugPrint('🔵 [QUICK TASK FORM] JÁ ESTÁ SALVANDO, RETORNANDO...');
+      return; // reentrancy guard
+    }
+    if (!_formKey.currentState!.validate()) {
+      debugPrint('🔵 [QUICK TASK FORM] VALIDAÇÃO FALHOU!');
+      return;
+    }
+    debugPrint('🔵 [QUICK TASK FORM] VALIDAÇÃO OK, INICIANDO SALVAMENTO...');
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
     // use local context directly with mounted checks; avoid caching across async gaps
     try {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser?.id;
+      debugPrint('🔵 [QUICK TASK FORM] userId: $userId');
+      debugPrint('🔵 [QUICK TASK FORM] widget.initial: ${widget.initial != null ? "EDITAR" : "CRIAR"}');
 
       if (widget.initial == null) {
         // Criar
@@ -1089,6 +1099,8 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
 
         debugPrint('📋 QuickTaskForm UPDATE - Payload: $payload');
         debugPrint('📋 QuickTaskForm UPDATE - Priority: "$safePriority" (original: "$_priority")');
+        debugPrint('📋 QuickTaskForm UPDATE - _assigneeUserIds: $_assigneeUserIds');
+        debugPrint('📋 QuickTaskForm UPDATE - assignedTo will be: ${_assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null}');
 
         try {
           // Atualizar tarefa IMEDIATAMENTE com JSON local (URLs file://)
@@ -1360,7 +1372,10 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           label: 'Cancelar',
         ),
         PrimaryButton(
-          onPressed: _saving ? null : _save,
+          onPressed: _saving ? null : () {
+            debugPrint('🟢 [BOTÃO SALVAR] CLICADO!');
+            _save();
+          },
           label: 'Salvar',
           isLoading: _saving,
         ),

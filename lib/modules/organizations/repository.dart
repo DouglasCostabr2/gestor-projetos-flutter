@@ -328,42 +328,45 @@ class OrganizationsRepository implements OrganizationsContract {
   }) async {
     final orgData = <String, dynamic>{};
 
+    // Campos obrigatórios
     if (name != null) orgData['name'] = name.trim();
-    if (slug != null) orgData['slug'] = slug.trim().toLowerCase();
-    if (legalName != null) orgData['legal_name'] = legalName.trim();
-    if (tradeName != null) orgData['trade_name'] = tradeName.trim();
-    if (taxId != null) orgData['tax_id'] = taxId.trim();
-    if (taxIdType != null) orgData['tax_id_type'] = taxIdType.trim();
-    if (stateRegistration != null) orgData['state_registration'] = stateRegistration.trim();
-    if (municipalRegistration != null) orgData['municipal_registration'] = municipalRegistration.trim();
-    if (address != null) orgData['address'] = address.trim();
-    if (addressNumber != null) orgData['address_number'] = addressNumber.trim();
-    if (addressComplement != null) orgData['address_complement'] = addressComplement.trim();
-    if (neighborhood != null) orgData['neighborhood'] = neighborhood.trim();
-    if (city != null) orgData['city'] = city.trim();
-    if (state != null) orgData['state_province'] = state.trim();
-    if (zipCode != null) orgData['postal_code'] = zipCode.trim();
-    if (country != null) orgData['country'] = country.trim();
-    if (phone != null) orgData['phone'] = phone.trim();
-    if (mobile != null) orgData['mobile'] = mobile.trim();
-    if (email != null) orgData['email'] = email.trim();
-    if (website != null) orgData['website'] = website.trim();
+
+    // Campos opcionais - aceita string vazia para limpar o valor no banco
+    if (slug != null) orgData['slug'] = slug.trim().isEmpty ? null : slug.trim().toLowerCase();
+    if (legalName != null) orgData['legal_name'] = legalName.trim().isEmpty ? null : legalName.trim();
+    if (tradeName != null) orgData['trade_name'] = tradeName.trim().isEmpty ? null : tradeName.trim();
+    if (taxId != null) orgData['tax_id'] = taxId.trim().isEmpty ? null : taxId.trim();
+    if (taxIdType != null) orgData['tax_id_type'] = taxIdType.trim().isEmpty ? null : taxIdType.trim();
+    if (stateRegistration != null) orgData['state_registration'] = stateRegistration.trim().isEmpty ? null : stateRegistration.trim();
+    if (municipalRegistration != null) orgData['municipal_registration'] = municipalRegistration.trim().isEmpty ? null : municipalRegistration.trim();
+    if (address != null) orgData['address'] = address.trim().isEmpty ? null : address.trim();
+    if (addressNumber != null) orgData['address_number'] = addressNumber.trim().isEmpty ? null : addressNumber.trim();
+    if (addressComplement != null) orgData['address_complement'] = addressComplement.trim().isEmpty ? null : addressComplement.trim();
+    if (neighborhood != null) orgData['neighborhood'] = neighborhood.trim().isEmpty ? null : neighborhood.trim();
+    if (city != null) orgData['city'] = city.trim().isEmpty ? null : city.trim();
+    if (state != null) orgData['state_province'] = state.trim().isEmpty ? null : state.trim();
+    if (zipCode != null) orgData['postal_code'] = zipCode.trim().isEmpty ? null : zipCode.trim();
+    if (country != null) orgData['country'] = country.trim().isEmpty ? null : country.trim();
+    if (phone != null) orgData['phone'] = phone.trim().isEmpty ? null : phone.trim();
+    if (mobile != null) orgData['mobile'] = mobile.trim().isEmpty ? null : mobile.trim();
+    if (email != null) orgData['email'] = email.trim().isEmpty ? null : email.trim();
+    if (website != null) orgData['website'] = website.trim().isEmpty ? null : website.trim();
     if (logoUrl != null) orgData['logo_url'] = logoUrl;
     if (primaryColor != null) orgData['primary_color'] = primaryColor;
     if (secondaryColor != null) orgData['secondary_color'] = secondaryColor;
-    if (invoicePrefix != null) orgData['invoice_prefix'] = invoicePrefix.trim();
+    if (invoicePrefix != null) orgData['invoice_prefix'] = invoicePrefix.trim().isEmpty ? null : invoicePrefix.trim();
     if (nextInvoiceNumber != null) orgData['next_invoice_number'] = nextInvoiceNumber;
-    if (invoiceNotes != null) orgData['invoice_notes'] = invoiceNotes.trim();
-    if (invoiceTerms != null) orgData['invoice_terms'] = invoiceTerms.trim();
-    if (bankName != null) orgData['bank_name'] = bankName.trim();
-    if (bankCode != null) orgData['bank_code'] = bankCode.trim();
-    if (bankAgency != null) orgData['bank_agency'] = bankAgency.trim();
-    if (bankAccount != null) orgData['bank_account'] = bankAccount.trim();
+    if (invoiceNotes != null) orgData['invoice_notes'] = invoiceNotes.trim().isEmpty ? null : invoiceNotes.trim();
+    if (invoiceTerms != null) orgData['invoice_terms'] = invoiceTerms.trim().isEmpty ? null : invoiceTerms.trim();
+    if (bankName != null) orgData['bank_name'] = bankName.trim().isEmpty ? null : bankName.trim();
+    if (bankCode != null) orgData['bank_code'] = bankCode.trim().isEmpty ? null : bankCode.trim();
+    if (bankAgency != null) orgData['bank_agency'] = bankAgency.trim().isEmpty ? null : bankAgency.trim();
+    if (bankAccount != null) orgData['bank_account'] = bankAccount.trim().isEmpty ? null : bankAccount.trim();
     if (bankAccountType != null) orgData['bank_account_type'] = bankAccountType;
-    if (pixKey != null) orgData['pix_key'] = pixKey.trim();
+    if (pixKey != null) orgData['pix_key'] = pixKey.trim().isEmpty ? null : pixKey.trim();
     if (pixKeyType != null) orgData['pix_key_type'] = pixKeyType;
     if (status != null) orgData['status'] = status;
-    if (fiscalCountry != null) orgData['fiscal_country'] = fiscalCountry.trim();
+    if (fiscalCountry != null) orgData['fiscal_country'] = fiscalCountry.trim().isEmpty ? null : fiscalCountry.trim();
     if (fiscalData != null) orgData['fiscal_data'] = fiscalData;
     if (bankData != null) orgData['bank_data'] = bankData;
 
@@ -371,16 +374,12 @@ class OrganizationsRepository implements OrganizationsContract {
       throw Exception('Nenhum campo para atualizar');
     }
 
-    debugPrint('Atualizando organização $organizationId');
-
     final response = await _client
         .from('organizations')
         .update(orgData)
         .eq('id', organizationId)
         .select()
         .single();
-
-    debugPrint('Organização atualizada com sucesso');
 
     return organizationFromJson(response);
   }

@@ -131,25 +131,28 @@ class _OrganizationDetailsTabState extends State<OrganizationDetailsTab> {
       await organizationsModule.updateOrganization(
         organizationId: orgId,
         name: _nameController.text.trim(),
-        slug: _slugController.text.trim().isEmpty ? null : _slugController.text.trim(),
-        legalName: _legalNameController.text.trim().isEmpty ? null : _legalNameController.text.trim(),
-        tradeName: _tradeNameController.text.trim().isEmpty ? null : _tradeNameController.text.trim(),
-        address: _addressController.text.trim().isEmpty ? null : _addressController.text.trim(),
-        addressNumber: _addressNumberController.text.trim().isEmpty ? null : _addressNumberController.text.trim(),
-        addressComplement: _addressComplementController.text.trim().isEmpty ? null : _addressComplementController.text.trim(),
-        neighborhood: _neighborhoodController.text.trim().isEmpty ? null : _neighborhoodController.text.trim(),
-        city: _cityController.text.trim().isEmpty ? null : _cityController.text.trim(),
-        state: _stateController.text.trim().isEmpty ? null : _stateController.text.trim(),
-        zipCode: _postalCodeController.text.trim().isEmpty ? null : _postalCodeController.text.trim(),
-        country: _countryController.text.trim().isEmpty ? null : _countryController.text.trim(),
-        email: _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
-        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
-        mobile: _mobileController.text.trim().isEmpty ? null : _mobileController.text.trim(),
-        website: _websiteController.text.trim().isEmpty ? null : _websiteController.text.trim(),
+        slug: _slugController.text.trim(),
+        legalName: _legalNameController.text.trim(),
+        tradeName: _tradeNameController.text.trim(),
+        address: _addressController.text.trim(),
+        addressNumber: _addressNumberController.text.trim(),
+        addressComplement: _addressComplementController.text.trim(),
+        neighborhood: _neighborhoodController.text.trim(),
+        city: _cityController.text.trim(),
+        state: _stateController.text.trim(),
+        zipCode: _postalCodeController.text.trim(),
+        country: _countryController.text.trim(),
+        email: _emailController.text.trim(),
+        phone: _phoneController.text.trim(),
+        mobile: _mobileController.text.trim(),
+        website: _websiteController.text.trim(),
       );
 
-      // Atualizar organização no AppState
-      await appState.refreshOrganizations();
+      // Recarregar a organização atual diretamente do banco (sem cache)
+      await appState.setCurrentOrganization(orgId);
+
+      // Recarregar dados do formulário
+      await _loadOrganization();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
