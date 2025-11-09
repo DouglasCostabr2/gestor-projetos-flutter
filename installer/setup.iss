@@ -9,7 +9,7 @@
 ; 5. O instalador será criado em: installer/Output/
 
 #define MyAppName "My Business"
-#define MyAppVersion "1.1.8"
+#define MyAppVersion "1.1.11"
 #define MyAppPublisher "Douglas Costa"
 #define MyAppURL "https://github.com/DouglasCostabr2"
 #define MyAppExeName "gestor_projetos_flutter.exe"
