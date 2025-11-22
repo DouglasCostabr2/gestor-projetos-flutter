@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../auth/module.dart';
@@ -67,12 +66,11 @@ class CommentsRepository implements CommentsContract {
           }
         }
       } catch (e) {
-        debugPrint('⚠️ [Comments] Erro ao buscar perfis em lote: $e');
+        // Ignorar erro (operação não crítica)
       }
 
       return list;
     } catch (e) {
-      debugPrint('❌ [Comments] Falha ao listar comentários: $e');
       return [];
     }
   }

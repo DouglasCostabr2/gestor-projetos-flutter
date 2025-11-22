@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
@@ -35,7 +34,6 @@ class GoogleDriveAuthService {
         throw app_exceptions.AuthException('Usuário não autenticado');
       }
 
-      debugPrint('🔑 Buscando token do Google Drive para usuário: $userId');
 
       // Buscar token do banco de dados
       final response = await SupabaseConfig.client
@@ -55,7 +53,6 @@ class GoogleDriveAuthService {
         throw app_exceptions.AuthException('Token de refresh inválido');
       }
 
-      debugPrint('✅ Token encontrado, criando cliente autenticado...');
 
       // Criar credenciais a partir do refresh token
       final credentials = AccessCredentials(
@@ -70,12 +67,10 @@ class GoogleDriveAuthService {
         http.Client(),
       );
 
-      debugPrint('✅ Cliente autenticado criado com sucesso');
       return client;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveAuthService.getAuthedClient',
       );
 
@@ -86,7 +81,6 @@ class GoogleDriveAuthService {
       throw app_exceptions.AuthException(
         'Erro ao obter cliente autenticado do Google Drive',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -128,17 +122,15 @@ class GoogleDriveAuthService {
       );
 
       return authedClient;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveAuthService.clientViaRefreshToken',
       );
 
       throw app_exceptions.AuthException(
         'Erro ao criar cliente via refresh token',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -157,7 +149,6 @@ class GoogleDriveAuthService {
   /// ```
   Future<void> saveRefreshToken(String userId, String refreshToken) async {
     try {
-      debugPrint('💾 Salvando refresh token para usuário: $userId');
 
       await SupabaseConfig.client.from('google_drive_tokens').upsert({
         'user_id': userId,
@@ -165,18 +156,15 @@ class GoogleDriveAuthService {
         'updated_at': DateTime.now().toIso8601String(),
       });
 
-      debugPrint('✅ Refresh token salvo com sucesso');
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveAuthService.saveRefreshToken',
       );
 
       throw app_exceptions.DatabaseException(
         'Erro ao salvar refresh token',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -204,10 +192,9 @@ class GoogleDriveAuthService {
           .maybeSingle();
 
       return response != null && response['refresh_token'] != null;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveAuthService.hasToken',
       );
       return false;
@@ -227,25 +214,21 @@ class GoogleDriveAuthService {
       final userId = SupabaseConfig.client.auth.currentUser?.id;
       if (userId == null) return;
 
-      debugPrint('🗑️ Removendo token do Google Drive para usuário: $userId');
 
       await SupabaseConfig.client
           .from('google_drive_tokens')
           .delete()
           .eq('user_id', userId);
 
-      debugPrint('✅ Token removido com sucesso');
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveAuthService.removeToken',
       );
 
       throw app_exceptions.DatabaseException(
         'Erro ao remover token',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }

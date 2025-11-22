@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../../services/google_drive_oauth_service.dart';
@@ -19,14 +18,12 @@ class ProjectsRepository implements ProjectsContract {
       // Obter usuário autenticado
       final currentUser = authModule.currentUser;
       if (currentUser == null) {
-        debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
         return [];
       }
 
       // Obter organização ativa
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
         return [];
       }
 
@@ -34,7 +31,6 @@ class ProjectsRepository implements ProjectsContract {
 
       // OTIMIZAÇÃO: Suporte a paginação
       if (offset != null && limit != null) {
-        debugPrint('🔍 Carregando projetos com paginação: offset=$offset, limit=$limit');
       }
 
       // SEGURANÇA: Buscar apenas projetos que o usuário tem acesso
@@ -95,7 +91,6 @@ class ProjectsRepository implements ProjectsContract {
           ? await orderedQuery.range(offset, offset + limit - 1)
           : await orderedQuery;
 
-      debugPrint('✅ Projetos filtrados por usuário: ${response.length} encontrados');
 
       return response.map<Map<String, dynamic>>((project) {
         return {
@@ -121,7 +116,6 @@ class ProjectsRepository implements ProjectsContract {
         };
       }).toList();
     } catch (e) {
-      debugPrint('❌ Erro ao buscar projetos: $e');
       return [];
     }
   }
@@ -136,7 +130,6 @@ class ProjectsRepository implements ProjectsContract {
           .maybeSingle();
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar projeto por ID: $e');
       return null;
     }
   }
@@ -157,7 +150,6 @@ class ProjectsRepository implements ProjectsContract {
           .maybeSingle();
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar projeto com detalhes: $e');
       return null;
     }
   }
@@ -165,7 +157,6 @@ class ProjectsRepository implements ProjectsContract {
   @override
   Future<List<Map<String, dynamic>>> getProjectsByClient(String clientId) async {
     try {
-      debugPrint('Buscando projetos do cliente: $clientId');
       final response = await _client
           .from('projects')
           .select('''
@@ -176,10 +167,8 @@ class ProjectsRepository implements ProjectsContract {
           .eq('client_id', clientId)
           .order('created_at', ascending: false);
 
-      debugPrint('Projetos do cliente encontrados: ${response.length}');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar projetos do cliente: $e');
       return [];
     }
   }
@@ -187,7 +176,6 @@ class ProjectsRepository implements ProjectsContract {
   @override
   Future<List<Map<String, dynamic>>> getProjectsByCompany(String companyId) async {
     try {
-      debugPrint('Buscando projetos da empresa: $companyId');
       final response = await _client
           .from('projects')
           .select('''
@@ -198,10 +186,8 @@ class ProjectsRepository implements ProjectsContract {
           .eq('company_id', companyId)
           .order('created_at', ascending: false);
 
-      debugPrint('Projetos da empresa encontrados: ${response.length}');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar projetos da empresa: $e');
       return [];
     }
   }
@@ -212,17 +198,14 @@ class ProjectsRepository implements ProjectsContract {
     required String currencyCode,
   }) async {
     try {
-      debugPrint('Buscando projetos do cliente $clientId com moeda $currencyCode');
       final response = await _client
           .from('projects')
           .select('id, name, value_cents')
           .eq('client_id', clientId)
           .eq('currency_code', currencyCode);
 
-      debugPrint('Projetos encontrados: ${response.length}');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar projetos do cliente com moeda: $e');
       return [];
     }
   }
@@ -276,8 +259,6 @@ class ProjectsRepository implements ProjectsContract {
           .single();
       return response;
     } catch (e) {
-      debugPrint('Erro ao criar projeto: $e');
-      debugPrint('Dados enviados: $projectData');
       rethrow;
     }
   }
@@ -304,7 +285,7 @@ class ProjectsRepository implements ProjectsContract {
         final companyData = current['companies'] as Map<String, dynamic>?;
         companyName = companyData?['name'] as String?;
       } catch (e) {
-        debugPrint('Erro ao buscar dados antigos do projeto: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
 
@@ -338,7 +319,7 @@ class ProjectsRepository implements ProjectsContract {
             companyName: companyName,
           );
         } catch (e) {
-          debugPrint('⚠️ Erro ao renomear pasta do projeto no Google Drive (ignorado): $e');
+          // Ignorar erro (operação não crítica)
         }
       }
     }
@@ -369,9 +350,8 @@ class ProjectsRepository implements ProjectsContract {
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', projectId);
-      debugPrint('✅ Projeto $projectId atualizado (touch)');
     } catch (e) {
-      debugPrint('⚠️ Erro ao atualizar projeto (touch): $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 

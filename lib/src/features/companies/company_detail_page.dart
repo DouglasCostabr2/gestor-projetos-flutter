@@ -22,6 +22,7 @@ import '../projects/widgets/project_status_badge.dart';
 import '../../utils/project_helpers.dart';
 import 'package:my_business/ui/organisms/cards/cards.dart';
 import 'widgets/company_info_card_items.dart';
+import '../clients/widgets/design_materials/design_materials_tab.dart';
 
 class CompanyDetailPage extends StatefulWidget {
   final String companyId;
@@ -115,9 +116,7 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
     try {
       // NOTA: Não usar RPC porque task_assignees não inclui assignee_user_ids
       // Buscar projetos manualmente e enriquecer com múltiplos responsáveis
-      debugPrint('🚀 Carregando projetos com stats...');
       final projects = await companiesModule.getCompanyProjectsWithStats(widget.companyId);
-      debugPrint('✅ ${projects.length} projetos carregados com stats');
 
       // FIX: A RPC function não retorna value_cents, currency_code e description_json
       // Buscar esses campos separadamente
@@ -142,6 +141,8 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
             project['currency_code'] = fieldsMap[id]!['currency_code'];
             project['description_json'] = fieldsMap[id]!['description_json'];
           }
+
+          // Debug: verificar campos financeiros da RPC
         }
       }
 
@@ -187,7 +188,6 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
 
       return projects;
     } catch (e) {
-      debugPrint('❌ Erro ao carregar projetos: $e');
       return [];
     }
   }
@@ -553,11 +553,15 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
                                   // Se não há histórico, volta para a página do Cliente
                                   final clientId = company['client_id'] as String?;
                                   if (clientId != null) {
+                                    final tabId = 'client_$clientId';
                                     final clientTab = TabItem(
-                                      id: 'client_$clientId',
+                                      id: tabId,
                                       title: 'Cliente',
                                       icon: Icons.person,
-                                      page: ClientDetailPage(clientId: clientId),
+                                      page: ClientDetailPage(
+                                        key: ValueKey(tabId),
+                                        clientId: clientId,
+                                      ),
                                       canClose: true,
                                       selectedMenuIndex: 1, // Índice do menu de Clientes
                                     );
@@ -595,18 +599,20 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
                       ),
                       const SizedBox(height: 16),
 
-                      // Abas: Tabela / Financeiro / Contas usando componente genérico
+                      // Abas: Tabela / Financeiro / Contas / Design Materials usando componente genérico
                       GenericTabView(
                         height: 600,
                         tabs: const [
                           TabConfig(text: 'Tabela'),
                           TabConfig(text: 'Financeiro'),
                           TabConfig(text: 'Contas'),
+                          TabConfig(text: 'Design Materials', icon: Icons.folder_special),
                         ],
                         children: [
                           _buildProjectsTab(appState, company),
                           _buildFinancialTab(),
                           _buildAccountsTab(company),
+                          _buildDesignMaterialsTab(company),
                         ],
                       ),
                     ],
@@ -837,7 +843,10 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
                                   id: tabId,
                                   title: projectName,
                                   icon: Icons.work,
-                                  page: ProjectDetailPage(projectId: projectId),
+                                  page: ProjectDetailPage(
+                                    key: ValueKey(tabId),
+                                    projectId: projectId,
+                                  ),
                                   canClose: true,
                                 );
                                 tabManager.updateTab(currentIndex, updatedTab);
@@ -974,32 +983,17 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
             double pendingValue = 0;
 
             for (final project in projects) {
-              // Calcular valor total do projeto
-              final items = project['project_catalog_items'] as List?;
-              double projectTotal = 0;
+              // Calcular valor total do projeto usando os valores agregados da RPC
+              // Lógica: Se value_cents > 0, usar value_cents (valor manual), senão usar total_catalog_value_cents
+              // Sempre adicionar total_additional_costs_cents
+              final valueCents = project['value_cents'] as int? ?? 0;
+              final additionalCostsCents = project['total_additional_costs_cents'] as int? ?? 0;
+              final catalogCents = project['total_catalog_value_cents'] as int? ?? 0;
 
-              if (items != null && items.isNotEmpty) {
-                for (final item in items) {
-                  final priceCentsRaw = item['unit_price_cents'];
-                  final quantityRaw = item['quantity'];
-
-                  int priceCents = 0;
-                  if (priceCentsRaw is int) {
-                    priceCents = priceCentsRaw;
-                  } else if (priceCentsRaw is double) {
-                    priceCents = priceCentsRaw.toInt();
-                  }
-
-                  int quantity = 1;
-                  if (quantityRaw is int) {
-                    quantity = quantityRaw;
-                  } else if (quantityRaw is double) {
-                    quantity = quantityRaw.toInt();
-                  }
-
-                  projectTotal += (priceCents / 100) * quantity;
-                }
-              }
+              // Priorizar value_cents se existir, senão usar catalogCents
+              final baseCents = valueCents > 0 ? valueCents : catalogCents;
+              final projectTotalCents = baseCents + additionalCostsCents;
+              final projectTotal = projectTotalCents / 100.0;
 
               totalValue += projectTotal;
 
@@ -1241,32 +1235,15 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
 
     // Filtrar apenas projetos que têm valores pendentes
     final pendingProjects = projects.where((project) {
-      // Calcular valor total do projeto
-      final items = project['project_catalog_items'] as List?;
-      double projectTotal = 0;
+      // Calcular valor total do projeto usando os valores agregados da RPC
+      // Lógica: Se value_cents > 0, usar value_cents, senão usar total_catalog_value_cents
+      final valueCents = project['value_cents'] as int? ?? 0;
+      final additionalCostsCents = project['total_additional_costs_cents'] as int? ?? 0;
+      final catalogCents = project['total_catalog_value_cents'] as int? ?? 0;
 
-      if (items != null && items.isNotEmpty) {
-        for (final item in items) {
-          final priceCentsRaw = item['unit_price_cents'];
-          final quantityRaw = item['quantity'];
-
-          int priceCents = 0;
-          if (priceCentsRaw is int) {
-            priceCents = priceCentsRaw;
-          } else if (priceCentsRaw is double) {
-            priceCents = priceCentsRaw.toInt();
-          }
-
-          int quantity = 1;
-          if (quantityRaw is int) {
-            quantity = quantityRaw;
-          } else if (quantityRaw is double) {
-            quantity = quantityRaw.toInt();
-          }
-
-          projectTotal += (priceCents / 100) * quantity;
-        }
-      }
+      final baseCents = valueCents > 0 ? valueCents : catalogCents;
+      final projectTotalCents = baseCents + additionalCostsCents;
+      final projectTotal = projectTotalCents / 100.0;
 
       final receivedCents = project['total_received_cents'] as int? ?? 0;
       final receivedValue = receivedCents / 100;
@@ -1299,32 +1276,15 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
             final projectId = project['id'] as String;
             final projectName = project['name'] as String? ?? 'Sem nome';
 
-            // Calcular valor pendente do projeto
-            final items = project['project_catalog_items'] as List?;
-            double projectTotal = 0;
+            // Calcular valor pendente do projeto usando os valores agregados da RPC
+            // Lógica: Se value_cents > 0, usar value_cents, senão usar total_catalog_value_cents
+            final valueCents = project['value_cents'] as int? ?? 0;
+            final additionalCostsCents = project['total_additional_costs_cents'] as int? ?? 0;
+            final catalogCents = project['total_catalog_value_cents'] as int? ?? 0;
 
-            if (items != null && items.isNotEmpty) {
-              for (final item in items) {
-                final priceCentsRaw = item['unit_price_cents'];
-                final quantityRaw = item['quantity'];
-
-                int priceCents = 0;
-                if (priceCentsRaw is int) {
-                  priceCents = priceCentsRaw;
-                } else if (priceCentsRaw is double) {
-                  priceCents = priceCentsRaw.toInt();
-                }
-
-                int quantity = 1;
-                if (quantityRaw is int) {
-                  quantity = quantityRaw;
-                } else if (quantityRaw is double) {
-                  quantity = quantityRaw.toInt();
-                }
-
-                projectTotal += (priceCents / 100) * quantity;
-              }
-            }
+            final baseCents = valueCents > 0 ? valueCents : catalogCents;
+            final projectTotalCents = baseCents + additionalCostsCents;
+            final projectTotal = projectTotalCents / 100.0;
 
             final receivedCents = project['total_received_cents'] as int? ?? 0;
             final receivedValue = receivedCents / 100;
@@ -1513,6 +1473,22 @@ class _CompanyDetailPageState extends State<CompanyDetailPage> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Aba de Design Materials
+  Widget _buildDesignMaterialsTab(Map<String, dynamic> company) {
+    final companyId = company['id'] as String;
+    final companyName = company['name'] as String;
+
+    // Obter dados do cliente
+    final client = company['clients'] as Map<String, dynamic>?;
+    final clientName = client?['name'] as String? ?? 'Cliente Desconhecido';
+
+    return DesignMaterialsTab(
+      companyId: companyId,
+      companyName: companyName,
+      clientName: clientName,
     );
   }
 }

@@ -35,7 +35,7 @@ class _OrganizationInvitesTabState extends State<OrganizationInvitesTab> {
         }
       }
     } catch (e) {
-      debugPrint('Erro ao carregar convites: $e');
+      // Ignorar erro (operação não crítica)
     } finally {
       if (mounted) {
         setState(() => _loading = false);

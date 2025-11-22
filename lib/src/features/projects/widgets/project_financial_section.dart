@@ -30,6 +30,7 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
   String _projectName = 'Projeto';
   String _clientName = 'Cliente';
   String? _companyName;
+  String? _organizationName;
   List<Map<String, dynamic>> _payments = [];
   String? _invoiceUrl;
   String? _invoiceNumber;
@@ -50,7 +51,7 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
       // Buscar dados do projeto
       final proj = await client
           .from('projects')
-          .select('value_cents, name, company_id, clients(name, company), companies(name)')
+          .select('value_cents, name, company_id, organization_id, clients(name, company), companies(name)')
           .eq('id', widget.projectId)
           .single();
 
@@ -60,6 +61,17 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
 
       // Buscar empresa: primeiro da tabela companies, depois do campo company do cliente
       _companyName = (proj['companies']?['name'] as String?) ?? (proj['clients']?['company'] as String?);
+
+      // Buscar organização
+      final organizationId = proj['organization_id'] as String?;
+      if (organizationId != null) {
+        final orgData = await client
+            .from('organizations')
+            .select('name')
+            .eq('id', organizationId)
+            .maybeSingle();
+        _organizationName = orgData?['name'] as String?;
+      }
 
       final pays = await client
           .from('payments')
@@ -71,30 +83,24 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
       for (final p in _payments) { _receivedCents += (p['amount_cents'] as int?) ?? 0; }
 
       // Buscar invoice salva
-      print('BUSCANDO INVOICE NO BANCO (project_id: ${widget.projectId})...');
       final invoice = await client
           .from('invoices')
           .select('invoice_number, pdf_url')
           .eq('project_id', widget.projectId)
           .maybeSingle();
 
-      print('INVOICE ENCONTRADA NO RELOAD: $invoice');
 
       _invoiceNumber = invoice?['invoice_number'] as String?;
       _invoiceUrl = invoice?['pdf_url'] as String?;
 
-      print('_invoiceNumber setado para: $_invoiceNumber');
-      print('_invoiceUrl setado para: $_invoiceUrl');
 
       if (!mounted) return;
       setState(() { _loading = false; });
 
       // Carregar PDF se existir invoice (mesmo sem URL do Drive)
       if (_invoiceNumber != null) {
-        debugPrint('📊 Carregando PDF para invoice $_invoiceNumber...');
         _loadInvoicePdf();
       } else {
-        debugPrint('⚠️ Nenhuma invoice encontrada para este projeto');
       }
     } catch (e) {
       if (!mounted) return;
@@ -116,7 +122,6 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
         _loadingPdf = false;
       });
     } catch (e) {
-      debugPrint('❌ Erro ao carregar PDF: $e');
       if (!mounted) return;
       setState(() { _loadingPdf = false; });
     }
@@ -131,6 +136,7 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
       dt = v;
     } else if (v is String) {
       try { dt = DateTime.parse(v); } catch (_) {}
+      // Ignorar erro (operação não crítica)
     }
     if (dt == null) return '-';
     final d = dt.day.toString().padLeft(2, '0');
@@ -361,15 +367,15 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
     final pending = (_totalCents - _receivedCents).clamp(0, 1<<31);
     final progress = _totalCents <= 0 ? 0.0 : (_receivedCents / _totalCents).clamp(0.0, 1.0);
 
-    return Card(
-      child: ClipRect(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-          Row(children: [
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+        Row(children: [
             Text('Financeiro', style: Theme.of(context).textTheme.titleMedium),
             const Spacer(),
             if (canManagePayments) ...[
@@ -406,6 +412,7 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
                     clientName: _clientName,
                     projectName: _projectName,
                     companyName: _companyName,
+                    organizationName: _organizationName,
                   ),
                 );
                 if (added == true) _reload();
@@ -413,19 +420,28 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
             ],
           ]),
           const SizedBox(height: 6),
-          Row(children: [
-            Expanded(child: _Metric('Total', Money.formatWithSymbol(_totalCents, widget.currencyCode))),
-            const SizedBox(width: 8),
-            Expanded(child: _Metric('Recebido', Money.formatWithSymbol(_receivedCents, widget.currencyCode))),
-            const SizedBox(width: 8),
-            Expanded(child: _Metric('Pendente', Money.formatWithSymbol(pending, widget.currencyCode))),
-          ]),
+          Builder(builder: (context) {
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+              Expanded(child: _Metric('Total', Money.formatWithSymbol(_totalCents, widget.currencyCode))),
+              const SizedBox(width: 8),
+              Expanded(child: _Metric('Recebido', Money.formatWithSymbol(_receivedCents, widget.currencyCode))),
+              const SizedBox(width: 8),
+              Expanded(child: _Metric('Pendente', Money.formatWithSymbol(pending, widget.currencyCode))),
+            ]);
+          }),
           const SizedBox(height: 6),
           LinearProgressIndicator(value: progress),
-          const SizedBox(height: 8),
+          Builder(builder: (context) {
+            return const SizedBox(height: 8);
+          }),
 
           // Card de Invoice Salva
           if (_invoiceNumber != null) ...[
+            Builder(builder: (context) {
+              return const SizedBox.shrink();
+            }),
             const Divider(),
             const SizedBox(height: 8),
             Text('Invoice Salva', style: Theme.of(context).textTheme.titleSmall),
@@ -502,18 +518,18 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
                         );
                       },
                       child: Padding(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.all(8),
                         child: Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
                                 color: Colors.green.shade900.withValues(alpha: 0.3),
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Icon(
                                 Icons.picture_as_pdf,
-                                size: 32,
+                                size: 24,
                                 color: Colors.green.shade400,
                               ),
                             ),
@@ -557,9 +573,6 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
                       color: Colors.red.shade400,
                       tooltip: 'Excluir Invoice',
                       onPressed: () async {
-                          print('========================================');
-                          print('BOTAO DE EXCLUIR CLICADO');
-                          print('========================================');
                           final messenger = ScaffoldMessenger.of(context);
 
                           // Confirmar exclusão
@@ -587,48 +600,36 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
                             ),
                           );
 
-                          print('CONFIRMACAO: $confirm');
                           if (confirm != true) {
-                            print('EXCLUSAO CANCELADA');
                             return;
                           }
 
-                          print('INICIANDO EXCLUSAO...');
 
                           // Excluir invoice do banco de dados e do Google Drive
                           try {
                             // 1. Buscar dados necessários antes de excluir
-                            print('BUSCANDO DADOS DA INVOICE...');
                             final invoiceData = await Supabase.instance.client
                                 .from('invoices')
                                 .select('invoice_number, pdf_url')
                                 .eq('project_id', widget.projectId)
                                 .maybeSingle();
 
-                            print('DADOS: $invoiceData');
                             final invoiceNumber = invoiceData?['invoice_number'] as String?;
                             final driveUrl = invoiceData?['pdf_url'] as String?;
-                            print('Invoice Number: $invoiceNumber');
-                            print('Drive URL: $driveUrl');
 
                             // 2. Excluir do banco de dados
-                            print('EXCLUINDO DO BANCO (project_id: ${widget.projectId})...');
                             try {
-                              final deleteResult = await Supabase.instance.client
+                              await Supabase.instance.client
                                   .from('invoices')
                                   .delete()
                                   .eq('project_id', widget.projectId)
                                   .select(); // Retorna os dados deletados
-                              print('RESULTADO DO DELETE: $deleteResult');
-                              print('EXCLUIDO DO BANCO');
                             } catch (deleteError) {
-                              print('ERRO AO DELETAR DO BANCO: $deleteError');
                               rethrow;
                             }
 
                             // 3. Tentar excluir do Google Drive
                             try {
-                              print('TENTANDO EXCLUIR DO DRIVE...');
                               final driveService = GoogleDriveOAuthService();
                               final client = await driveService.getAuthedClient();
 
@@ -636,25 +637,21 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
 
                               // Se tiver URL, extrair file ID
                               if (driveUrl != null && driveUrl.isNotEmpty) {
-                                print('Extraindo file ID da URL...');
                                 // Tentar formato /d/{fileId}
                                 var fileIdMatch = RegExp(r'/d/([^/]+)').firstMatch(driveUrl);
                                 if (fileIdMatch != null) {
                                   fileId = fileIdMatch.group(1);
-                                  print('File ID extraido: $fileId');
                                 } else {
                                   // Tentar formato ?id={fileId}
                                   fileIdMatch = RegExp(r'[?&]id=([^&]+)').firstMatch(driveUrl);
                                   if (fileIdMatch != null) {
                                     fileId = fileIdMatch.group(1);
-                                    print('File ID extraido: $fileId');
                                   }
                                 }
                               }
 
                               // Se não tiver URL ou não conseguiu extrair, buscar pelo nome do arquivo
                               if (fileId == null && invoiceNumber != null) {
-                                print('Buscando arquivo no Drive: Invoice_$invoiceNumber.pdf');
                                 // Buscar arquivo na pasta Invoices do projeto
                                 final filename = 'Invoice_$invoiceNumber.pdf';
                                 fileId = await driveService.findFileInProjectSubfolder(
@@ -665,32 +662,24 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
                                   filename: filename,
                                   companyName: _companyName,
                                 );
-                                print('File ID encontrado: $fileId');
                               }
 
                               // Excluir arquivo se encontrado
                               if (fileId != null && fileId.isNotEmpty) {
-                                print('Excluindo arquivo do Drive: $fileId');
                                 await driveService.deleteFile(
                                   client: client,
                                   driveFileId: fileId,
                                 );
-                                print('Arquivo excluido do Drive');
                               } else {
-                                print('Nenhum arquivo para excluir no Drive');
                               }
                             } catch (driveError) {
-                              print('ERRO ao excluir do Drive: $driveError');
                               // Continua mesmo se falhar no Drive
                             }
 
                             // 4. Recarregar dados para atualizar a UI
-                            print('RECARREGANDO DADOS...');
                             await _reload();
-                            print('DADOS RECARREGADOS');
 
                             // Mostrar mensagem de sucesso
-                            print('MOSTRANDO MENSAGEM DE SUCESSO...');
                             if (!mounted) return;
                             messenger.showSnackBar(
                               const SnackBar(
@@ -698,9 +687,7 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
                                 backgroundColor: Colors.green,
                               ),
                             );
-                            print('EXCLUSAO CONCLUIDA COM SUCESSO!');
                           } catch (e) {
-                            print('ERRO AO EXCLUIR: $e');
                             // Mostrar erro
                             if (!mounted) return;
                             messenger.showSnackBar(
@@ -716,19 +703,23 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
               ),
             ),
             const SizedBox(height: 8),
+            const Divider(),
           ],
 
-
+          Builder(builder: (context) {
+            return const SizedBox(height: 8);
+          }),
           if (_payments.isEmpty)
-            const Text('Nenhum pagamento registrado')
+            Builder(builder: (context) {
+              return const Text('Nenhum pagamento registrado');
+            })
           else ...[
-            Text('Pagamentos', style: Theme.of(context).textTheme.titleSmall),
+            Builder(builder: (context) {
+              return Text('Pagamentos', style: Theme.of(context).textTheme.titleSmall);
+            }),
             const SizedBox(height: 4),
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 140),
-              child: SingleChildScrollView(
-                child: Column(
-                  children: _payments.map((p) => ListTile(
+            Column(
+              children: _payments.map((p) => ListTile(
               dense: true,
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.payments_outlined),
@@ -768,6 +759,7 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
                               await Supabase.instance.client.from('payments').delete().eq('id', p['id']);
                               if (context.mounted) _reload();
                             } catch (_) {}
+                            // Ignorar erro (operação não crítica)
                           }
                         } else if (v == 'edit') {
                           final updated = await showDialog<bool>(context: context, builder: (_) => _EditPaymentDialog(payment: p, currency: widget.currencyCode));
@@ -783,14 +775,11 @@ class _ProjectFinancialSectionState extends State<ProjectFinancialSection> {
                 if (_cleanNote(p['note'] as String?) != null) _cleanNote(p['note'] as String)!,
               ].join('  ·  ')),
             )).toList(),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ],
-          ),
-        ),
-      ),
+        ],
+        );
+      },
     );
   }
 }
@@ -822,9 +811,6 @@ class _EditPaymentDialogState extends State<_EditPaymentDialog> {
     _note = TextEditingController(text: (widget.payment['note'] as String?) ?? '');
     final url = widget.payment['receipt_url'] as String?;
     _receiptUrl = (url != null && url.isNotEmpty) ? url : null;
-    debugPrint('🧾 Carregando pagamento para edição:');
-    debugPrint('   ID: ${widget.payment['id']}');
-    debugPrint('   Receipt URL: $_receiptUrl');
   }
 
   Future<void> _pickImage() async {
@@ -1056,7 +1042,8 @@ class _PaymentDialog extends StatefulWidget {
   final String? clientName;
   final String? projectName;
   final String? companyName;
-  const _PaymentDialog({required this.projectId, required this.currency, this.clientName, this.projectName, this.companyName});
+  final String? organizationName;
+  const _PaymentDialog({required this.projectId, required this.currency, this.clientName, this.projectName, this.companyName, this.organizationName});
   @override
   State<_PaymentDialog> createState() => _PaymentDialogState();
 }
@@ -1166,6 +1153,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                             final ok = await showDialog<bool>(context: context, builder: (_) => DriveConnectDialog(service: _drive));
                             if (ok == true) {
                               try { client = await _drive.getAuthedClient(); } catch (_) {}
+                              // Ignorar erro (operação não crítica)
                             }
                           }
                           if (client != null) {
@@ -1190,6 +1178,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                               filename: newName,
                               bytes: bytes,
                               companyName: companyName,
+                              organizationName: widget.organizationName,
                             );
                             url = up.publicViewUrl;
                             setState(() { _receiptUrl = url; });

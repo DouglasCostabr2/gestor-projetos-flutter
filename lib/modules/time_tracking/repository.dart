@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../auth/module.dart';
@@ -56,10 +55,8 @@ class TimeTrackingRepository implements TimeTrackingContract {
           .select()
           .single();
 
-      debugPrint('✅ Time log iniciado: ${response['id']}');
       return response['id'] as String;
     } catch (e) {
-      debugPrint('❌ Erro ao iniciar time log: $e');
       rethrow;
     }
   }
@@ -92,14 +89,10 @@ class TimeTrackingRepository implements TimeTrackingContract {
           .select()
           .single();
 
-      debugPrint('✅ Time log finalizado: $timeLogId');
-      debugPrint('⏱️  Duração: ${response['duration_seconds']} segundos');
       if (description != null && description.trim().isNotEmpty) {
-        debugPrint('📝 Descrição: $description');
       }
       return Map<String, dynamic>.from(response);
     } catch (e) {
-      debugPrint('❌ Erro ao finalizar time log: $e');
       rethrow;
     }
   }
@@ -122,7 +115,6 @@ class TimeTrackingRepository implements TimeTrackingContract {
 
       return response;
     } catch (e) {
-      debugPrint('❌ Erro ao buscar time log ativo: $e');
       return null;
     }
   }
@@ -168,12 +160,11 @@ class TimeTrackingRepository implements TimeTrackingContract {
           }
         }
       } catch (e) {
-        debugPrint('⚠️ Erro ao enriquecer perfis em time_logs: $e');
+        // Ignorar erro (operação não crítica)
       }
 
       return logs;
     } catch (e) {
-      debugPrint('❌ Erro ao buscar time logs da tarefa: $e');
       return [];
     }
   }
@@ -193,7 +184,6 @@ class TimeTrackingRepository implements TimeTrackingContract {
       if (response == null) return 0;
       return response['total_time_spent'] as int? ?? 0;
     } catch (e) {
-      debugPrint('❌ Erro ao buscar tempo total: $e');
       return 0;
     }
   }
@@ -212,9 +202,7 @@ class TimeTrackingRepository implements TimeTrackingContract {
           .eq('id', timeLogId)
           .eq('user_id', user.id); // Garantir que só o dono pode deletar
 
-      debugPrint('✅ Time log deletado: $timeLogId');
     } catch (e) {
-      debugPrint('❌ Erro ao deletar time log: $e');
       rethrow;
     }
   }
@@ -256,10 +244,8 @@ class TimeTrackingRepository implements TimeTrackingContract {
           .select()
           .single();
 
-      debugPrint('✅ Time log atualizado: $timeLogId');
       return Map<String, dynamic>.from(response);
     } catch (e) {
-      debugPrint('❌ Erro ao atualizar time log: $e');
       rethrow;
     }
   }
@@ -323,7 +309,6 @@ class TimeTrackingRepository implements TimeTrackingContract {
         'last_session': logs.last['start_time'],
       };
     } catch (e) {
-      debugPrint('❌ Erro ao buscar estatísticas de tempo: $e');
       return {
         'user_id': userId,
         'total_seconds': 0,

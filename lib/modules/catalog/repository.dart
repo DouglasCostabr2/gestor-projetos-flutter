@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../common/organization_context.dart';
@@ -13,7 +12,6 @@ class CatalogRepository implements CatalogContract {
     try {
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
         return [];
       }
 
@@ -28,7 +26,6 @@ class CatalogRepository implements CatalogContract {
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar produtos: $e');
       return [];
     }
   }
@@ -43,7 +40,6 @@ class CatalogRepository implements CatalogContract {
           .maybeSingle();
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar produto por ID: $e');
       return null;
     }
   }
@@ -53,7 +49,6 @@ class CatalogRepository implements CatalogContract {
     try {
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
         return [];
       }
 
@@ -68,7 +63,6 @@ class CatalogRepository implements CatalogContract {
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar pacotes: $e');
       return [];
     }
   }
@@ -83,7 +77,6 @@ class CatalogRepository implements CatalogContract {
           .maybeSingle();
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar pacote por ID: $e');
       return null;
     }
   }
@@ -93,7 +86,6 @@ class CatalogRepository implements CatalogContract {
     try {
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
         return [];
       }
 
@@ -104,7 +96,6 @@ class CatalogRepository implements CatalogContract {
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar categorias: $e');
       return [];
     }
   }
@@ -139,7 +130,6 @@ class CatalogRepository implements CatalogContract {
       'image_thumb_url': imageThumbUrl,
     };
 
-    debugPrint('🛍️ Criando produto: $name (org: $orgId)');
 
     final response = await _client
         .from('products')
@@ -147,7 +137,6 @@ class CatalogRepository implements CatalogContract {
         .select()
         .single();
 
-    debugPrint('✅ Produto criado com sucesso: ${response['id']}');
 
     return response;
   }
@@ -204,7 +193,6 @@ class CatalogRepository implements CatalogContract {
       'image_thumb_url': imageThumbUrl,
     };
 
-    debugPrint('📦 Criando pacote: $name (org: $orgId)');
 
     final response = await _client
         .from('packages')
@@ -212,7 +200,6 @@ class CatalogRepository implements CatalogContract {
         .select()
         .single();
 
-    debugPrint('✅ Pacote criado com sucesso: ${response['id']}');
 
     return response;
   }

@@ -34,6 +34,7 @@ abstract class TasksContract {
 
   /// Criar uma nova tarefa
   Future<Map<String, dynamic>> createTask({
+    String? id, // UUID customizado (opcional)
     required String title,
     String? description,
     required String projectId,

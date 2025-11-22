@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../../services/google_drive_oauth_service.dart';
@@ -18,18 +17,15 @@ class ClientsRepository implements ClientsContract {
     try {
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
         return [];
       }
 
-      debugPrint('Buscando clientes da organização: $orgId');
       final response = await _client
           .from('clients')
           .select('id, name, email, phone, company, address, city, state, zip_code, country, website, notes, status, owner_id, created_at, updated_at, avatar_url, category, category_id, social_networks, tax_id, tax_id_type, legal_name, client_categories(*)')
           .eq('organization_id', orgId)
           .order('created_at', ascending: false);
 
-      debugPrint('Resposta do Supabase para clientes: $response');
 
       return response.map<Map<String, dynamic>>((client) {
         return {
@@ -61,7 +57,6 @@ class ClientsRepository implements ClientsContract {
         };
       }).toList();
     } catch (e) {
-      debugPrint('Erro ao buscar clientes: $e');
       return [];
     }
   }
@@ -69,17 +64,14 @@ class ClientsRepository implements ClientsContract {
   @override
   Future<Map<String, dynamic>?> getClientById(String clientId) async {
     try {
-      debugPrint('Buscando cliente por ID: $clientId');
       final response = await _client
           .from('clients')
           .select('*')
           .eq('id', clientId)
           .single();
 
-      debugPrint('Cliente encontrado: $response');
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar cliente por ID: $e');
       return null;
     }
   }
@@ -140,8 +132,6 @@ class ClientsRepository implements ClientsContract {
           .single();
       return response;
     } catch (e) {
-      debugPrint('Erro ao criar cliente: $e');
-      debugPrint('Dados enviados: $clientData');
       rethrow;
     }
   }
@@ -176,7 +166,7 @@ class ClientsRepository implements ClientsContract {
             .single();
         oldName = current['name'] as String?;
       } catch (e) {
-        debugPrint('Erro ao buscar nome antigo do cliente: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
 
@@ -220,13 +210,12 @@ class ClientsRepository implements ClientsContract {
             newClientName: name.trim(),
           );
         } catch (e) {
-          debugPrint('⚠️ Erro ao renomear pasta do cliente no Google Drive (ignorado): $e');
+          // Ignorar erro (operação não crítica)
         }
       }
 
       return response;
     } catch (e) {
-      debugPrint('Erro ao atualizar cliente: $e');
       rethrow;
     }
   }
@@ -244,7 +233,7 @@ class ClientsRepository implements ClientsContract {
             .single();
         clientName = response['name'] as String?;
       } catch (e) {
-        debugPrint('Erro ao buscar nome do cliente: $e');
+        // Ignorar erro (operação não crítica)
       }
 
       // Deletar do banco de dados
@@ -262,13 +251,11 @@ class ClientsRepository implements ClientsContract {
             client: authed,
             clientName: clientName,
           );
-          debugPrint('✅ Pasta do cliente deletada do Google Drive: $clientName');
         } catch (e) {
-          debugPrint('⚠️ Erro ao deletar pasta do cliente do Google Drive (ignorado): $e');
+          // Ignorar erro (operação não crítica)
         }
       }
     } catch (e) {
-      debugPrint('Erro ao deletar cliente: $e');
       rethrow;
     }
   }

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../auth/module.dart';
@@ -23,14 +22,10 @@ class NotificationsRepository implements NotificationsContract {
     if (user == null) return [];
 
     final orgId = OrganizationContext.currentOrganizationId;
-    debugPrint('🔔 [NOTIFICATIONS] getNotifications - User ID: ${user.id}');
-    debugPrint('🔔 [NOTIFICATIONS] getNotifications - Current Org ID: ${orgId ?? "NULL"}');
-    debugPrint('🔔 [NOTIFICATIONS] getNotifications - Unread only: $unreadOnly');
 
     // Observação: mesmo sem organização ativa, ainda retornamos convites recebidos (organization_invite_received)
     if (orgId == null) {
-      debugPrint('🔔 [NOTIFICATIONS] Sem org ativa - buscando apenas convites');
-      try {
+      try{
         var queryBuilder = _client
             .from('notifications')
             .select('*')
@@ -50,19 +45,15 @@ class NotificationsRepository implements NotificationsContract {
         }
 
         final response = await orderedQuery;
-        debugPrint('🔔 [NOTIFICATIONS] Convites encontrados (sem org): ${response.length}');
         final notifications = List<Map<String, dynamic>>.from(response)
             .map((json) => Notification.fromJson(json))
             .toList();
-        debugPrint('🔔 [NOTIFICATIONS] Retornando ${notifications.length} convites');
         return notifications;
       } catch (e) {
-        debugPrint('❌ [NOTIFICATIONS] Erro ao buscar convites de organização: $e');
         return [];
       }
     }
 
-    debugPrint('🔔 [NOTIFICATIONS] Com org ativa - buscando notificações da org + convites');
     try {
       var queryBuilder = _client
           .from('notifications')
@@ -83,17 +74,11 @@ class NotificationsRepository implements NotificationsContract {
       }
 
       final response = await orderedQuery;
-      debugPrint('🔔 [NOTIFICATIONS] Notificações encontradas (com org): ${response.length}');
       final notifications = List<Map<String, dynamic>>.from(response)
           .map((json) => Notification.fromJson(json))
           .toList();
-      debugPrint('🔔 [NOTIFICATIONS] Retornando ${notifications.length} notificações');
-      for (var notif in notifications) {
-        debugPrint('  - ${notif.type}: ${notif.title} (org: ${notif.organizationId})');
-      }
       return notifications;
     } catch (e) {
-      debugPrint('❌ [NOTIFICATIONS] Erro ao buscar notificações: $e');
       return [];
     }
   }
@@ -119,7 +104,6 @@ class NotificationsRepository implements NotificationsContract {
       if (response == null) return null;
       return Notification.fromJson(response);
     } catch (e) {
-      debugPrint('❌ Erro ao buscar notificação: $e');
       return null;
     }
   }
@@ -130,8 +114,6 @@ class NotificationsRepository implements NotificationsContract {
     if (user == null) return 0;
 
     final orgId = OrganizationContext.currentOrganizationId;
-    debugPrint('🔔 [NOTIFICATIONS] getUnreadCount - User ID: ${user.id}');
-    debugPrint('🔔 [NOTIFICATIONS] getUnreadCount - Current Org ID: ${orgId ?? "NULL"}');
 
     try {
       var query = _client
@@ -150,10 +132,8 @@ class NotificationsRepository implements NotificationsContract {
 
       final response = await query;
       final count = List<Map<String, dynamic>>.from(response).length;
-      debugPrint('🔔 [NOTIFICATIONS] Contagem de não lidas: $count');
       return count;
     } catch (e) {
-      debugPrint('❌ Erro ao contar notificações não lidas: $e');
       return 0;
     }
   }
@@ -179,9 +159,7 @@ class NotificationsRepository implements NotificationsContract {
           .eq('id', notificationId)
           .eq('user_id', user.id);
 
-      debugPrint('✅ Notificação marcada como lida: $notificationId');
     } catch (e) {
-      debugPrint('❌ Erro ao marcar notificação como lida: $e');
       rethrow;
     }
   }
@@ -201,9 +179,7 @@ class NotificationsRepository implements NotificationsContract {
           .inFilter('id', notificationIds)
           .eq('user_id', user.id);
 
-      debugPrint('✅ ${notificationIds.length} notificações marcadas como lidas');
     } catch (e) {
-      debugPrint('❌ Erro ao marcar notificações como lidas: $e');
       rethrow;
     }
   }
@@ -223,9 +199,7 @@ class NotificationsRepository implements NotificationsContract {
           .eq('user_id', user.id)
           .eq('is_read', false);
 
-      debugPrint('✅ Todas as notificações marcadas como lidas');
     } catch (e) {
-      debugPrint('❌ Erro ao marcar todas as notificações como lidas: $e');
       rethrow;
     }
   }
@@ -242,9 +216,7 @@ class NotificationsRepository implements NotificationsContract {
           .eq('id', notificationId)
           .eq('user_id', user.id);
 
-      debugPrint('✅ Notificação deletada: $notificationId');
     } catch (e) {
-      debugPrint('❌ Erro ao deletar notificação: $e');
       rethrow;
     }
   }
@@ -261,9 +233,7 @@ class NotificationsRepository implements NotificationsContract {
           .inFilter('id', notificationIds)
           .eq('user_id', user.id);
 
-      debugPrint('✅ ${notificationIds.length} notificações deletadas');
     } catch (e) {
-      debugPrint('❌ Erro ao deletar notificações: $e');
       rethrow;
     }
   }
@@ -280,9 +250,7 @@ class NotificationsRepository implements NotificationsContract {
           .eq('user_id', user.id)
           .eq('is_read', true);
 
-      debugPrint('✅ Todas as notificações lidas foram deletadas');
     } catch (e) {
-      debugPrint('❌ Erro ao deletar notificações lidas: $e');
       rethrow;
     }
   }
@@ -322,10 +290,8 @@ class NotificationsRepository implements NotificationsContract {
         throw Exception('Notificação criada mas não encontrada');
       }
 
-      debugPrint('✅ Notificação criada: $notificationId');
       return notification;
     } catch (e) {
-      debugPrint('❌ Erro ao criar notificação: $e');
       rethrow;
     }
   }
@@ -357,7 +323,7 @@ class NotificationsRepository implements NotificationsContract {
               final notification = Notification.fromJson(payload.newRecord);
               onInsert(notification);
             } catch (e) {
-              debugPrint('❌ Erro ao processar notificação inserida: $e');
+              // Ignorar erro (operação não crítica)
             }
           },
         )
@@ -375,7 +341,7 @@ class NotificationsRepository implements NotificationsContract {
               final notification = Notification.fromJson(payload.newRecord);
               onUpdate(notification);
             } catch (e) {
-              debugPrint('❌ Erro ao processar notificação atualizada: $e');
+              // Ignorar erro (operação não crítica)
             }
           },
         )
@@ -393,13 +359,12 @@ class NotificationsRepository implements NotificationsContract {
               final notification = Notification.fromJson(payload.oldRecord);
               onDelete(notification);
             } catch (e) {
-              debugPrint('❌ Erro ao processar notificação deletada: $e');
+              // Ignorar erro (operação não crítica)
             }
           },
         )
         .subscribe();
 
-    debugPrint('✅ Inscrito em notificações em tempo real');
     return channel;
   }
 
@@ -408,10 +373,8 @@ class NotificationsRepository implements NotificationsContract {
     try {
       final response = await _client.rpc('notify_tasks_due_soon');
       final count = response as int;
-      debugPrint('✅ Verificação de tarefas que vencem em breve: $count notificações criadas');
       return count;
     } catch (e) {
-      debugPrint('❌ Erro ao verificar tarefas que vencem em breve: $e');
       return 0;
     }
   }
@@ -421,10 +384,8 @@ class NotificationsRepository implements NotificationsContract {
     try {
       final response = await _client.rpc('notify_tasks_overdue');
       final count = response as int;
-      debugPrint('✅ Verificação de tarefas vencidas: $count notificações criadas');
       return count;
     } catch (e) {
-      debugPrint('❌ Erro ao verificar tarefas vencidas: $e');
       return 0;
     }
   }
@@ -436,10 +397,8 @@ class NotificationsRepository implements NotificationsContract {
         'days_to_keep': daysToKeep,
       });
       final count = response as int;
-      debugPrint('✅ Limpeza de notificações antigas: $count notificações removidas');
       return count;
     } catch (e) {
-      debugPrint('❌ Erro ao limpar notificações antigas: $e');
       return 0;
     }
   }

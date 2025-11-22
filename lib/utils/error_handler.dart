@@ -226,24 +226,7 @@ class ErrorHandler {
 
   /// Loga erro para debug.
   static void _logError(dynamic error, String? context) {
-    final timestamp = DateTime.now().toIso8601String();
-    final contextStr = context != null ? '[$context] ' : '';
-
-    if (kDebugMode) {
-      debugPrint('');
-      debugPrint('❌ ═══════════════════════════════════════════════════════');
-      debugPrint('❌ ERROR: $timestamp');
-      debugPrint('❌ Context: $contextStr');
-      debugPrint('❌ Type: ${error.runtimeType}');
-      debugPrint('❌ Message: $error');
-      if (error is Error) {
-        debugPrint('❌ Stack Trace:');
-        debugPrint(error.stackTrace.toString());
-      }
-      debugPrint('❌ ═══════════════════════════════════════════════════════');
-      debugPrint('');
-    }
-
+    // Log silenciado
     // Future enhancement: Integrate error logging service (Sentry, Firebase Crashlytics, etc)
     // Example: Analytics.logError(error, stackTrace, context);
   }

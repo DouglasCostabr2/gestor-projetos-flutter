@@ -406,11 +406,15 @@ class _ClientsPageState extends State<ClientsPage>
                       if (tabManager != null) {
                         final clientId = c['id'].toString();
                         final clientName = c['name'] as String? ?? 'Cliente';
+                        final tabId = 'client_$clientId';
                         final updatedTab = TabItem(
-                          id: 'client_$clientId',
+                          id: tabId,
                           title: clientName,
                           icon: Icons.person,
-                          page: ClientDetailPage(clientId: clientId),
+                          page: ClientDetailPage(
+                            key: ValueKey(tabId),
+                            clientId: clientId,
+                          ),
                           canClose: true,
                         );
                         tabManager.updateTab(tabManager.currentIndex, updatedTab);

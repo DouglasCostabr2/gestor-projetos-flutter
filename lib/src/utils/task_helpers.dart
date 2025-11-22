@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_business/modules/common/organization_context.dart';
 
@@ -133,7 +132,7 @@ Future<void> enrichWithUpdatedByProfiles(
       }
     }
   } catch (e) {
-    debugPrint('Erro ao buscar perfis de usuários ($fieldName): $e');
+    // Ignorar erro (operação não crítica)
   }
 }
 
@@ -155,11 +154,9 @@ Future<List<Map<String, dynamic>>> fetchAllProfiles() async {
     // Obter organization_id
     final orgId = OrganizationContext.currentOrganizationId;
     if (orgId == null) {
-      debugPrint('⚠️ Nenhuma organização ativa ao buscar perfis');
       return [];
     }
 
-    debugPrint('👥 Buscando perfis da organização: $orgId');
 
     // Buscar membros ativos da organização usando RPC
     final response = await Supabase.instance.client.rpc(
@@ -180,10 +177,8 @@ Future<List<Map<String, dynamic>>> fetchAllProfiles() async {
       });
     }
 
-    debugPrint('✅ Perfis carregados: ${profiles.length}');
     return profiles;
   } catch (e) {
-    debugPrint('❌ Erro ao buscar perfis de usuários: $e');
     return [];
   }
 }

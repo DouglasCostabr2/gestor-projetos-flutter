@@ -11,6 +11,7 @@ import '../clients/client_categories_page.dart';
 import 'pages/fiscal_and_bank_page.dart';
 import 'pages/invoice_settings_page.dart';
 import 'pages/integrations_page.dart';
+import 'pages/file_tags_page.dart';
 
 /// Página de Organização
 ///
@@ -202,6 +203,27 @@ class OrganizationPage extends StatelessWidget {
                 title: 'Configurações de Invoice',
                 icon: Icons.description,
                 page: const InvoiceSettingsPage(),
+                canClose: true,
+                selectedMenuIndex: currentTab?.selectedMenuIndex ?? 11,
+              );
+              tabManager.updateTab(currentIndex, updatedTab);
+            }
+          },
+        ),
+        NavigationCardItem(
+          icon: Icons.label,
+          title: 'Tags de Arquivos',
+          description: 'Gerencie tags para organizar arquivos e materiais',
+          onTap: () {
+            final tabManager = TabManagerScope.maybeOf(context);
+            if (tabManager != null) {
+              final currentIndex = tabManager.currentIndex;
+              final currentTab = tabManager.currentTab;
+              final updatedTab = TabItem(
+                id: 'file_tags',
+                title: 'Tags de Arquivos',
+                icon: Icons.label,
+                page: const FileTagsPage(),
                 canClose: true,
                 selectedMenuIndex: currentTab?.selectedMenuIndex ?? 11,
               );

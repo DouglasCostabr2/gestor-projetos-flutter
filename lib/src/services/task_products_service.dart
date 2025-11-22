@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Serviço utilitário para carregar e salvar vínculos de produtos de uma task.
@@ -130,7 +129,6 @@ class TaskProductsService {
 
       return out;
     } catch (e) {
-      debugPrint('Erro ao carregar task_products: $e');
       return [];
     }
   }
@@ -201,7 +199,7 @@ class TaskProductsService {
               'new_value': productLabel,
             });
           } catch (e) {
-            debugPrint('Erro ao registrar histórico de vinculação: $e');
+            // Ignorar erro (operação não crítica)
           }
         }
 
@@ -251,13 +249,12 @@ class TaskProductsService {
                 'new_value': null,
               });
             } catch (e) {
-              debugPrint('Erro ao registrar histórico de desvinculação: $e');
+              // Ignorar erro (operação não crítica)
             }
           }
         }
       }
     } catch (e) {
-      debugPrint('Falha ao salvar task_products: $e');
       rethrow;
     }
   }

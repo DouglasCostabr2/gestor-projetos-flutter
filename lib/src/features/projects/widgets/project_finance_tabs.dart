@@ -55,17 +55,21 @@ class _ProjectFinanceTabsState extends State<ProjectFinanceTabs> {
                 ],
               ),
               const Divider(height: 1),
-              SizedBox(
-                height: 390,
+              Expanded(
                 child: TabBarView(
                   children: [
-                    // Aba 1: Financeiro do projeto (sem scroll externo)
-                    ClipRect(
+                    // Aba 1: Financeiro do projeto
+                    SingleChildScrollView(
                       child: Padding(
                         padding: const EdgeInsets.all(16),
-                        child: ProjectFinancialSection(
-                          projectId: widget.projectId,
-                          currencyCode: widget.currencyCode,
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: ProjectFinancialSection(
+                              projectId: widget.projectId,
+                              currencyCode: widget.currencyCode,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -88,7 +92,6 @@ class _ProjectFinanceTabsState extends State<ProjectFinanceTabs> {
     return Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
@@ -100,8 +103,7 @@ class _ProjectFinanceTabsState extends State<ProjectFinanceTabs> {
             ),
           ),
           const Divider(height: 1),
-          SizedBox(
-            height: 390,
+          Expanded(
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: _EmployeePaymentsTab(

@@ -61,7 +61,6 @@ class _AssigneeContentState extends State<_AssigneeContent> {
 
       return profilesMap;
     } catch (e) {
-      debugPrint('❌ Erro ao buscar perfis dos responsáveis: $e');
       return {};
     }
   }
@@ -345,11 +344,15 @@ class TaskInfoCardItems {
     final tabManager = TabManagerScope.maybeOf(context);
     if (tabManager != null) {
       final currentIndex = tabManager.currentIndex;
+      final tabId = 'project_$projectId';
       final updatedTab = TabItem(
-        id: 'project_$projectId',
+        id: tabId,
         title: projectName,
         icon: Icons.folder,
-        page: ProjectDetailPage(projectId: projectId),
+        page: ProjectDetailPage(
+          key: ValueKey(tabId),
+          projectId: projectId,
+        ),
         canClose: true,
         selectedMenuIndex: 2,
       );
@@ -361,11 +364,15 @@ class TaskInfoCardItems {
     final tabManager = TabManagerScope.maybeOf(context);
     if (tabManager != null) {
       final currentIndex = tabManager.currentIndex;
+      final tabId = 'client_$clientId';
       final updatedTab = TabItem(
-        id: 'client_$clientId',
+        id: tabId,
         title: clientName,
         icon: Icons.person,
-        page: ClientDetailPage(clientId: clientId),
+        page: ClientDetailPage(
+          key: ValueKey(tabId),
+          clientId: clientId,
+        ),
         canClose: true,
         selectedMenuIndex: 1,
       );

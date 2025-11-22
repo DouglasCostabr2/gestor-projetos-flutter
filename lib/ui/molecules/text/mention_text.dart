@@ -116,10 +116,51 @@ class _MentionTextState extends State<MentionText> {
     BuildContext context,
   ) {
     final spans = <InlineSpan>[];
-    final regex = RegExp(r'@\[([^\]]+)\]\(([^)]+)\)');
-    int lastMatchEnd = 0;
 
-    for (final match in regex.allMatches(text)) {
+    // Suporta dois formatos:
+    // 1. @[Nome](id) - formato antigo com ID
+    // 2. @Nome - formato novo sem ID
+    final regexWithId = RegExp(r'@\[([^\]]+)\]\(([^)]+)\)');
+    final regexSimple = RegExp(r'@([A-Za-zÀ-ÿ\s]+)(?=\s|$|[.,!?;:])');
+
+    int lastMatchEnd = 0;
+    final allMatches = <({int start, int end, String userName, String? userId})>[];
+
+    // Encontrar menções com ID
+    for (final match in regexWithId.allMatches(text)) {
+      allMatches.add((
+        start: match.start,
+        end: match.end,
+        userName: match.group(1)!,
+        userId: match.group(2)!,
+      ));
+    }
+
+    // Encontrar menções simples (@Nome)
+    for (final match in regexSimple.allMatches(text)) {
+      // Verificar se não está dentro de uma menção com ID
+      bool isInsideIdMention = false;
+      for (final idMatch in allMatches) {
+        if (match.start >= idMatch.start && match.end <= idMatch.end) {
+          isInsideIdMention = true;
+          break;
+        }
+      }
+
+      if (!isInsideIdMention) {
+        allMatches.add((
+          start: match.start,
+          end: match.end,
+          userName: match.group(1)!,
+          userId: null,
+        ));
+      }
+    }
+
+    // Ordenar por posição
+    allMatches.sort((a, b) => a.start.compareTo(b.start));
+
+    for (final match in allMatches) {
       // Adicionar texto antes da menção
       if (match.start > lastMatchEnd) {
         spans.add(TextSpan(
@@ -129,49 +170,58 @@ class _MentionTextState extends State<MentionText> {
       }
 
       // Adicionar menção com hover e clique
-      final userName = match.group(1)!;
-      final userId = match.group(2)!;
+      final userName = match.userName;
+      final userId = match.userId;
 
-      spans.add(WidgetSpan(
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          onEnter: (event) {
-            // Calcular posição do hover card
-            final RenderBox? box = context.findRenderObject() as RenderBox?;
-            if (box != null) {
-              final position = box.localToGlobal(Offset.zero);
-              _showHoverCard(
-                userId,
-                Offset(
-                  position.dx + event.localPosition.dx,
-                  position.dy + event.localPosition.dy + 20,
-                ),
-              );
-            }
-          },
-          onExit: (_) {
-            // Pequeno delay antes de remover para permitir mover o mouse para o card
-            Future.delayed(const Duration(milliseconds: 200), () {
-              if (_hoveredUserId == userId) {
-                _removeOverlay();
+      if (userId != null) {
+        // Menção com ID - mostrar hover card
+        spans.add(WidgetSpan(
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (event) {
+              // Calcular posição do hover card
+              final RenderBox? box = context.findRenderObject() as RenderBox?;
+              if (box != null) {
+                final position = box.localToGlobal(Offset.zero);
+                _showHoverCard(
+                  userId,
+                  Offset(
+                    position.dx + event.localPosition.dx,
+                    position.dy + event.localPosition.dy + 20,
+                  ),
+                );
               }
-            });
-          },
-          child: GestureDetector(
-            onTap: widget.onMentionTap != null
-                ? () => widget.onMentionTap!(userId, userName)
-                : null,
-            child: Text(
-              '@$userName',
-              style: mentionStyle.copyWith(
-                decoration: widget.onMentionTap != null
-                    ? TextDecoration.underline
-                    : null,
+            },
+            onExit: (_) {
+              // Pequeno delay antes de remover para permitir mover o mouse para o card
+              Future.delayed(const Duration(milliseconds: 200), () {
+                if (_hoveredUserId == userId) {
+                  _removeOverlay();
+                }
+              });
+            },
+            child: GestureDetector(
+              onTap: widget.onMentionTap != null
+                  ? () => widget.onMentionTap!(userId, userName)
+                  : null,
+              child: Text(
+                '@$userName',
+                style: mentionStyle.copyWith(
+                  decoration: widget.onMentionTap != null
+                      ? TextDecoration.underline
+                      : null,
+                ),
               ),
             ),
           ),
-        ),
-      ));
+        ));
+      } else {
+        // Menção sem ID - apenas destacar em negrito
+        spans.add(TextSpan(
+          text: '@$userName',
+          style: mentionStyle,
+        ));
+      }
 
       lastMatchEnd = match.end;
     }

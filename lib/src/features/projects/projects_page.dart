@@ -392,10 +392,9 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
           projectName: projectName,
         );
       } else {
-        debugPrint('Drive delete skipped: not authenticated');
       }
     } catch (e) {
-      debugPrint('Drive delete failed (ignored): $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -678,7 +677,10 @@ class _ProjectsPageState extends State<ProjectsPage> with RouteAware {
                             id: tabId,
                             title: projectName,
                             icon: Icons.folder,
-                            page: ProjectDetailPage(projectId: projectId),
+                            page: ProjectDetailPage(
+                              key: ValueKey(tabId),
+                              projectId: projectId,
+                            ),
                             canClose: true,
                             selectedMenuIndex: currentTab?.selectedMenuIndex ?? 0, // Preserva o índice do menu
                           );
@@ -824,6 +826,7 @@ class _ProjectFormState extends State<_ProjectForm> {
         }
       });
     } catch (_) {}
+    // Ignorar erro (operação não crítica)
   }
 
   Future<void> _loadCatalogItems(String projectId) async {
@@ -851,6 +854,7 @@ class _ProjectFormState extends State<_ProjectForm> {
         }
       });
     } catch (_) {}
+    // Ignorar erro (operação não crítica)
   }
 
   int _parseMoneyToCents(String input) {

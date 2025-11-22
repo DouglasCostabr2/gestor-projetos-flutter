@@ -120,7 +120,8 @@ class _MentionTextAreaState extends State<MentionTextArea> {
   @override
   void initState() {
     super.initState();
-    
+
+
     // Criar controller se não foi fornecido
     if (widget.controller == null) {
       _controller = MentionTextEditingController(text: widget.initialValue ?? '');
@@ -128,7 +129,7 @@ class _MentionTextAreaState extends State<MentionTextArea> {
     } else {
       _controller = widget.controller!;
     }
-    
+
     _focusNode = widget.focusNode ?? FocusNode();
 
     _overlay = MentionOverlay(
@@ -168,7 +169,7 @@ class _MentionTextAreaState extends State<MentionTextArea> {
   void _onUserSelected(Map<String, dynamic> user) {
     _helper.insertMention(user);
     _notifyMentionsChanged();
-    
+
     // Retornar o foco ao TextField após inserir a menção
     _focusNode.requestFocus();
   }

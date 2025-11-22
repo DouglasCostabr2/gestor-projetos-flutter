@@ -77,7 +77,6 @@ class _TextFieldWithToolbarState extends State<TextFieldWithToolbar> {
         });
       }
     } catch (e) {
-      debugPrint('Erro ao carregar usuários: $e');
       if (mounted) {
         setState(() => _loadingUsers = false);
       }

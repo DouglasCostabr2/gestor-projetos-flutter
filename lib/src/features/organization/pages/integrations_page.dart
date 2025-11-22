@@ -64,7 +64,7 @@ class _IntegrationsPageState extends State<IntegrationsPage> {
                 .maybeSingle();
             connectedByName = profile?['full_name'] ?? profile?['email'];
           } catch (e) {
-            debugPrint('Erro ao buscar perfil: $e');
+            // Ignorar erro (operação não crítica)
           }
         }
 

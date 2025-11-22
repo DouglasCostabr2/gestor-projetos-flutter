@@ -9,9 +9,8 @@ import '../../../utils/cache_file_service.dart';
 import '../../../services/briefing_image_service.dart';
 import '../../atoms/buttons/buttons.dart';
 import '../../atoms/inputs/inputs.dart';
-import '../../molecules/inputs/mention_overlay.dart';
-import '../../molecules/inputs/mention_protection_formatter.dart';
-import '../../molecules/inputs/mention_text_controller.dart';
+import '../../atoms/image_viewer/image_viewer.dart';
+import '../../molecules/inputs/mention_platform_textfield.dart';
 import '../../molecules/text/mention_text.dart';
 import '../lists/reorderable_drag_list.dart';
 
@@ -33,7 +32,8 @@ class EditorBlock {
     required this.content,
   });
 
-  EditorBlock copyWith({String? id, BlockType? type, String? content}) => EditorBlock(
+  EditorBlock copyWith({String? id, BlockType? type, String? content}) =>
+      EditorBlock(
         id: id ?? this.id,
         type: type ?? this.type,
         content: content ?? this.content,
@@ -56,9 +56,8 @@ class EditorBlock {
       type: type,
       content: (map['content'] ?? '').toString(),
     );
-}
   }
-
+}
 
 /// GenericBlockEditor
 ///
@@ -120,14 +119,17 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
   @override
   void didUpdateWidget(covariant GenericBlockEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.initialJson != oldWidget.initialJson && widget.initialJson != null) {
+    if (widget.initialJson != oldWidget.initialJson &&
+        widget.initialJson != null) {
       try {
         final decoded = jsonDecode(widget.initialJson!);
         if (decoded is Map<String, dynamic> && decoded.containsKey('blocks')) {
           final blocks = decoded['blocks'] as List?;
           if (blocks != null) {
             setState(() {
-              _blocks = blocks.map((b) => EditorBlock.fromJson(b as Map<String, dynamic>)).toList();
+              _blocks = blocks
+                  .map((b) => EditorBlock.fromJson(b as Map<String, dynamic>))
+                  .toList();
               _lastFocusedIndex = null;
               _insertHandlers.clear();
             });
@@ -136,11 +138,10 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
           }
         }
       } catch (e) {
-        debugPrint('didUpdateWidget(GenericBlockEditor) parse error: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
   }
-
 
   @override
   void initState() {
@@ -160,7 +161,10 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
   // ---- Métodos públicos (API) ----
   void clear() {
     setState(() {
-      _blocks = [EditorBlock(id: UniqueKey().toString(), type: BlockType.text, content: '')];
+      _blocks = [
+        EditorBlock(
+            id: UniqueKey().toString(), type: BlockType.text, content: '')
+      ];
     });
     _notifyChange();
   }
@@ -170,9 +174,14 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
       final map = json.isEmpty ? {} : jsonDecode(json) as Map<String, dynamic>;
       final list = (map['blocks'] as List?) ?? const [];
       setState(() {
-        _blocks = list.map((e) => EditorBlock.fromJson(e as Map<String, dynamic>)).toList();
+        _blocks = list
+            .map((e) => EditorBlock.fromJson(e as Map<String, dynamic>))
+            .toList();
         if (_blocks.isEmpty) {
-          _blocks = [EditorBlock(id: UniqueKey().toString(), type: BlockType.text, content: '')];
+          _blocks = [
+            EditorBlock(
+                id: UniqueKey().toString(), type: BlockType.text, content: '')
+          ];
         }
       });
       _notifyChange();
@@ -183,7 +192,8 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
 
   void addTextBlock() {
     setState(() {
-      _blocks.add(EditorBlock(id: UniqueKey().toString(), type: BlockType.text, content: ''));
+      _blocks.add(EditorBlock(
+          id: UniqueKey().toString(), type: BlockType.text, content: ''));
     });
     _notifyChange();
   }
@@ -191,7 +201,10 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
   void addCheckboxBlock() {
     final content = jsonEncode({'checked': false, 'text': ''});
     setState(() {
-      _blocks.add(EditorBlock(id: UniqueKey().toString(), type: BlockType.checkbox, content: content));
+      _blocks.add(EditorBlock(
+          id: UniqueKey().toString(),
+          type: BlockType.checkbox,
+          content: content));
     });
     _notifyChange();
   }
@@ -201,13 +214,15 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
     final rows = List.generate(3, (_) => List.generate(3, (_) => ''));
     final content = jsonEncode({'rows': rows});
     setState(() {
-      _blocks.add(EditorBlock(id: UniqueKey().toString(), type: BlockType.table, content: content));
+      _blocks.add(EditorBlock(
+          id: UniqueKey().toString(), type: BlockType.table, content: content));
     });
     _notifyChange();
   }
 
   Future<void> pickImage() async {
-    final res = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: false, withData: false);
+    final res = await FilePicker.platform
+        .pickFiles(type: FileType.image, allowMultiple: false, withData: false);
     if (res == null || res.files.isEmpty) return;
     final filePath = res.files.first.path;
     if (filePath == null) return;
@@ -219,23 +234,27 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
     if (!mounted) return;
 
     // Adicionar imagem imediatamente
-    final localUrl = filePath.startsWith('file://') ? filePath : 'file://$filePath';
+    final localUrl =
+        filePath.startsWith('file://') ? filePath : 'file://$filePath';
     final blockId = UniqueKey().toString();
     final content = jsonEncode({'url': localUrl, 'caption': ''});
     setState(() {
-      _blocks.add(EditorBlock(id: blockId, type: BlockType.image, content: content));
+      _blocks.add(
+          EditorBlock(id: blockId, type: BlockType.image, content: content));
     });
     _notifyChange();
 
     // Copiar para cache em background
-    CacheFileService.copyToEditorCache(filePath, prefix: 'Editor').then((cached) {
+    CacheFileService.copyToEditorCache(filePath, prefix: 'Editor')
+        .then((cached) {
       if (!mounted) return;
       final cachedUrl = 'file://${cached.path}';
       final cachedContent = jsonEncode({'url': cachedUrl, 'caption': ''});
       final index = _blocks.indexWhere((b) => b.id == blockId);
       if (index != -1) {
         setState(() {
-          _blocks[index] = EditorBlock(id: blockId, type: BlockType.image, content: cachedContent);
+          _blocks[index] = EditorBlock(
+              id: blockId, type: BlockType.image, content: cachedContent);
         });
         _notifyChange();
       }
@@ -247,17 +266,13 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
   void insertEmoji(String emoji) {
     if (!widget.enabled) return;
 
-    debugPrint('😀 insertEmoji: emoji="$emoji" | blocks=${_blocks.length} | lastFocusedIndex=$_lastFocusedIndex | lastType=${_blocks.isNotEmpty ? _blocks.last.type : 'none'}');
-
     // 1) Tenta inserir no bloco atualmente focado (texto ou legenda de imagem)
     if (_lastFocusedIndex != null) {
       final handler = _insertHandlers[_lastFocusedIndex!];
       final used = handler != null && handler(emoji);
-      debugPrint('🔎 insertEmoji: focusedIndex=$_lastFocusedIndex | handlerExists=${handler != null} | used=$used');
       if (used) {
         _notifyChange();
         setState(() {});
-        debugPrint('✅ insertEmoji: concluído via handler focado ($_lastFocusedIndex)');
         return;
       }
     }
@@ -275,11 +290,10 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
             caption = (data["caption"] as String? ?? '').trim();
           } catch (_) {}
           final newCaption = caption + emoji;
-          debugPrint('🖼️ insertEmoji: anexando na legenda (lenAntes=${caption.length} -> lenDepois=${newCaption.length})');
           final newContent = jsonEncode({"url": url, "caption": newCaption});
           _blocks[_blocks.length - 1] = last.copyWith(content: newContent);
         } catch (e) {
-          debugPrint('⚠️ insertEmoji: falha ao anexar na legenda $e');
+          // Falha ao anexar na legenda
         }
         _notifyChange();
       });
@@ -287,20 +301,15 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
     }
 
     // 3) Caso contrário, anexar ao último bloco de texto existente (nunca criar novo)
-    final lastTextIndex = _blocks.lastIndexWhere((b) => b.type == BlockType.text);
+    final lastTextIndex =
+        _blocks.lastIndexWhere((b) => b.type == BlockType.text);
     if (lastTextIndex >= 0) {
       setState(() {
         final lastText = _blocks[lastTextIndex];
-        final before = lastText.content.length;
-        _blocks[lastTextIndex] = lastText.copyWith(content: lastText.content + emoji);
-        final after = _blocks[lastTextIndex].content.length;
-        debugPrint('📝 insertEmoji: anexado no bloco de texto index=$lastTextIndex (lenAntes=$before -> lenDepois=$after)');
+        _blocks[lastTextIndex] =
+            lastText.copyWith(content: lastText.content + emoji);
         _notifyChange();
       });
-    } else {
-      // Sem bloco de texto existente: não criar um novo (requisito do usuário)
-      // Opcional: log para diagnóstico
-      debugPrint('⏭️ insertEmoji: ignorado (sem bloco de texto e último não é imagem)');
     }
   }
 
@@ -314,17 +323,9 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
     String? filePrefix,
     String? overrideJson,
   }) async {
-    debugPrint('🔵🔵🔵 GenericBlockEditor.uploadCachedImages() CHAMADO');
-    debugPrint('   - clientName: $clientName');
-    debugPrint('   - projectName: $projectName');
-    debugPrint('   - taskTitle: $taskTitle');
-    debugPrint('   - subfolderName: $subfolderName');
-    debugPrint('   - filePrefix: $filePrefix');
-
     // Normaliza imagens locais: se alguma não estiver no cache da app, copia para {temp}/editor_images
     // antes do upload, para que possamos limpar com segurança depois.
     final rawJson = overrideJson ?? _toJson();
-    debugPrint('🔵🔵🔵 rawJson length: ${rawJson.length}');
 
     Map<String, dynamic> map;
     try {
@@ -333,7 +334,6 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
       map = {'blocks': []};
     }
     final blocks = (map['blocks'] as List?) ?? [];
-    debugPrint('🔵🔵🔵 blocks count: ${blocks.length}');
 
     for (var i = 0; i < blocks.length; i++) {
       final b = blocks[i];
@@ -358,7 +358,8 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
       final localPath = url.startsWith('file://') ? url.substring(7) : url;
       if (!CacheFileService.isInAppCachePath(localPath)) {
         try {
-          final cached = await CacheFileService.copyToEditorCache(localPath, prefix: 'Editor');
+          final cached = await CacheFileService.copyToEditorCache(localPath,
+              prefix: 'Editor');
           final newUrl = 'file://${cached.path}';
           if (caption != null) {
             b['content'] = jsonEncode({'url': newUrl, 'caption': caption});
@@ -373,7 +374,6 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
 
     final updatedJson = jsonEncode(map);
 
-    debugPrint('🔵🔵🔵 GenericBlockEditor: Chamando _imageService.uploadCachedImages()...');
     final uploaded = await _imageService.uploadCachedImages(
       briefingJson: updatedJson,
       clientName: clientName,
@@ -384,14 +384,14 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
       subfolderName: subfolderName,
       filePrefix: filePrefix,
     );
-    debugPrint('✅✅✅ GenericBlockEditor: Upload concluído!');
     return uploaded;
   }
 
   // ---- Build completo (paridade com CommentEditor) ----
   @override
   Widget build(BuildContext context) {
-    final bool singleTextOnly = _blocks.length == 1 && _blocks.first.type == BlockType.text;
+    final bool singleTextOnly =
+        _blocks.length == 1 && _blocks.first.type == BlockType.text;
 
     final core = Container(
       decoration: BoxDecoration(
@@ -406,12 +406,11 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
         items: _blocks,
         enabled: widget.enabled,
         padding: EdgeInsets.zero,
-        dragHandlePaddingBuilder: (i, item) =>
-            item.type == BlockType.checkbox
-                ? const EdgeInsets.only(right: 8, top: 4)
-                : item.type == BlockType.table
-                    ? const EdgeInsets.only(right: 8, top: 8)
-                    : const EdgeInsets.only(right: 8),
+        dragHandlePaddingBuilder: (i, item) => item.type == BlockType.checkbox
+            ? const EdgeInsets.only(right: 8, top: 4)
+            : item.type == BlockType.table
+                ? const EdgeInsets.only(right: 8, top: 8)
+                : const EdgeInsets.only(right: 8),
         useInternalHandle: (i, item) => singleTextOnly,
         onReorder: _reorderBlocks,
         getKey: (b) => b.id,
@@ -420,17 +419,24 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
           if (hideInView) return const SizedBox.shrink();
 
           return Padding(
-            padding: EdgeInsets.only(bottom: index < _blocks.length - 1 ? 8 : 0),
+            padding:
+                EdgeInsets.only(bottom: index < _blocks.length - 1 ? 8 : 0),
             child: _GBBlockWidget(
               key: ValueKey(block.id),
               block: block,
               enabled: widget.enabled,
               hintText: index == 0 ? widget.hintText : null,
               onChanged: (updated) => _updateBlock(index, updated),
-              onRemove: widget.enabled && !singleTextOnly && _blocks.length > 1 ? () => _removeBlock(index) : null,
+              onRemove: widget.enabled && !singleTextOnly && _blocks.length > 1
+                  ? () => _removeBlock(index)
+                  : null,
               index: index,
-              onFocused: (i) => setState(() { _lastFocusedIndex = i; }),
-              registerInsertHandler: (i, handler) { _insertHandlers[i] = handler; },
+              onFocused: (i) => setState(() {
+                _lastFocusedIndex = i;
+              }),
+              registerInsertHandler: (i, handler) {
+                _insertHandlers[i] = handler;
+              },
               isUploading: widget.isUploading,
             ),
           );
@@ -526,7 +532,7 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
             await file.delete();
           }
         } catch (e) {
-          debugPrint('Erro ao deletar imagem local: $e');
+          // Ignorar erro (operação não crítica)
         }
       } else if (url.contains('drive.google.com')) {
         await _imageService.deleteImage(url);
@@ -538,7 +544,6 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
     });
   }
 
-
   // ---- Helpers ----
   void _loadFromJson() {
     final raw = widget.initialJson;
@@ -547,9 +552,14 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
       try {
         final map = jsonDecode(raw) as Map<String, dynamic>;
         final items = (map['blocks'] as List?) ?? const [];
-        _blocks = items.map((e) => EditorBlock.fromJson(e as Map<String, dynamic>)).toList();
+        _blocks = items
+            .map((e) => EditorBlock.fromJson(e as Map<String, dynamic>))
+            .toList();
         if (_blocks.isEmpty) {
-          _blocks = [EditorBlock(id: UniqueKey().toString(), type: BlockType.text, content: '')];
+          _blocks = [
+            EditorBlock(
+                id: UniqueKey().toString(), type: BlockType.text, content: '')
+          ];
         }
       } catch (_) {
         // ignora
@@ -564,12 +574,9 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
 
   void _notifyChange() {
     final jsonStr = _toJson();
-    debugPrint('🔵🔵🔵 [GenericBlockEditor._notifyChange] jsonStr.length=${jsonStr.length}, changed=${jsonStr != _lastNotifiedJson}, hasCallback=${widget.onChanged != null}');
     if (jsonStr != _lastNotifiedJson) {
       _lastNotifiedJson = jsonStr;
-      debugPrint('🔵🔵🔵 [GenericBlockEditor._notifyChange] CHAMANDO widget.onChanged!');
       widget.onChanged?.call(jsonStr);
-      debugPrint('🔵🔵🔵 [GenericBlockEditor._notifyChange] widget.onChanged CHAMADO!');
     }
   }
 }
@@ -583,7 +590,8 @@ class _GBBlockWidget extends StatefulWidget {
   final VoidCallback? onRemove;
   final int index;
   final void Function(int index)? onFocused;
-  final void Function(int index, bool Function(String) handler)? registerInsertHandler;
+  final void Function(int index, bool Function(String) handler)?
+      registerInsertHandler;
   final bool isUploading;
 
   const _GBBlockWidget({
@@ -604,15 +612,14 @@ class _GBBlockWidget extends StatefulWidget {
 }
 
 class _GBBlockWidgetState extends State<_GBBlockWidget> {
-  late TextEditingController _controller;
+  String _currentText = '';
   Timer? _debounceTimer;
   FocusNode? _textFocusNode;
 
   @override
   void initState() {
     super.initState();
-    _controller = MentionTextEditingController(text: widget.block.content);
-    _controller.addListener(_onContentChanged);
+    _currentText = widget.block.content;
 
     if (widget.block.type == BlockType.text) {
       _textFocusNode = FocusNode();
@@ -621,33 +628,16 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
           widget.onFocused?.call(widget.index);
         }
       });
-      widget.registerInsertHandler?.call(widget.index, (emoji) {
-        final sel = _controller.selection;
-        final text = _controller.text;
-        int start = sel.start;
-        int end = sel.end;
-        if (start < 0 || end < 0) {
-          start = end = text.length;
-        }
-        debugPrint('📝 TextHandler(index=${widget.index}): emoji="$emoji" | selection=$start..$end | lenAntes=${text.length}');
-        final newText = text.replaceRange(start, end, emoji);
-        final newSelection = TextSelection.collapsed(offset: start + emoji.length);
-        _controller.value = TextEditingValue(text: newText, selection: newSelection);
-        widget.onChanged(widget.block.copyWith(content: newText));
-        _textFocusNode?.requestFocus();
-        debugPrint('✅ TextHandler(index=${widget.index}): lenDepois=${newText.length}');
-        return true;
-      });
+      // Note: Emoji insertion for WebView will be handled differently
     }
   }
 
-  void _onContentChanged() {
-    debugPrint('🟢🟢🟢 [_GBBlockWidget._onContentChanged] text.length=${_controller.text.length}');
+  void _onTextChanged(String newText) {
+    _currentText = newText;
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       if (mounted) {
-        debugPrint('🟢🟢🟢 [_GBBlockWidget._onContentChanged] CHAMANDO widget.onChanged após debounce');
-        widget.onChanged(widget.block.copyWith(content: _controller.text));
+        widget.onChanged(widget.block.copyWith(content: newText));
       }
     });
   }
@@ -655,18 +645,8 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
   @override
   void didUpdateWidget(covariant _GBBlockWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Sincroniza o TextEditingController quando o bloco  E9 atualizado pelo pai
-    if (oldWidget.block.content != widget.block.content && _controller.text != widget.block.content) {
-      final hadFocus = _textFocusNode?.hasFocus ?? false;
-      final newText = widget.block.content;
-      debugPrint('[GB] didUpdateWidget(index=${widget.index}): sync controller (len ${_controller.text.length} -> ${newText.length})');
-      _controller.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: newText.length),
-      );
-      if (hadFocus) {
-        _textFocusNode?.requestFocus();
-      }
+    if (oldWidget.block.content != widget.block.content) {
+      _currentText = widget.block.content;
     }
   }
 
@@ -674,7 +654,6 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
   void dispose() {
     _debounceTimer?.cancel();
     _textFocusNode?.dispose();
-    _controller.dispose();
     super.dispose();
   }
 
@@ -718,7 +697,7 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
 
   Widget _buildTextBlock() {
     if (!widget.enabled) {
-      final text = _controller.text.trim();
+      final text = _currentText.trim();
       if (text.isEmpty) return const SizedBox.shrink();
 
       // Renderizar com suporte a menções
@@ -726,34 +705,27 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
         child: MentionText(
           text: text,
-          style: const TextStyle(color: Color(0xFFEAEAEA), fontSize: 14, height: 1.5),
+          style: const TextStyle(
+              color: Color(0xFFEAEAEA), fontSize: 14, height: 1.5),
         ),
       );
     }
 
-    final bool minimalChrome = widget.enabled && widget.onRemove == null;
-
-    return _MentionTextField(
-      controller: _controller,
+    // Usar MentionPlatformTextField SEM estilização de menções
+    return MentionPlatformTextField(
+      initialText: widget.block.content,
       focusNode: _textFocusNode,
       onTap: () => widget.onFocused?.call(widget.index),
       enabled: widget.enabled,
       maxLines: null,
-      style: const TextStyle(color: Color(0xFFEAEAEA), fontSize: 14, height: 1.5),
-      decoration: InputDecoration(
+      height: null,
+      style:
+          const TextStyle(color: Color(0xFFEAEAEA), fontSize: 14, height: 1.5),
+      decoration: const InputDecoration(
         hintText: 'Digite o texto...',
-        hintStyle: const TextStyle(color: Color(0xFF9AA0A6)),
-        border: minimalChrome ? InputBorder.none : null,
-        enabledBorder: minimalChrome ? InputBorder.none : null,
-        focusedBorder: minimalChrome ? InputBorder.none : null,
-        disabledBorder: minimalChrome ? InputBorder.none : null,
-        filled: minimalChrome ? false : null,
-        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-        isDense: true,
       ),
-      onChanged: (text) {
-        widget.onChanged(widget.block.copyWith(content: text));
-      },
+      onChanged: _onTextChanged,
+      renderMentionsAsText: true, // SEM estilo (texto branco normal)
     );
   }
 
@@ -773,116 +745,138 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
           margin: const EdgeInsets.only(left: 12, right: 16),
           width: widget.enabled ? 150 : null,
           height: widget.enabled ? 150 : null,
-          constraints: widget.enabled ? null : const BoxConstraints(maxHeight: 300, maxWidth: 300),
-          child: Stack(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: () {
-                  final isHttp = url.startsWith('http://') || url.startsWith('https://');
-                  if (isHttp) {
-                    return Image.network(
-                      url,
-                      fit: widget.enabled ? BoxFit.cover : BoxFit.contain,
-                      alignment: Alignment.centerLeft,
-                      // Otimização: redimensionar para o tamanho máximo necessário
-                      cacheWidth: ((widget.enabled ? 150 : 300) * MediaQuery.of(context).devicePixelRatio).round(),
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) {
+          constraints: widget.enabled
+              ? null
+              : const BoxConstraints(maxHeight: 300, maxWidth: 300),
+          child: GestureDetector(
+            onTap: !widget.enabled && url.isNotEmpty
+                ? () => ImageViewer.show(context, imageUrl: url)
+                : null,
+            child: MouseRegion(
+              cursor: !widget.enabled && url.isNotEmpty
+                  ? SystemMouseCursors.click
+                  : SystemMouseCursors.basic,
+              child: Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: () {
+                      final isHttp = url.startsWith('http://') ||
+                          url.startsWith('https://');
+                      if (isHttp) {
+                        return Image.network(
+                          url,
+                          fit: widget.enabled ? BoxFit.cover : BoxFit.contain,
+                          alignment: Alignment.centerLeft,
+                          cacheWidth: ((widget.enabled ? 150 : 300) *
+                                  MediaQuery.of(context).devicePixelRatio)
+                              .round(),
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) {
+                              return AnimatedOpacity(
+                                opacity: 1,
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeOut,
+                                child: child,
+                              );
+                            }
+                            return const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(20),
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, error, stackTrace) {
+                            return const Padding(
+                              padding: EdgeInsets.all(20),
+                              child: Text('Erro ao carregar imagem',
+                                  style: TextStyle(color: Colors.red)),
+                            );
+                          },
+                        );
+                      }
+                      final localPath =
+                          url.startsWith('file://') ? url.substring(7) : url;
+                      return Image.file(
+                        File(localPath),
+                        fit: widget.enabled ? BoxFit.cover : BoxFit.contain,
+                        alignment: Alignment.centerLeft,
+                        cacheWidth: ((widget.enabled ? 150 : 300) *
+                                MediaQuery.of(context).devicePixelRatio)
+                            .round(),
+                        frameBuilder:
+                            (context, child, frame, wasSynchronouslyLoaded) {
+                          if (wasSynchronouslyLoaded) return child;
                           return AnimatedOpacity(
-                            opacity: 1,
+                            opacity: frame == null ? 0 : 1,
                             duration: const Duration(milliseconds: 200),
                             curve: Curves.easeOut,
-                            child: child,
+                            child: frame == null
+                                ? const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.all(20),
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  )
+                                : child,
                           );
-                        }
-                        return const Center(
-                          child: Padding(
+                        },
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Padding(
                             padding: EdgeInsets.all(20),
-                            child: CircularProgressIndicator(),
-                          ),
-                        );
-                      },
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Padding(
-                          padding: EdgeInsets.all(20),
-                          child: Text('Erro ao carregar imagem', style: TextStyle(color: Colors.red)),
-                        );
-                      },
-                    );
-                  }
-                  final localPath = url.startsWith('file://') ? url.substring(7) : url;
-                  return Image.file(
-                    File(localPath),
-                    fit: widget.enabled ? BoxFit.cover : BoxFit.contain,
-                    alignment: Alignment.centerLeft,
-                    // Otimização: redimensionar para o tamanho máximo necessário (150px ou 300px * devicePixelRatio)
-                    // Isso reduz drasticamente o uso de memória e acelera o carregamento
-                    cacheWidth: ((widget.enabled ? 150 : 300) * MediaQuery.of(context).devicePixelRatio).round(),
-                    frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                      if (wasSynchronouslyLoaded) return child;
-                      return AnimatedOpacity(
-                        opacity: frame == null ? 0 : 1,
-                        duration: const Duration(milliseconds: 200),
-                        curve: Curves.easeOut,
-                        child: frame == null
-                            ? const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(20),
-                                  child: CircularProgressIndicator(),
-                                ),
-                              )
-                            : child,
+                            child: Text('Erro ao carregar imagem',
+                                style: TextStyle(color: Colors.red)),
+                          );
+                        },
                       );
-                    },
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Padding(
-                        padding: EdgeInsets.all(20),
-                        child: Text('Erro ao carregar imagem', style: TextStyle(color: Colors.red)),
-                      );
-                    },
-                  );
-                }(),
-              ),
-              if (!widget.enabled)
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: IconOnlyButton(
-                    onPressed: () => _downloadImage(url),
-                    icon: Icons.download_rounded,
-                    iconColor: Colors.white,
-                    iconSize: 20,
-                    tooltip: 'Baixar imagem',
-                    padding: const EdgeInsets.all(8),
-                    backgroundColor: Colors.black.withValues(alpha: 0.6),
+                    }(),
                   ),
-                ),
-              if (!widget.enabled && widget.isUploading)
-                Positioned(
-                  bottom: 8,
-                  left: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(6),
+                  if (!widget.enabled)
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: IconOnlyButton(
+                        onPressed: () => _downloadImage(url),
+                        icon: Icons.download_rounded,
+                        iconColor: Colors.white,
+                        iconSize: 20,
+                        tooltip: 'Baixar imagem',
+                        padding: const EdgeInsets.all(8),
+                        backgroundColor: Colors.black.withValues(alpha: 0.6),
+                      ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: const [
-                        SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  if (!widget.enabled && widget.isUploading)
+                    Positioned(
+                      bottom: 8,
+                      left: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.6),
+                          borderRadius: BorderRadius.circular(6),
                         ),
-                        SizedBox(width: 6),
-                        Text('Enviando para o Drive...', style: TextStyle(color: Colors.white, fontSize: 11)),
-                      ],
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            ),
+                            SizedBox(width: 6),
+                            Text('Enviando para o Drive...',
+                                style: TextStyle(
+                                    color: Colors.white, fontSize: 11)),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-            ],
+                ],
+              ),
+            ),
           ),
         ),
         Expanded(
@@ -890,51 +884,51 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
             constraints: const BoxConstraints(minWidth: 150),
             child: SizedBox(
               height: widget.enabled ? 150 : 300,
-            child: widget.enabled
-                ? Builder(builder: (context) {
-                    // Registrar handler de inserção de emoji para legenda da imagem
-                    widget.registerInsertHandler?.call(widget.index, (emoji) {
-                      try {
-                        debugPrint('\ud83d\uddbc\ufe0f CaptionHandler(index=${widget.index}): emoji="$emoji" | lenAntes=${caption.length}');
-                        final map = {'url': url, 'caption': caption + emoji};
-                        widget.onChanged(widget.block.copyWith(content: jsonEncode(map)));
-                        debugPrint('\u2705 CaptionHandler(index=${widget.index}): lenDepois=${(caption + emoji).length}');
-                        return true;
-                      } catch (e) {
-                        debugPrint('\u26a0\ufe0f CaptionHandler(index=${widget.index}): erro ao inserir emoji: $e');
-                        return false;
-                      }
-                    });
-                    return TextField(
-                      controller: TextEditingController(text: caption)
-                        ..selection = TextSelection.collapsed(offset: caption.length),
-                      onTap: () => widget.onFocused?.call(widget.index),
-                      maxLines: null,
-                      expands: true,
-                      textAlignVertical: TextAlignVertical.top,
-                      style: const TextStyle(color: Color(0xFFEAEAEA), fontSize: 13, height: 1.5),
-                      decoration: const InputDecoration(
-                        hintText: 'Adicione uma legenda...',
-                        hintStyle: TextStyle(color: Color(0xFF9AA0A6)),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                        isDense: true,
-                      ),
-                      onChanged: (newCaption) {
-                        final map = {'url': url, 'caption': newCaption};
-                        widget.onChanged(widget.block.copyWith(content: jsonEncode(map)));
-                      },
-                    );
-                  })
-                : (caption.trim().isEmpty
-                    ? const SizedBox.shrink()
-                    : SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                        child: SelectableText(
-                          caption,
-                          style: const TextStyle(color: Color(0xFFEAEAEA), fontSize: 13, height: 1.5),
+              child: widget.enabled
+                  ? Builder(builder: (context) {
+                      widget.registerInsertHandler?.call(widget.index, (emoji) {
+                        try {
+                          final map = {'url': url, 'caption': caption + emoji};
+                          widget.onChanged(
+                              widget.block.copyWith(content: jsonEncode(map)));
+                          return true;
+                        } catch (e) {
+                          return false;
+                        }
+                      });
+                      return MentionPlatformTextField(
+                        initialText: caption,
+                        onTap: () => widget.onFocused?.call(widget.index),
+                        maxLines: null,
+                        height: 150,
+                        style: const TextStyle(
+                            color: Color(0xFFEAEAEA),
+                            fontSize: 13,
+                            height: 1.5),
+                        decoration: const InputDecoration(
+                          hintText: 'Adicione uma legenda...',
                         ),
-                      )),
+                        onChanged: (newCaption) {
+                          final map = {'url': url, 'caption': newCaption};
+                          widget.onChanged(
+                              widget.block.copyWith(content: jsonEncode(map)));
+                        },
+                        renderMentionsAsText: true,
+                      );
+                    })
+                  : (caption.trim().isEmpty
+                      ? const SizedBox.shrink()
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 8, horizontal: 12),
+                          child: MentionText(
+                            text: caption,
+                            style: const TextStyle(
+                                color: Color(0xFFEAEAEA),
+                                fontSize: 13,
+                                height: 1.5),
+                          ),
+                        )),
             ),
           ),
         ),
@@ -945,16 +939,21 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
   Future<void> _downloadImage(String url) async {
     try {
       final isHttp = url.startsWith('http://') || url.startsWith('https://');
-      final isFile = url.startsWith('file://') || (!isHttp && (url.contains('\\') || url.contains('/')));
+      final isFile = url.startsWith('file://') ||
+          (!isHttp && (url.contains('\\') || url.contains('/')));
 
       // Sugerir nome com extensão adequada
-      String suggestedName = 'image_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      String suggestedName =
+          'image_${DateTime.now().millisecondsSinceEpoch}.jpg';
       if (isHttp) {
         final uri = Uri.tryParse(url);
-        final last = (uri?.pathSegments.isNotEmpty ?? false) ? uri!.pathSegments.last : '';
+        final last = (uri?.pathSegments.isNotEmpty ?? false)
+            ? uri!.pathSegments.last
+            : '';
         if (last.isNotEmpty && last.contains('.')) {
           final ext = last.split('.').last;
-          suggestedName = 'image_${DateTime.now().millisecondsSinceEpoch}.${ext.isEmpty ? 'jpg' : ext}';
+          suggestedName =
+              'image_${DateTime.now().millisecondsSinceEpoch}.${ext.isEmpty ? 'jpg' : ext}';
         }
       } else if (isFile) {
         final srcPath = url.startsWith('file://') ? url.substring(7) : url;
@@ -1008,7 +1007,7 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
       if (!widget.enabled && text.isEmpty) return const SizedBox.shrink();
 
       return Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
             padding: const EdgeInsets.only(left: 12, right: 12),
@@ -1016,40 +1015,43 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
               value: checked,
               onChanged: (v) {
                 final newData = {'checked': v == true, 'text': text};
-                widget.onChanged(widget.block.copyWith(content: jsonEncode(newData)));
+                widget.onChanged(
+                    widget.block.copyWith(content: jsonEncode(newData)));
               },
               enabled: true,
             ),
           ),
           Expanded(
             child: widget.enabled
-                ? TextField(
-                    controller: TextEditingController(text: text)
-                      ..selection = TextSelection.collapsed(offset: text.length),
-                    enabled: widget.enabled,
-                    maxLines: null,
-                    style: const TextStyle(color: Color(0xFFEAEAEA), fontSize: 14, height: 1.5, decoration: TextDecoration.none),
-                    decoration: const InputDecoration(
-                      hintText: 'Digite o item...',
-                      hintStyle: TextStyle(color: Color(0xFF9AA0A6)),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                      isDense: true,
-                    ),
+                ? MentionPlatformTextField(
+                    initialText: text,
                     onChanged: (newText) {
                       final newData = {'checked': checked, 'text': newText};
-                      widget.onChanged(widget.block.copyWith(content: jsonEncode(newData)));
+                      widget.onChanged(
+                          widget.block.copyWith(content: jsonEncode(newData)));
                     },
+                    enabled: widget.enabled,
+                    maxLines: null,
+                    height: null,
+                    style: const TextStyle(
+                        color: Color(0xFFEAEAEA), fontSize: 14, height: 1.5),
+                    decoration: const InputDecoration(
+                      hintText: 'Digite o item...',
+                    ),
+                    renderMentionsAsText: true,
                   )
                 : Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                    child: SelectableText(
-                      text,
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                    child: MentionText(
+                      text: text,
                       style: TextStyle(
                         color: const Color(0xFFEAEAEA),
                         fontSize: 14,
                         height: 1.5,
-                        decoration: checked ? TextDecoration.lineThrough : TextDecoration.none,
+                        decoration: checked
+                            ? TextDecoration.lineThrough
+                            : TextDecoration.none,
                         decorationColor: const Color(0xFF9AA0A6),
                       ),
                     ),
@@ -1065,7 +1067,12 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
   Widget _buildTableBlock() {
     try {
       final data = jsonDecode(widget.block.content) as Map<String, dynamic>;
-      final rows = (data['rows'] as List?)?.map((r) => (r as List).map((c) => c.toString()).toList()).toList() ?? [['', '']];
+      final rows = (data['rows'] as List?)
+              ?.map((r) => (r as List).map((c) => c.toString()).toList())
+              .toList() ??
+          [
+            ['', '']
+          ];
 
       return Container(
         margin: const EdgeInsets.symmetric(vertical: 8),
@@ -1085,10 +1092,13 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
                           icon: Icons.add_box_outlined,
                           tooltip: 'Adicionar linha',
                           onPressed: () {
-                            final newRows = rows.map((r) => List<String>.from(r)).toList();
-                            final newRow = List.generate(rows.first.length, (_) => '');
+                            final newRows =
+                                rows.map((r) => List<String>.from(r)).toList();
+                            final newRow =
+                                List.generate(rows.first.length, (_) => '');
                             newRows.add(newRow);
-                            widget.onChanged(widget.block.copyWith(content: jsonEncode({'rows': newRows})));
+                            widget.onChanged(widget.block.copyWith(
+                                content: jsonEncode({'rows': newRows})));
                           },
                         ),
                         const SizedBox(height: 4),
@@ -1101,7 +1111,8 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
                               newRow.add('');
                               return newRow;
                             }).toList();
-                            widget.onChanged(widget.block.copyWith(content: jsonEncode({'rows': newRows})));
+                            widget.onChanged(widget.block.copyWith(
+                                content: jsonEncode({'rows': newRows})));
                           },
                         ),
                       ],
@@ -1110,7 +1121,8 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
-                      border: Border.all(color: const Color(0xFF2A2A2A), width: 1),
+                      border:
+                          Border.all(color: const Color(0xFF2A2A2A), width: 1),
                       borderRadius: BorderRadius.zero,
                     ),
                     child: Column(
@@ -1128,11 +1140,20 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
                               final isLastCol = colIndex == row.length - 1;
                               return Expanded(
                                 child: Container(
-                                  constraints: const BoxConstraints(minHeight: 48),
+                                  constraints:
+                                      const BoxConstraints(minHeight: 48),
                                   decoration: BoxDecoration(
                                     border: Border(
-                                      right: isLastCol ? BorderSide.none : const BorderSide(color: Color(0xFF2A2A2A), width: 1),
-                                      bottom: isLastRow ? BorderSide.none : const BorderSide(color: Color(0xFF2A2A2A), width: 1),
+                                      right: isLastCol
+                                          ? BorderSide.none
+                                          : const BorderSide(
+                                              color: Color(0xFF2A2A2A),
+                                              width: 1),
+                                      bottom: isLastRow
+                                          ? BorderSide.none
+                                          : const BorderSide(
+                                              color: Color(0xFF2A2A2A),
+                                              width: 1),
                                     ),
                                   ),
                                   child: SizedBox.expand(
@@ -1140,9 +1161,13 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
                                       initialValue: cellValue,
                                       enabled: widget.enabled,
                                       onChanged: (value) {
-                                        final newRows = rows.map((r) => List<String>.from(r)).toList();
+                                        final newRows = rows
+                                            .map((r) => List<String>.from(r))
+                                            .toList();
                                         newRows[rowIndex][colIndex] = value;
-                                        widget.onChanged(widget.block.copyWith(content: jsonEncode({'rows': newRows})));
+                                        widget.onChanged(widget.block.copyWith(
+                                            content:
+                                                jsonEncode({'rows': newRows})));
                                       },
                                     ),
                                   ),
@@ -1166,9 +1191,12 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
                           tooltip: 'Remover linha',
                           onPressed: rows.length > 1
                               ? () {
-                                  final newRows = rows.map((r) => List<String>.from(r)).toList();
+                                  final newRows = rows
+                                      .map((r) => List<String>.from(r))
+                                      .toList();
                                   newRows.removeLast();
-                                  widget.onChanged(widget.block.copyWith(content: jsonEncode({'rows': newRows})));
+                                  widget.onChanged(widget.block.copyWith(
+                                      content: jsonEncode({'rows': newRows})));
                                 }
                               : null,
                         ),
@@ -1183,7 +1211,8 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
                                     newRow.removeLast();
                                     return newRow;
                                   }).toList();
-                                  widget.onChanged(widget.block.copyWith(content: jsonEncode({'rows': newRows})));
+                                  widget.onChanged(widget.block.copyWith(
+                                      content: jsonEncode({'rows': newRows})));
                                 }
                               : null,
                         ),
@@ -1232,14 +1261,20 @@ class _GBTableActionButtonState extends State<_GBTableActionButton> {
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            color: isEnabled ? (_isHovered ? primaryColor.withValues(alpha: 0.16) : const Color(0xFF1E1E1E)) : const Color(0xFF1E1E1E).withValues(alpha: 0.6),
+            color: isEnabled
+                ? (_isHovered
+                    ? primaryColor.withValues(alpha: 0.16)
+                    : const Color(0xFF1E1E1E))
+                : const Color(0xFF1E1E1E).withValues(alpha: 0.6),
             border: Border.all(color: const Color(0xFF2A2A2A)),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Icon(
             widget.icon,
             size: 18,
-            color: isEnabled ? (_isHovered ? primaryColor : const Color(0xFF9AA0A6)) : const Color(0xFF555555),
+            color: isEnabled
+                ? (_isHovered ? primaryColor : const Color(0xFF9AA0A6))
+                : const Color(0xFF555555),
           ),
         ),
       ),
@@ -1269,6 +1304,7 @@ class _GBTableCellFieldState extends State<_GBTableCellField> {
     _controller = TextEditingController(text: widget.initialValue);
     _controller.addListener(_onChanged);
   }
+
   void _onChanged() {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 200), () {
@@ -1276,19 +1312,23 @@ class _GBTableCellFieldState extends State<_GBTableCellField> {
       widget.onChanged(_controller.text);
     });
   }
+
   @override
   void didUpdateWidget(covariant _GBTableCellField oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialValue != widget.initialValue && _controller.text != widget.initialValue) {
+    if (oldWidget.initialValue != widget.initialValue &&
+        _controller.text != widget.initialValue) {
       _controller.text = widget.initialValue;
     }
   }
+
   @override
   void dispose() {
     _debounceTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.enabled) {
@@ -1298,7 +1338,8 @@ class _GBTableCellFieldState extends State<_GBTableCellField> {
           alignment: Alignment.topLeft,
           child: SelectableText(
             _controller.text.isEmpty ? '' : _controller.text,
-            style: const TextStyle(color: Color(0xFFEAEAEA), fontSize: 13, height: 1.5),
+            style: const TextStyle(
+                color: Color(0xFFEAEAEA), fontSize: 13, height: 1.5),
           ),
         ),
       );
@@ -1310,7 +1351,8 @@ class _GBTableCellFieldState extends State<_GBTableCellField> {
       minLines: null,
       expands: true,
       textAlignVertical: TextAlignVertical.top,
-      style: const TextStyle(color: Color(0xFFEAEAEA), fontSize: 13, height: 1.5),
+      style:
+          const TextStyle(color: Color(0xFFEAEAEA), fontSize: 13, height: 1.5),
       decoration: const InputDecoration(
         border: InputBorder.none,
         enabledBorder: InputBorder.none,
@@ -1323,8 +1365,6 @@ class _GBTableCellFieldState extends State<_GBTableCellField> {
     );
   }
 }
-
-
 
 /// Controlador para operar o GenericBlockEditor externamente
 /// O próprio editor faz o bind deste controlador em runtime.
@@ -1339,7 +1379,8 @@ class GenericBlockEditorController {
   void addTableBlock() => _state?.addTableBlock();
   void pickImage() => _state?.pickImage();
   void insertEmoji(String emoji) => _state?.insertEmoji(emoji);
-  Future<void> addImageFromPath(String path) async => await _state?.addImageFromPath(path);
+  Future<void> addImageFromPath(String path) async =>
+      await _state?.addImageFromPath(path);
 
   Future<String> uploadCachedImages({
     required String clientName,
@@ -1421,137 +1462,3 @@ class _Toolbar extends StatelessWidget {
     );
   }
 }
-
-/// TextField com suporte a menções (@mentions)
-/// Versão interna para uso no GenericBlockEditor
-class _MentionTextField extends StatefulWidget {
-  final TextEditingController controller;
-  final FocusNode? focusNode;
-  final VoidCallback? onTap;
-  final bool enabled;
-  final int? maxLines;
-  final TextStyle? style;
-  final InputDecoration? decoration;
-  final ValueChanged<String>? onChanged;
-
-  const _MentionTextField({
-    required this.controller,
-    this.focusNode,
-    this.onTap,
-    this.enabled = true,
-    this.maxLines,
-    this.style,
-    this.decoration,
-    this.onChanged,
-  });
-
-  @override
-  State<_MentionTextField> createState() => _MentionTextFieldState();
-}
-
-class _MentionTextFieldState extends State<_MentionTextField> {
-  final LayerLink _layerLink = LayerLink();
-  MentionOverlay? _overlay;
-  MentionTextFieldHelper? _helper;
-
-  @override
-  void initState() {
-    super.initState();
-
-    // Aguardar o primeiro frame para ter acesso ao context
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-
-      _overlay = MentionOverlay(
-        context: context,
-        layerLink: _layerLink,
-        onUserSelected: _onUserSelected,
-      );
-
-      _helper = MentionTextFieldHelper(
-        controller: widget.controller,
-        overlay: _overlay!,
-      );
-
-      _overlay!.loadUsers();
-    });
-  }
-
-  @override
-  void dispose() {
-    _helper?.dispose();
-    _overlay?.dispose();
-    super.dispose();
-  }
-
-  void _onUserSelected(Map<String, dynamic> user) {
-    _helper?.insertMention(user);
-    widget.onChanged?.call(widget.controller.text);
-
-    // Retornar o foco ao TextField após inserir a menção
-    widget.focusNode?.requestFocus();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return CompositedTransformTarget(
-      link: _layerLink,
-      child: _MentionTextFieldWidget(
-        controller: widget.controller,
-        focusNode: widget.focusNode,
-        onTap: widget.onTap,
-        enabled: widget.enabled,
-        maxLines: widget.maxLines,
-        style: widget.style,
-        decoration: widget.decoration,
-        onChanged: widget.onChanged,
-      ),
-    );
-  }
-}
-
-/// Widget interno que renderiza o TextField com menções formatadas
-class _MentionTextFieldWidget extends StatefulWidget {
-  final TextEditingController controller;
-  final FocusNode? focusNode;
-  final VoidCallback? onTap;
-  final bool enabled;
-  final int? maxLines;
-  final TextStyle? style;
-  final InputDecoration? decoration;
-  final ValueChanged<String>? onChanged;
-
-  const _MentionTextFieldWidget({
-    required this.controller,
-    this.focusNode,
-    this.onTap,
-    this.enabled = true,
-    this.maxLines,
-    this.style,
-    this.decoration,
-    this.onChanged,
-  });
-
-  @override
-  State<_MentionTextFieldWidget> createState() => _MentionTextFieldWidgetState();
-}
-
-class _MentionTextFieldWidgetState extends State<_MentionTextFieldWidget> {
-  @override
-  Widget build(BuildContext context) {
-    return TextField(
-      controller: widget.controller,
-      focusNode: widget.focusNode,
-      onTap: widget.onTap,
-      enabled: widget.enabled,
-      maxLines: widget.maxLines,
-      style: widget.style,
-      decoration: widget.decoration,
-      onChanged: widget.onChanged,
-      inputFormatters: [
-        MentionProtectionFormatter(),
-      ],
-    );
-  }
-}
-

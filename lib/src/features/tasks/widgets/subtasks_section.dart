@@ -56,7 +56,6 @@ class _SubTasksSectionState extends State<SubTasksSection> {
         });
       }
     } catch (e) {
-      debugPrint('❌ Erro ao carregar subtarefas: $e');
       if (mounted) {
         setState(() => _loading = false);
       }
@@ -153,23 +152,18 @@ class _SubTasksSectionState extends State<SubTasksSection> {
                       final dt = DateTime.parse(dueDate);
                       formattedDate = '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year}';
                     } catch (_) {}
+                    // Ignorar erro (operação não crítica)
                   }
 
                   return InkWell(
                     onTap: () {
-                      debugPrint('🔍 SubTasksSection: Clicou na subtask ${subTask['id']}');
-                      debugPrint('🔍 SubTasksSection: onSubTaskTap callback = ${widget.onSubTaskTap}');
 
                       // Usar callback se disponível, senão usar Navigator.push
                       if (widget.onSubTaskTap != null) {
-                        debugPrint('🔍 SubTasksSection: Usando callback');
                         final subTaskId = subTask['id'] as String;
                         final subTaskTitle = subTask['title'] as String? ?? 'Subtarefa';
-                        debugPrint('🔍 SubTasksSection: Chamando callback com ID=$subTaskId, Title=$subTaskTitle');
                         widget.onSubTaskTap!(subTaskId, subTaskTitle);
-                        debugPrint('🔍 SubTasksSection: Callback executado');
                       } else {
-                        debugPrint('🔍 SubTasksSection: Usando Navigator.push (fallback)');
                         // Fallback para navegação tradicional
                         Navigator.push(
                           context,
@@ -289,20 +283,17 @@ class _SubTasksSectionState extends State<SubTasksSection> {
                                           projectName: projectName,
                                           taskName: taskTitle,
                                         );
-                                        debugPrint('✅ Pasta da subtarefa deletada do Google Drive: $taskTitle');
                                       } else {
-                                        debugPrint('⚠️ Drive delete skipped: not authenticated');
                                       }
                                     } catch (e) {
-                                      debugPrint('⚠️ Drive delete failed (ignored): $e');
+                                      // Ignorar erro (operação não crítica)
                                     }
 
                                     // Atualizar status da tarefa pai
                                     try {
                                       await tasksModule.updateTaskStatus(widget.taskId);
-                                      debugPrint('✅ Status da tarefa pai atualizado após exclusão de subtarefa');
                                     } catch (e) {
-                                      debugPrint('⚠️ Erro ao atualizar status da tarefa pai: $e');
+                                      // Ignorar erro (operação não crítica)
                                     }
 
                                     _loadSubTasks();

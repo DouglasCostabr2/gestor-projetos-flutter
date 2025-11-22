@@ -61,7 +61,7 @@ class _OrganizationMembersPageState extends State<OrganizationMembersPage> {
         }
       }
     } catch (e) {
-      debugPrint('Erro ao carregar membros: $e');
+      // Ignorar erro (operação não crítica)
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -78,7 +78,7 @@ class _OrganizationMembersPageState extends State<OrganizationMembersPage> {
           invite['user_profile'] = users.first;
         }
       } catch (e) {
-        debugPrint('Erro ao buscar perfil de ${invite['email']}: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
   }

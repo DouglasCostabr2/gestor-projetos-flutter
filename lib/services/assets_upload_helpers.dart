@@ -7,21 +7,23 @@ import 'package:my_business/services/google_drive_oauth_service.dart';
 import 'package:my_business/services/upload_manager.dart' as legacy_upload;
 
 /// Inicia o upload de assets (imagens, arquivos, vídeos) em background
-/// 
+///
 /// Esta função é usada para fazer upload de assets para o Google Drive
 /// em background, sem bloquear a interface do usuário.
-/// 
+///
 /// Parâmetros:
 /// - [taskId]: ID da tarefa no banco de dados
 /// - [clientName]: Nome do cliente
 /// - [projectName]: Nome do projeto
-/// - [taskTitle]: Título da tarefa
+/// - [taskTitle]: Título da tarefa (ou subtarefa se isSubTask=true)
 /// - [assetsImages]: Lista de imagens para upload
 /// - [assetsFiles]: Lista de arquivos para upload
 /// - [assetsVideos]: Lista de vídeos para upload
 /// - [companyName]: Nome da empresa (opcional) — quando informado, os arquivos irão para
 ///   Gestor de Projetos/Organizações/{Org}/Clientes/{Cliente}/{Empresa}/{Projeto}/{Tarefa}/Assets
 ///   (sem empresa usa o caminho antigo sem o nível {Empresa})
+/// - [isSubTask]: Se true, indica que é uma subtarefa e usa parentTaskTitle
+/// - [parentTaskTitle]: Título da tarefa pai (obrigatório se isSubTask=true)
 /// - [context]: BuildContext para mostrar SnackBar (opcional)
 /// - [driveService]: Instância do GoogleDriveOAuthService (opcional, cria uma nova se não fornecido)
 ///
@@ -35,6 +37,8 @@ Future<void> startAssetsBackgroundUpload({
   required List<PlatformFile> assetsFiles,
   required List<PlatformFile> assetsVideos,
   String? companyName,
+  bool isSubTask = false,
+  String? parentTaskTitle,
   BuildContext? context,
   GoogleDriveOAuthService? driveService,
 }) async {
@@ -51,7 +55,6 @@ Future<void> startAssetsBackgroundUpload({
       try {
         return await drive.getAuthedClient();
       } catch (e) {
-        debugPrint('⚠️ Erro ao obter cliente autenticado: $e');
         if (context != null && context.mounted) {
           final ok = await showDialog<bool>(
             context: context,
@@ -84,7 +87,6 @@ Future<void> startAssetsBackgroundUpload({
 
     final authed = await ensureClient();
     if (authed == null) {
-      debugPrint('⚠️ Cliente não autenticado, upload de assets cancelado');
       return;
     }
 
@@ -108,12 +110,10 @@ Future<void> startAssetsBackgroundUpload({
     addList(assetsVideos, 'assets');
 
     if (items.isEmpty) {
-      debugPrint('⚠️ Nenhum item válido para upload');
       return;
     }
 
     // Dispara upload em background e não aguarda
-    debugPrint('🔄 Iniciando upload de ${items.length} assets em background...');
     unawaited(legacy_upload.UploadManager.instance.startAssetsUploadWithClient(
       client: authed,
       taskId: taskId,
@@ -122,6 +122,8 @@ Future<void> startAssetsBackgroundUpload({
       taskTitle: taskTitle,
       items: items,
       companyName: companyName,
+      isSubTask: isSubTask,
+      parentTaskTitle: parentTaskTitle,
     ));
     
     // Mostrar feedback visual
@@ -131,9 +133,8 @@ Future<void> startAssetsBackgroundUpload({
       );
     }
     
-    debugPrint('✅ Upload de assets iniciado com sucesso!');
   } catch (e) {
-    debugPrint('⚠️ Erro ao iniciar upload de assets: $e');
+    // Ignorar erro (operação não crítica)
   }
 }
 

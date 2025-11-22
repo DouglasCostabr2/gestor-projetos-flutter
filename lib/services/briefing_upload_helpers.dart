@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'briefing_image_service.dart';
 
@@ -68,11 +67,8 @@ void startBriefingImagesBackgroundUpload({
 }) {
   if (briefingJson.isEmpty) return;
 
-  final logPrefix = isSubTask ? 'SubTask' : 'Task';
-
   unawaited(() async {
     try {
-      debugPrint('🔄 Iniciando upload de imagens do briefing em background ($logPrefix)...');
 
       final String finalBriefingJson;
 
@@ -100,9 +96,8 @@ void startBriefingImagesBackgroundUpload({
         'description': finalBriefingJson,
       }).eq('id', taskId);
 
-      debugPrint('✅ Upload de imagens do briefing concluído ($logPrefix)!');
     } catch (e) {
-      debugPrint('⚠️ Erro ao fazer upload das imagens do briefing em background ($logPrefix): $e');
+      // Ignorar erro ao fazer upload de imagens do briefing (não crítico)
     }
   }());
 }

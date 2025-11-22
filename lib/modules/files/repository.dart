@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:googleapis_auth/auth_io.dart' as auth;
 import 'package:googleapis/drive/v3.dart' as drive;
@@ -46,7 +45,6 @@ class FilesRepository implements FilesContract {
           msg.contains('category') ||
           msg.contains('comment_id');
       if (looksLikeMissingCols) {
-        debugPrint('task_files: coluna ausente. Tentando salvar sem essas colunas.');
         final fallback = Map<String, dynamic>.from(data)
           ..remove('category')
           ..remove('comment_id');
@@ -67,7 +65,6 @@ class FilesRepository implements FilesContract {
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar arquivos da tarefa: $e');
       return [];
     }
   }
@@ -100,7 +97,6 @@ class FilesRepository implements FilesContract {
       final token = profile?['google_drive_refresh_token'] as String?;
       return token != null && token.isNotEmpty;
     } catch (e) {
-      debugPrint('Erro ao verificar Google Drive: $e');
       return false;
     }
   }
@@ -164,7 +160,6 @@ class FilesRepository implements FilesContract {
         current++;
         onProgress(current, items.length);
       } catch (e) {
-        debugPrint('Erro ao fazer upload de ${item.name}: $e');
         rethrow;
       }
     }

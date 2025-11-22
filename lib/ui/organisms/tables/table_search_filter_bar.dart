@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../atoms/buttons/buttons.dart';
 
 /// Widget reutilizável para barra de busca e filtros em tabelas
-/// 
+///
 /// Exemplo de uso:
 /// ```dart
 /// TableSearchFilterBar(
@@ -30,7 +30,7 @@ import '../../atoms/buttons/buttons.dart';
 ///   },
 /// )
 /// ```
-class TableSearchFilterBar extends StatelessWidget {
+class TableSearchFilterBar extends StatefulWidget {
   /// Hint do campo de busca
   final String searchHint;
   
@@ -97,8 +97,31 @@ class TableSearchFilterBar extends StatelessWidget {
   });
 
   @override
+  State<TableSearchFilterBar> createState() => _TableSearchFilterBarState();
+}
+
+class _TableSearchFilterBarState extends State<TableSearchFilterBar> {
+  late final TextEditingController _searchController;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController = TextEditingController();
+    // Listener para atualizar o botão "X" quando o texto mudar
+    _searchController.addListener(() {
+      setState(() {}); // Atualiza para mostrar/esconder o botão "X"
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final hasBulkActions = selectedCount > 0 && bulkActions != null && bulkActions!.isNotEmpty;
+    final hasBulkActions = widget.selectedCount > 0 && widget.bulkActions != null && widget.bulkActions!.isNotEmpty;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -107,9 +130,9 @@ class TableSearchFilterBar extends StatelessWidget {
           // Mostrar ações em lote se houver itens selecionados
           if (hasBulkActions) ...[
             OutlineButton(
-              onPressed: bulkActions!.first.onPressed,
-              label: '$selectedCount selecionado${selectedCount > 1 ? 's' : ''}',
-              icon: bulkActions!.first.icon,
+              onPressed: widget.bulkActions!.first.onPressed,
+              label: '${widget.selectedCount} selecionado${widget.selectedCount > 1 ? 's' : ''}',
+              icon: widget.bulkActions!.first.icon,
             ),
             const Spacer(),
           ] else ...[
@@ -117,73 +140,76 @@ class TableSearchFilterBar extends StatelessWidget {
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 300),
               child: TextField(
+                controller: _searchController,
                 decoration: InputDecoration(
-                  hintText: searchHint,
+                  hintText: widget.searchHint,
                   prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: () {
+                            _searchController.clear();
+                            widget.onSearchChanged('');
+                          },
+                        )
+                      : null,
                   border: const OutlineInputBorder(),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 ),
-                onChanged: onSearchChanged,
+                onChanged: widget.onSearchChanged,
               ),
             ),
 
-            if (showFilters && filterTypeOptions.isNotEmpty) ...[
+            if (widget.showFilters && widget.filterTypeOptions.isNotEmpty) ...[
               const SizedBox(width: 16),
 
               // Tipo de filtro
               SizedBox(
                 width: 180,
                 child: DropdownMenu<String>(
-                  initialSelection: filterType,
-                  label: Text(filterTypeLabel),
+                  initialSelection: widget.filterType,
+                  label: Text(widget.filterTypeLabel),
                   expandedInsets: EdgeInsets.zero,
-                  dropdownMenuEntries: filterTypeOptions.map((option) {
+                  dropdownMenuEntries: widget.filterTypeOptions.map((option) {
                     return DropdownMenuEntry(
                       value: option.value,
                       label: option.label,
                     );
                   }).toList(),
-                  onSelected: onFilterTypeChanged,
+                  onSelected: widget.onFilterTypeChanged,
                 ),
               ),
 
               // Valor do filtro (só mostra se não for "none")
-              if (filterType != null && filterType != 'none' && filterValueOptions != null) ...[
+              if (widget.filterType != null && widget.filterType != 'none' && widget.filterValueOptions != null) ...[
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownMenu<String>(
-                    key: ValueKey(filterType), // Força reconstrução ao mudar tipo
-                    initialSelection: filterValue,
-                    label: Text(filterValueLabel ?? 'Filtrar'),
+                    key: ValueKey(widget.filterType), // Força reconstrução ao mudar tipo
+                    initialSelection: widget.filterValue,
+                    label: Text(widget.filterValueLabel ?? 'Filtrar'),
                     expandedInsets: EdgeInsets.zero,
                     dropdownMenuEntries: [
                       const DropdownMenuEntry(value: '', label: 'Todos'),
-                      ...filterValueOptions!.map((option) {
-                        final label = filterValueLabelBuilder != null
-                            ? filterValueLabelBuilder!(option)
+                      ...widget.filterValueOptions!.map((option) {
+                        final label = widget.filterValueLabelBuilder != null
+                            ? widget.filterValueLabelBuilder!(option)
                             : option;
                         return DropdownMenuEntry(value: option, label: label);
                       }),
                     ],
-                    onSelected: onFilterValueChanged,
+                    onSelected: widget.onFilterValueChanged,
                   ),
                 ),
               ],
             ],
 
             // Botão de ação (sempre à direita)
-            if (actionButton != null)
-              Expanded(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    const SizedBox(width: 16),
-                    actionButton!,
-                  ],
-                ),
-              )
-            else
+            if (widget.actionButton != null) ...[
               const Spacer(),
+              const SizedBox(width: 16),
+              widget.actionButton!,
+            ],
           ],
         ],
       ),

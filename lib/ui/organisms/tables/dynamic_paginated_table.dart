@@ -176,12 +176,9 @@ class _DynamicPaginatedTableState<T> extends State<DynamicPaginatedTable<T>> {
     final endItem = ((_currentPage + 1) * _itemsPerPage).clamp(0, widget.items.length);
     final totalItems = widget.items.length;
 
-    debugPrint('📄 DynamicPaginatedTable [${widget.itemLabel}]: Pagination - startItem=$startItem, endItem=$endItem, totalItems=$totalItems');
-    debugPrint('📄 DynamicPaginatedTable [${widget.itemLabel}]: Pagination - currentPage=$_currentPage, totalPages=$_totalPages');
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        debugPrint('📄 DynamicPaginatedTable [${widget.itemLabel}]: Pagination Container constraints = $constraints');
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           decoration: BoxDecoration(
@@ -275,11 +272,9 @@ class _DynamicPaginatedTableState<T> extends State<DynamicPaginatedTable<T>> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: LayoutBuilder constraints = $constraints');
 
         // Verificar se temos altura válida
         if (!constraints.hasBoundedHeight || constraints.maxHeight <= 0) {
-          debugPrint('⚠️ DynamicPaginatedTable [${widget.itemLabel}]: Altura inválida! hasBoundedHeight=${constraints.hasBoundedHeight}, maxHeight=${constraints.maxHeight}');
           // Se não temos altura válida, usar altura mínima
           return SizedBox(
             height: 150.0,
@@ -299,25 +294,15 @@ class _DynamicPaginatedTableState<T> extends State<DynamicPaginatedTable<T>> {
         final rawAvailableHeight = constraints.maxHeight - _kTotalReservedHeight;
         final availableHeight = rawAvailableHeight < 150.0 ? 150.0 : rawAvailableHeight;
 
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: rawAvailableHeight = $rawAvailableHeight');
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: availableHeight = $availableHeight');
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: _kTotalReservedHeight = $_kTotalReservedHeight');
 
         // Calcular quantidade de itens por página baseado na altura disponível
         // Fórmula: (altura disponível - altura do header) / altura de cada linha
         final calculatedItemsPerPage = ((availableHeight - _kTableHeaderHeight) / _kTableRowHeight).floor();
         final dynamicItemsPerPage = calculatedItemsPerPage > 0 ? calculatedItemsPerPage : _kMinItemsPerPage;
 
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: calculatedItemsPerPage = $calculatedItemsPerPage');
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: dynamicItemsPerPage = $dynamicItemsPerPage');
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: _itemsPerPage = $_itemsPerPage');
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: _currentPage = $_currentPage');
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: _totalPages = $_totalPages');
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: total items = ${widget.items.length}');
 
         // Atualizar _itemsPerPage se mudou
         if (_itemsPerPage != dynamicItemsPerPage) {
-          debugPrint('⚠️ DynamicPaginatedTable [${widget.itemLabel}]: _itemsPerPage mudou de $_itemsPerPage para $dynamicItemsPerPage');
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
               setState(() {
@@ -325,7 +310,6 @@ class _DynamicPaginatedTableState<T> extends State<DynamicPaginatedTable<T>> {
                 // Ajustar página atual se necessário
                 final totalPages = _totalPages;
                 if (_currentPage >= totalPages && totalPages > 0) {
-                  debugPrint('⚠️ DynamicPaginatedTable [${widget.itemLabel}]: Ajustando página de $_currentPage para ${totalPages - 1}');
                   _currentPage = totalPages - 1;
                   widget.onPageChanged?.call(_currentPage);
                 }
@@ -334,21 +318,15 @@ class _DynamicPaginatedTableState<T> extends State<DynamicPaginatedTable<T>> {
           });
         }
 
-        debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: Construindo Column com tabela e paginação');
 
         return Column(
           children: [
             // Área da tabela com altura dinâmica
             Builder(
               builder: (context) {
-                debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: SizedBox da tabela - height = $availableHeight');
                 return SizedBox(
                   height: availableHeight,
                   child: Builder(builder: (context) {
-                    debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: Building table content');
-                    debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: isLoading = ${widget.isLoading}');
-                    debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: hasError = ${widget.hasError}');
-                    debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: items.isEmpty = ${widget.items.isEmpty}');
 
                     if (widget.isLoading) {
                       return widget.loadingWidget ?? _buildTableSkeleton();
@@ -363,7 +341,6 @@ class _DynamicPaginatedTableState<T> extends State<DynamicPaginatedTable<T>> {
                     }
 
                     final paginatedItems = _getPaginatedItems();
-                    debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: paginatedItems.length = ${paginatedItems.length}');
 
                     return ReusableDataTable<T>(
                       items: paginatedItems,
@@ -389,13 +366,11 @@ class _DynamicPaginatedTableState<T> extends State<DynamicPaginatedTable<T>> {
 
             Builder(
               builder: (context) {
-                debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: SizedBox antes da paginação - height = 24');
                 return const SizedBox(height: 24);
               }
             ),
             Builder(
               builder: (context) {
-                debugPrint('🔍 DynamicPaginatedTable [${widget.itemLabel}]: Construindo controles de paginação');
                 return _buildPaginationControls();
               }
             ),

@@ -91,23 +91,19 @@ class _ClientsFinanceTabState extends State<_ClientsFinanceTab> {
   Future<void> _loadData() async {
     setState(() => _loading = true);
     try {
-      debugPrint('💰 Financeiro: Buscando clientes...');
 
       // Buscar todos os clientes usando o módulo
       final clientsData = await clientsModule.getClients();
 
-      debugPrint('💰 Financeiro: Encontrados ${clientsData.length} clientes');
 
       final clients = <Map<String, dynamic>>[];
 
       for (final client in clientsData) {
         final clientId = client['id'] as String;
-        debugPrint('   📋 Cliente: ${client['name']} (ID: $clientId)');
 
         // Buscar todos os projetos do cliente usando o módulo
         final projectsData = await projectsModule.getProjectsByClient(clientId);
 
-        debugPrint('      Projetos: ${projectsData.length}');
 
         // Buscar pagamentos de todos os projetos do cliente
         final projectIds = projectsData.map((p) => p['id'] as String).toList();
@@ -117,7 +113,6 @@ class _ClientsFinanceTabState extends State<_ClientsFinanceTab> {
           // Usando o módulo de finanças para buscar pagamentos
           paymentsData = await financeModule.getPaymentsByProjects(projectIds);
 
-          debugPrint('      Pagamentos: ${paymentsData.length}');
         }
 
         // Calcular valor total dos projetos por moeda
@@ -166,14 +161,12 @@ class _ClientsFinanceTabState extends State<_ClientsFinanceTab> {
         });
       }
 
-      debugPrint('💰 Financeiro: Total de clientes processados: ${clients.length}');
 
       setState(() {
         _clients = clients;
         _loading = false;
       });
     } catch (e) {
-      debugPrint('❌ Erro ao carregar dados de clientes: $e');
       setState(() => _loading = false);
     }
   }
@@ -350,7 +343,6 @@ class _ClientFinanceCard extends StatelessWidget {
         ),
       );
     } catch (e) {
-      debugPrint('❌ Erro ao carregar projetos pendentes: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erro ao carregar projetos: $e')),
@@ -716,7 +708,6 @@ class _EmployeesFinanceTabState extends State<_EmployeesFinanceTab> {
         _loading = false;
       });
     } catch (e) {
-      debugPrint('Erro ao carregar dados de funcionários: $e');
       setState(() => _loading = false);
     }
   }

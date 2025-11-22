@@ -10,6 +10,7 @@ import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
 import 'package:my_business/services/google_drive_oauth_service.dart';
 import 'package:my_business/ui/molecules/molecules.dart';
 import 'package:my_business/ui/theme/ui_constants.dart';
+import '../../clients/widgets/design_materials/select_design_materials_dialog.dart';
 
 
 
@@ -24,6 +25,7 @@ enum AssetType { image, file, video }
 /// - Windows PSD thumbnails
 /// - Drag & drop (via parent)
 /// - File removal
+/// - Selection from Design Materials (if companyId and companyName provided)
 ///
 /// Usage:
 /// ```dart
@@ -39,6 +41,8 @@ enum AssetType { image, file, video }
 ///     });
 ///   },
 ///   enabled: !_saving,
+///   companyId: 'company-uuid', // Optional: enables Design Materials selection
+///   companyName: 'Company Name', // Optional: for Design Materials dialog title
 /// )
 /// ```
 class TaskAssetsSection extends StatefulWidget {
@@ -47,7 +51,11 @@ class TaskAssetsSection extends StatefulWidget {
   final List<PlatformFile> assetsVideos;
   final void Function(List<PlatformFile> images, List<PlatformFile> files, List<PlatformFile> videos) onAssetsChanged;
   final bool enabled;
-  final String? taskId; // Para carregar assets existentes
+  final String? taskId; // Para carregar assets existentes (ou UUID provisório)
+  final String? companyId; // Para selecionar do Design Materials
+  final String? companyName; // Para exibir no dialog de seleção
+  final List<Map<String, dynamic>>? designMaterialsRefs; // Referências pendentes (para tasks novas)
+  final void Function(List<Map<String, dynamic>> refs)? onDesignMaterialsRefsChanged; // Callback para atualizar refs
 
   const TaskAssetsSection({
     super.key,
@@ -57,6 +65,10 @@ class TaskAssetsSection extends StatefulWidget {
     required this.onAssetsChanged,
     this.enabled = true,
     this.taskId,
+    this.companyId,
+    this.companyName,
+    this.designMaterialsRefs,
+    this.onDesignMaterialsRefsChanged,
   });
 
   @override
@@ -80,16 +92,13 @@ class _TaskAssetsSectionState extends State<TaskAssetsSection> {
 
   Future<void> _loadExistingAssets() async {
     if (widget.taskId == null) {
-      debugPrint('TaskAssetsSection: No taskId provided, skipping load');
       return;
     }
 
-    debugPrint('TaskAssetsSection: Loading existing assets for task ${widget.taskId}');
 
     try {
       final client = Supabase.instance.client;
 
-      debugPrint('TaskAssetsSection: Querying task_files table...');
       final rows = await client
           .from('task_files')
           .select('id, filename, mime_type, drive_file_id, drive_file_url, category')
@@ -97,8 +106,6 @@ class _TaskAssetsSectionState extends State<TaskAssetsSection> {
           .or('category.is.null,category.eq.assets')
           .order('created_at', ascending: true);
 
-      debugPrint('TaskAssetsSection: Query returned ${(rows as List).length} rows');
-      debugPrint('TaskAssetsSection: Rows: $rows');
 
       if (!mounted) return;
 
@@ -106,56 +113,77 @@ class _TaskAssetsSectionState extends State<TaskAssetsSection> {
         _existingAssets = List<Map<String, dynamic>>.from(rows);
       });
 
-      debugPrint('TaskAssetsSection: Loaded ${_existingAssets.length} existing assets');
     } catch (e) {
-      debugPrint('TaskAssetsSection: Error loading existing assets: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
   Future<void> _confirmDeleteExistingAsset(Map<String, dynamic> asset) async {
+    // Verificar se é do Design Materials
+    final driveFileId = asset['drive_file_id'] as String?;
+    bool isFromDesignMaterials = false;
+
+    if (driveFileId != null && driveFileId.isNotEmpty) {
+      try {
+        final client = Supabase.instance.client;
+        final dmCheck = await client
+            .from('design_files')
+            .select('id')
+            .eq('drive_file_id', driveFileId)
+            .maybeSingle();
+
+        isFromDesignMaterials = dmCheck != null;
+      } catch (e) {
+        // Ignorar erro (operação não crítica)
+      }
+    }
+
+    final message = isFromDesignMaterials
+        ? 'Deseja desvincular "${asset['filename']}" desta tarefa?\n\nO arquivo permanecerá no Design Materials.'
+        : 'Deseja remover "${asset['filename']}"?\n\nO arquivo será excluído do Google Drive.';
+
+    if (!mounted) return;
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => ConfirmDialog(
-        title: 'Remover Asset',
-        message: 'Deseja remover "${asset['filename']}"?\n\nO arquivo será excluído do Google Drive.',
-        confirmText: 'Remover',
+        title: isFromDesignMaterials ? 'Desvincular Asset' : 'Remover Asset',
+        message: message,
+        confirmText: isFromDesignMaterials ? 'Desvincular' : 'Remover',
         isDestructive: true,
       ),
     );
 
     if (confirmed == true) {
-      await _deleteExistingAsset(asset);
+      await _deleteExistingAsset(asset, isFromDesignMaterials: isFromDesignMaterials);
     }
   }
 
-  Future<void> _deleteExistingAsset(Map<String, dynamic> asset) async {
+  Future<void> _deleteExistingAsset(Map<String, dynamic> asset, {bool isFromDesignMaterials = false}) async {
     try {
-      debugPrint('🗑️ [TaskAssets] Removendo asset: ${asset['filename']}');
 
-      // 1. Remover do Google Drive
-      final driveFileId = asset['drive_file_id'] as String?;
-      if (driveFileId != null) {
-        debugPrint('🗑️ [TaskAssets] Removendo do Google Drive: $driveFileId');
-        try {
-          final drive = GoogleDriveOAuthService();
-          final client = await drive.getAuthedClient();
-          await drive.deleteFile(
-            client: client,
-            driveFileId: driveFileId,
-          );
-          debugPrint('✅ [TaskAssets] Arquivo removido do Google Drive');
-                } catch (e) {
-          debugPrint('⚠️ [TaskAssets] Erro ao remover do Google Drive: $e');
-          // Continua mesmo se falhar no Drive
+      // 1. Remover do Google Drive (APENAS se NÃO for do Design Materials)
+      if (!isFromDesignMaterials) {
+        final driveFileId = asset['drive_file_id'] as String?;
+        if (driveFileId != null) {
+          try {
+            final drive = GoogleDriveOAuthService();
+            final client = await drive.getAuthedClient();
+            await drive.deleteFile(
+              client: client,
+              driveFileId: driveFileId,
+            );
+          } catch (e) {
+            // Continua mesmo se falhar no Drive
+          }
         }
+      } else {
       }
 
-      // 2. Remover do banco de dados
+      // 2. Remover do banco de dados (sempre remove o vínculo)
       final client = Supabase.instance.client;
       final assetId = asset['id'] as String;
-      debugPrint('🗑️ [TaskAssets] Removendo do banco de dados: $assetId');
       await client.from('task_files').delete().eq('id', assetId);
-      debugPrint('✅ [TaskAssets] Arquivo removido do banco de dados');
 
       // 3. Remove from local list
       if (mounted) {
@@ -165,12 +193,14 @@ class _TaskAssetsSectionState extends State<TaskAssetsSection> {
       }
 
       if (mounted) {
+        final message = isFromDesignMaterials
+            ? 'Asset desvinculado com sucesso'
+            : 'Asset removido com sucesso';
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Asset removido com sucesso')),
+          SnackBar(content: Text(message)),
         );
       }
     } catch (e) {
-      debugPrint('❌ [TaskAssets] Erro ao remover asset: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Erro ao remover asset: $e')),
@@ -211,6 +241,108 @@ class _TaskAssetsSectionState extends State<TaskAssetsSection> {
     }
 
     widget.onAssetsChanged(newImages, newFiles, newVideos);
+  }
+
+  Future<void> _selectFromDesignMaterials() async {
+    if (!widget.enabled || widget.companyId == null || widget.companyName == null) return;
+
+    final selectedFiles = await showDialog<List<Map<String, dynamic>>>(
+      context: context,
+      builder: (context) => SelectDesignMaterialsDialog(
+        companyId: widget.companyId!,
+        companyName: widget.companyName!,
+      ),
+    );
+
+    if (selectedFiles == null || selectedFiles.isEmpty || !mounted) return;
+
+
+    // Verificar se temos callback para armazenar em memória (task nova)
+    final hasCallback = widget.onDesignMaterialsRefsChanged != null;
+
+    // Se não temos taskId E não temos callback, armazenar em memória local
+    if (widget.taskId == null && !hasCallback) {
+      // Adicionar às referências locais (serão salvas quando a task for criada)
+      final currentRefs = List<Map<String, dynamic>>.from(widget.designMaterialsRefs ?? []);
+      currentRefs.addAll(selectedFiles);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${selectedFiles.length} arquivo(s) selecionado(s) - serão adicionados ao salvar a tarefa'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Se temos callback, usar ele (task nova com UUID provisório)
+    if (hasCallback) {
+      final currentRefs = List<Map<String, dynamic>>.from(widget.designMaterialsRefs ?? []);
+      currentRefs.addAll(selectedFiles);
+      widget.onDesignMaterialsRefsChanged!(currentRefs);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${selectedFiles.length} arquivo(s) selecionado(s) - serão adicionados ao salvar a tarefa'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+      return;
+    }
+
+    // Se temos taskId, salvar diretamente no banco de dados (task existente)
+    try {
+      final client = Supabase.instance.client;
+      final userId = client.auth.currentUser?.id;
+
+      for (final file in selectedFiles) {
+        final filename = file['filename'] as String;
+        final driveFileId = file['drive_file_id'] as String?;
+        final driveFileUrl = file['drive_file_url'] as String?;
+        final mimeType = file['mime_type'] as String?;
+        final fileSize = file['file_size_bytes'] as int?;
+
+        if (driveFileId == null) {
+          continue;
+        }
+
+
+        // Inserir referência na tabela task_files
+        await client.from('task_files').insert({
+          'task_id': widget.taskId,
+          'filename': filename,
+          'drive_file_id': driveFileId,
+          'drive_file_url': driveFileUrl,
+          'mime_type': mimeType,
+          'size_bytes': fileSize, // Coluna é 'size_bytes', não 'file_size_bytes'
+          'category': 'assets',
+          'created_by': userId,
+        });
+
+      }
+
+      // Recarregar assets existentes para mostrar os novos
+      await _loadExistingAssets();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${selectedFiles.length} arquivo(s) adicionado(s) do Design Materials')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao adicionar arquivos: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _handleDroppedFiles(List<String> paths) async {
@@ -326,10 +458,8 @@ class _TaskAssetsSectionState extends State<TaskAssetsSection> {
       return mimeType?.startsWith('video/') ?? false;
     }
 
-    // Filter existing assets by type
-    debugPrint('TaskAssetsSection: Filtering ${_existingAssets.length} existing assets for type: ${tabType.name}');
+    // Filter existing assets by type (from database)
     final existingOfType = _existingAssets.where((asset) {
-      debugPrint('  - Asset: ${asset['filename']}, type: ${asset['mime_type']}');
       if (tabType == AssetType.image) {
         return isImage(asset);
       } else if (tabType == AssetType.video) {
@@ -338,7 +468,17 @@ class _TaskAssetsSectionState extends State<TaskAssetsSection> {
         return !isImage(asset) && !isVideo(asset);
       }
     }).toList();
-    debugPrint('TaskAssetsSection: Found ${existingOfType.length} assets of type ${tabType.name}');
+
+    // Filter Design Materials refs by type (from memory - not yet saved)
+    final designMaterialsOfType = (widget.designMaterialsRefs ?? []).where((ref) {
+      if (tabType == AssetType.image) {
+        return isImage(ref);
+      } else if (tabType == AssetType.video) {
+        return isVideo(ref);
+      } else {
+        return !isImage(ref) && !isVideo(ref);
+      }
+    }).toList();
 
     // Label dinâmico para o botão de adicionar, conforme a aba atual
     final String addLabel = tabType == AssetType.image
@@ -357,65 +497,161 @@ class _TaskAssetsSectionState extends State<TaskAssetsSection> {
           children: [
             // Card de adicionar assets
             if (widget.enabled)
-              InkWell(
-                onTap: _pickAssets,
-                onHover: (h) => setState(() => _isAddHover = h),
-                hoverColor: Colors.transparent,
-                splashColor: Colors.transparent,
-                highlightColor: Colors.transparent,
-                mouseCursor: SystemMouseCursors.click,
-                borderRadius: BorderRadius.circular(8),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final hasAnyAssets = existingOfType.isNotEmpty || files.isNotEmpty;
-                    final cardWidth = hasAnyAssets ? UIConst.assetCardSize : constraints.maxWidth;
-
-                    final borderColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: _isAddHover ? 0.8 : 0.5);
-                    final overlayColor = _isAddHover
-                        ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06)
-                        : Colors.transparent;
-                    final labelColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: _isAddHover ? 0.8 : 0.5);
-
-                    return SizedBox(
-                      height: 150,
-                      width: cardWidth,
-                      child: DashedContainer(
-                        color: borderColor,
-                        strokeWidth: UIConst.dashedStroke,
-                        dashLength: UIConst.dashLengthAssets,
-                        dashGap: UIConst.dashGapAssets,
-                        borderRadius: UIConst.radiusSmall,
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 120),
-                          curve: Curves.easeOutCubic,
-                          color: overlayColor,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
+              widget.companyId != null && widget.companyName != null
+                  ? // Card com menu quando Design Materials está disponível
+                  PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'upload') {
+                          _pickAssets();
+                        } else if (value == 'design_materials') {
+                          _selectFromDesignMaterials();
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'upload',
+                          child: Row(
                             children: [
-                              Icon(
-                                Icons.upload_rounded,
-                                size: 32,
-                                color: labelColor,
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                addLabel,
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: labelColor,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
+                              Icon(Icons.upload_file, size: 20),
+                              SizedBox(width: 12),
+                              Text('Upload do computador'),
                             ],
                           ),
                         ),
+                        const PopupMenuItem(
+                          value: 'design_materials',
+                          child: Row(
+                            children: [
+                              Icon(Icons.folder_special, size: 20),
+                              SizedBox(width: 12),
+                              Text('Selecionar do Design Materials'),
+                            ],
+                          ),
+                        ),
+                      ],
+                      child: MouseRegion(
+                        onEnter: (_) => setState(() => _isAddHover = true),
+                        onExit: (_) => setState(() => _isAddHover = false),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final hasAnyAssets = existingOfType.isNotEmpty || files.isNotEmpty;
+                            final cardWidth = hasAnyAssets ? UIConst.assetCardSize : constraints.maxWidth;
+
+                            final borderColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: _isAddHover ? 0.8 : 0.5);
+                            final overlayColor = _isAddHover
+                                ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06)
+                                : Colors.transparent;
+                            final labelColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: _isAddHover ? 0.8 : 0.5);
+
+                            return SizedBox(
+                              height: 150,
+                              width: cardWidth,
+                              child: DashedContainer(
+                                color: borderColor,
+                                strokeWidth: UIConst.dashedStroke,
+                                dashLength: UIConst.dashLengthAssets,
+                                dashGap: UIConst.dashGapAssets,
+                                borderRadius: UIConst.radiusSmall,
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 120),
+                                  curve: Curves.easeOutCubic,
+                                  color: overlayColor,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.add_circle_outline,
+                                        size: 32,
+                                        color: labelColor,
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        addLabel,
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                          color: labelColor,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '(clique para opções)',
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                          color: labelColor.withValues(alpha: 0.7),
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                    );
-                  },
-                ),
-              ),
+                    )
+                  : // Card simples quando Design Materials não está disponível
+                  InkWell(
+                      onTap: _pickAssets,
+                      onHover: (h) => setState(() => _isAddHover = h),
+                      hoverColor: Colors.transparent,
+                      splashColor: Colors.transparent,
+                      highlightColor: Colors.transparent,
+                      mouseCursor: SystemMouseCursors.click,
+                      borderRadius: BorderRadius.circular(8),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final hasAnyAssets = existingOfType.isNotEmpty || files.isNotEmpty;
+                          final cardWidth = hasAnyAssets ? UIConst.assetCardSize : constraints.maxWidth;
+
+                          final borderColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: _isAddHover ? 0.8 : 0.5);
+                          final overlayColor = _isAddHover
+                              ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06)
+                              : Colors.transparent;
+                          final labelColor = Theme.of(context).colorScheme.onSurface.withValues(alpha: _isAddHover ? 0.8 : 0.5);
+
+                          return SizedBox(
+                            height: 150,
+                            width: cardWidth,
+                            child: DashedContainer(
+                              color: borderColor,
+                              strokeWidth: UIConst.dashedStroke,
+                              dashLength: UIConst.dashLengthAssets,
+                              dashGap: UIConst.dashGapAssets,
+                              borderRadius: UIConst.radiusSmall,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 120),
+                                curve: Curves.easeOutCubic,
+                                color: overlayColor,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.upload_rounded,
+                                      size: 32,
+                                      color: labelColor,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      addLabel,
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                        color: labelColor,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
 
             // Existing assets (from database)
             ...existingOfType.map((asset) => _buildExistingAssetTile(asset)),
+
+            // Design Materials refs (from memory - not yet saved)
+            ...designMaterialsOfType.map((ref) => _buildDesignMaterialsRefTile(ref)),
 
             // New assets (from file picker)
             ...files.asMap().entries.map((e) => Stack(
@@ -585,6 +821,161 @@ class _TaskAssetsSectionState extends State<TaskAssetsSection> {
               borderRadius: BorderRadius.circular(12),
               child: InkWell(
                 onTap: () => _confirmDeleteExistingAsset(asset),
+                borderRadius: BorderRadius.circular(12),
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(Icons.close, size: 14, color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildDesignMaterialsRefTile(Map<String, dynamic> ref) {
+    final fileName = ref['filename'] as String? ?? 'Sem nome';
+    final mimeType = ref['mime_type'] as String? ?? '';
+    final driveFileId = ref['drive_file_id'] as String?;
+
+    // Generate Google Drive thumbnail URL
+    final thumbnailUrl = driveFileId != null
+        ? 'https://drive.google.com/thumbnail?id=$driveFileId&sz=w800'
+        : null;
+
+    final isImage = mimeType.startsWith('image/');
+    final isVideo = mimeType.startsWith('video/');
+
+    // Widget de conteúdo (imagem ou placeholder)
+    Widget contentWidget;
+
+    if (isImage && thumbnailUrl != null) {
+      contentWidget = SizedBox(
+        height: 150,
+        width: 150,
+        child: Image.network(
+          thumbnailUrl,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) {
+              return child;
+            }
+            return Container(
+              height: 150,
+              width: 150,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: const Center(child: CircularProgressIndicator()),
+            );
+          },
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              height: 150,
+              width: 150,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              child: Icon(
+                Icons.broken_image,
+                size: 32,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            );
+          },
+        ),
+      );
+    } else {
+      contentWidget = Container(
+        height: 150,
+        width: 150,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Icon(
+          isVideo ? Icons.video_file : Icons.insert_drive_file,
+          size: 32,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      );
+    }
+
+    return Stack(
+      children: [
+        // Conteúdo principal
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: contentWidget,
+        ),
+
+        // Nome do arquivo na parte inferior
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(8),
+                bottomRight: Radius.circular(8),
+              ),
+            ),
+            child: Text(
+              fileName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Colors.white,
+                fontSize: 10,
+              ),
+            ),
+          ),
+        ),
+
+        // Badge "Design Materials" no canto superior esquerdo
+        Positioned(
+          top: 4,
+          left: 4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.folder_special,
+                  size: 10,
+                  color: Theme.of(context).colorScheme.onPrimary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'DM',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // Botão de remover
+        if (widget.enabled)
+          Positioned(
+            top: 4,
+            right: 4,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                onTap: () {
+                  // Remover da lista em memória
+                  final updatedRefs = List<Map<String, dynamic>>.from(widget.designMaterialsRefs ?? []);
+                  updatedRefs.remove(ref);
+                  widget.onDesignMaterialsRefsChanged?.call(updatedRefs);
+                },
                 borderRadius: BorderRadius.circular(12),
                 child: const Padding(
                   padding: EdgeInsets.all(4),

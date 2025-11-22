@@ -114,8 +114,6 @@ class InfoCard extends StatelessWidget {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               final renderBox = context.findRenderObject() as RenderBox?;
               if (renderBox != null) {
-                debugPrint('$debugEmoji ALTURA DA DIV ($debugDescription): ${renderBox.size.height}px');
-                debugPrint('$debugEmoji LARGURA DA DIV ($debugDescription): ${renderBox.size.width}px');
                 onSizeCalculated!(renderBox.size);
               }
             });
@@ -148,25 +146,15 @@ class InfoCard extends StatelessWidget {
                     final adjustedItemWidth = availableWidth / adjustedItemsPerRow;
 
                     // LOG: Informações de cálculo
-                    debugPrint('$debugEmoji ========== CÁLCULO DE LARGURA ($debugDescription) ==========');
-                    debugPrint('$debugEmoji Largura disponível: $availableWidth');
-                    debugPrint('$debugEmoji Total de itens: $totalItems');
-                    debugPrint('$debugEmoji Itens por linha (calculado): $itemsPerRow');
-                    debugPrint('$debugEmoji Itens por linha (ajustado): $adjustedItemsPerRow');
-                    debugPrint('$debugEmoji Largura ajustada por item: $adjustedItemWidth');
 
                     // Construir lista de widgets com larguras calculadas
-                    int itemIndex = 0;
                     final widgets = items.map((item) {
-                      itemIndex++;
-
                       // Calcular largura do item
                       final itemWidth = item.widthCalculator != null
                           ? item.widthCalculator!(itemsPerRow, adjustedItemWidth)
                           : adjustedItemWidth;
 
                       // LOG: Largura de cada item
-                      debugPrint('$debugEmoji Item $itemIndex ("${item.label}"): largura = ${itemWidth ?? "null (hug content)"}');
 
                       // Calcular largura mínima do item
                       final itemMinWidth = item.minWidthCalculator != null

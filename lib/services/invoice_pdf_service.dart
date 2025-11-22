@@ -29,7 +29,6 @@ class InvoicePdfService {
     try {
       driveUrl = await _uploadToGoogleDrive(projectId, pdfBytes);
     } catch (e) {
-      debugPrint('⚠️ Erro ao fazer upload para o Google Drive: $e');
       // Continua mesmo se o upload falhar
     }
 
@@ -139,7 +138,6 @@ class InvoicePdfService {
       // Retornar com prefixo DRAFT para indicar que é preview
       return 'DRAFT-${result['invoice_number']}';
     } catch (e) {
-      debugPrint('❌ Erro ao obter preview do número da invoice: $e');
       // Fallback: usar DRAFT
       return 'DRAFT';
     }
@@ -171,7 +169,6 @@ class InvoicePdfService {
         'p_year': currentYear,
       }).single();
 
-      debugPrint('📊 Resultado da função get_next_invoice_number: $result');
 
       final invoiceNumber = result['invoice_number'] as String;
 
@@ -187,7 +184,6 @@ class InvoicePdfService {
 
       return invoiceNumber;
     } catch (e) {
-      debugPrint('❌ Erro ao gerar número da invoice: $e');
       // Fallback: usar ID do projeto
       return 'INV-${projectId.substring(0, 8).toUpperCase()}';
     }
@@ -201,8 +197,17 @@ class InvoicePdfService {
       final clientData = await _fetchClientData(projectData['client_id'] as String?);
       final companyData = await _fetchCompanyData(projectData['company_id'] as String?);
 
-      // Buscar organização (não usado no momento, mas pode ser útil no futuro)
-      // final organizationId = projectData['organization_id'] as String?;
+      // Buscar organização
+      final organizationId = projectData['organization_id'] as String?;
+      String? organizationName;
+      if (organizationId != null) {
+        final orgData = await _client
+            .from('organizations')
+            .select('name')
+            .eq('id', organizationId)
+            .maybeSingle();
+        organizationName = orgData?['name'] as String?;
+      }
 
       // Buscar invoice number
       final invoiceData = await _client
@@ -233,6 +238,7 @@ class InvoicePdfService {
         bytes: pdfBytes,
         mimeType: 'application/pdf',
         companyName: companyName,
+        organizationName: organizationName,
       );
 
       // Atualizar o registro da invoice com a URL do Drive
@@ -240,11 +246,9 @@ class InvoicePdfService {
         'pdf_url': uploaded.publicViewUrl,
       }).eq('project_id', projectId);
 
-      debugPrint('✅ Invoice enviada para o Google Drive: ${uploaded.publicViewUrl}');
 
       return uploaded.publicViewUrl;
     } catch (e) {
-      debugPrint('❌ Erro ao fazer upload para o Google Drive: $e');
       rethrow;
     }
   }

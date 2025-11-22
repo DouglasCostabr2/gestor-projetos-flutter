@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert' as convert;
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis_auth/auth_io.dart' as auth;
 import 'package:http/http.dart' as http;
@@ -36,10 +35,8 @@ class OAuthTokenStore {
     };
 
     try {
-      debugPrint('GDrive OAuth: salvando token via upsert onConflict=user_id');
       await _client.from('user_oauth_tokens').upsert(payload, onConflict: 'user_id');
     } catch (e) {
-      debugPrint('GDrive OAuth: upsert falhou ($e). Tentando update/insert...');
       // Fallback: update, se 0 linhas afetadas -> insert
       try {
         final updated = await _client
@@ -51,17 +48,14 @@ class OAuthTokenStore {
           await _client.from('user_oauth_tokens').insert(payload);
         }
       } catch (e2) {
-        debugPrint('GDrive OAuth: update/insert também falhou: $e2');
         rethrow;
       }
     }
   }
 
   static Future<Map<String, dynamic>?> getToken(String provider) async {
-    debugPrint('🔍 GDrive OAuth: buscando token pessoal para provider=$provider');
     final user = authModule.currentUser;
     if (user == null) {
-      debugPrint('⚠️ GDrive OAuth: usuário não autenticado, não pode buscar token pessoal');
       return null;
     }
     try {
@@ -71,14 +65,10 @@ class OAuthTokenStore {
           .eq('user_id', user.id)
           .eq('provider', provider)
           .maybeSingle();
-      debugPrint('✅ GDrive OAuth: token pessoal encontrado: ${res != null ? "SIM" : "NÃO"}');
       if (res != null) {
-        debugPrint('   - has refresh_token: ${res['refresh_token'] != null}');
-        debugPrint('   - has access_token: ${res['access_token'] != null}');
       }
       return res;
     } catch (e) {
-      debugPrint('❌ GDrive OAuth: erro ao buscar token pessoal: $e');
       return null;
     }
   }
@@ -107,10 +97,8 @@ class OAuthTokenStore {
     };
 
     try {
-      debugPrint('GDrive OAuth: salvando token compartilhado para org=$organizationId via upsert');
       await _client.from('shared_oauth_tokens').upsert(payload, onConflict: 'provider,organization_id');
     } catch (e) {
-      debugPrint('GDrive OAuth: falha ao salvar token compartilhado: $e');
       rethrow;
     }
   }
@@ -118,22 +106,16 @@ class OAuthTokenStore {
   /// Busca token compartilhado da organização
   static Future<Map<String, dynamic>?> getSharedToken(String provider, String organizationId) async {
     try {
-      debugPrint('🔍 GDrive OAuth: buscando token compartilhado para provider=$provider, org=$organizationId');
       final res = await _client
           .from('shared_oauth_tokens')
           .select('*')
           .eq('provider', provider)
           .eq('organization_id', organizationId)
           .maybeSingle();
-      debugPrint('✅ GDrive OAuth: token compartilhado encontrado: ${res != null ? "SIM" : "NÃO"}');
       if (res != null) {
-        debugPrint('   - has refresh_token: ${res['refresh_token'] != null}');
-        debugPrint('   - has access_token: ${res['access_token'] != null}');
-        debugPrint('   - connected_by: ${res['connected_by']}');
       }
       return res;
     } catch (e) {
-      debugPrint('❌ GDrive OAuth: erro ao buscar token compartilhado: $e');
       return null;
     }
   }
@@ -147,14 +129,12 @@ class OAuthTokenStore {
   /// Remove token compartilhado da organização (apenas admin/gestor)
   static Future<void> removeSharedToken(String provider, String organizationId) async {
     try {
-      debugPrint('GDrive OAuth: removendo token compartilhado para org=$organizationId');
       await _client
           .from('shared_oauth_tokens')
           .delete()
           .eq('provider', provider)
           .eq('organization_id', organizationId);
     } catch (e) {
-      debugPrint('GDrive OAuth: erro ao remover token compartilhado: $e');
       rethrow;
     }
   }
@@ -185,18 +165,14 @@ class GoogleDriveOAuthService {
   /// - Somente token compartilhado por organização (shared_oauth_tokens)
   /// - Sem fallback para token pessoal
   Future<auth.AuthClient> getAuthedClient() async {
-    debugPrint('🔐🔐🔐 GDrive OAuth: getAuthedClient() chamado');
 
     // Obter organization_id do contexto
     final organizationId = OrganizationContext.currentOrganizationId;
 
     if (organizationId != null) {
       // 1. Tentar token compartilhado da organização primeiro
-      debugPrint('🔍🔍🔍 GDrive OAuth: verificando token compartilhado para org=$organizationId...');
       final sharedToken = await OAuthTokenStore.getSharedToken('google', organizationId);
-      debugPrint('🔍🔍🔍 GDrive OAuth: sharedToken obtido: ${sharedToken != null}');
       if (sharedToken != null && sharedToken['refresh_token'] != null) {
-        debugPrint('✅✅✅ GDrive OAuth: usando token compartilhado da organização');
         final refreshToken = sharedToken['refresh_token'] as String;
         final creds = auth.AccessCredentials(
           auth.AccessToken('Bearer', sharedToken['access_token'] ?? '', DateTime.now().toUtc().subtract(const Duration(minutes: 1))),
@@ -206,9 +182,7 @@ class GoogleDriveOAuthService {
 
         final base = http.Client();
         try {
-          debugPrint('🔄🔄🔄 GDrive OAuth: renovando token compartilhado...');
           final refreshed = await auth.refreshCredentials(_clientId, creds, base);
-          debugPrint('🔄🔄🔄 GDrive OAuth: token renovado, atualizando no DB...');
           // Atualizar token compartilhado
           await OAuthTokenStore.upsertSharedToken(
             provider: 'google',
@@ -217,24 +191,19 @@ class GoogleDriveOAuthService {
             accessToken: refreshed.accessToken.data,
             expiry: refreshed.accessToken.expiry,
           );
-          debugPrint('✅✅✅ GDrive OAuth: token compartilhado renovado com sucesso');
           return auth.authenticatedClient(base, refreshed);
         } catch (e) {
           base.close();
-          debugPrint('❌❌❌ GDrive OAuth: falha ao renovar token compartilhado: $e');
           throw ConsentRequired();
         }
       } else {
-        debugPrint('⚠️⚠️⚠️ GDrive OAuth: nenhum token compartilhado encontrado para a organização');
       }
     } else {
-      debugPrint('⚠️⚠️⚠️ GDrive OAuth: nenhuma organização ativa no contexto');
       throw ConsentRequired();
     }
 
 
 
-    debugPrint('GDrive OAuth: nenhum token armazenado, solicitando consentimento');
     throw ConsentRequired();
   }
 
@@ -260,7 +229,6 @@ class GoogleDriveOAuthService {
 
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final redirectUri = Uri.parse('http://127.0.0.1:${server.port}/oauth2redirect');
-    debugPrint('GDrive OAuth: loopback iniciado em $redirectUri');
 
     final authParams = {
       'client_id': _clientId.identifier,
@@ -286,10 +254,8 @@ class GoogleDriveOAuthService {
       onAuthUrl?.call(authUrl, opened);
     }
     if (!opened) {
-      debugPrint('GDrive OAuth: falha ao abrir navegador; URL: $authUrl');
       // Prosseguimos mesmo assim; o usuário pode copiar/colar manualmente a URL.
     } else {
-      debugPrint('GDrive OAuth: navegador aberto em $authUrl');
     }
 
     String? authCode;
@@ -300,7 +266,6 @@ class GoogleDriveOAuthService {
         final qp = req.uri.queryParameters;
         authCode = qp['code'];
         authError = qp['error'];
-        debugPrint('GDrive OAuth: resposta recebida. code=${authCode != null}, error=$authError');
         // Respond to browser
         req.response.statusCode = 200;
         req.response.headers.set('Content-Type', 'text/html; charset=utf-8');
@@ -310,7 +275,6 @@ class GoogleDriveOAuthService {
       }
     } finally {
       await server.close(force: true);
-      debugPrint('GDrive OAuth: loopback encerrado');
     }
 
     if (authError != null) {
@@ -332,7 +296,6 @@ class GoogleDriveOAuthService {
         'grant_type': 'authorization_code',
       },
     );
-    debugPrint('GDrive OAuth: token exchange status=${tokenRes.statusCode}');
 
     if (tokenRes.statusCode != 200) {
       throw Exception('Falha ao trocar código por tokens: ${tokenRes.statusCode} ${tokenRes.body}');
@@ -343,7 +306,6 @@ class GoogleDriveOAuthService {
     final accessToken = map['access_token'] as String;
     final expiresIn = (map['expires_in'] as num?)?.toInt() ?? 3600;
     final refreshToken = (map['refresh_token'] as String?) ?? '';
-    debugPrint('GDrive OAuth: recebeu refreshToken=${refreshToken.isNotEmpty}');
 
     final creds = auth.AccessCredentials(
       auth.AccessToken('Bearer', accessToken, DateTime.now().toUtc().add(Duration(seconds: expiresIn))),
@@ -360,7 +322,6 @@ class GoogleDriveOAuthService {
         accessToken: creds.accessToken.data,
         expiry: creds.accessToken.expiry,
       );
-      debugPrint('GDrive OAuth: token compartilhado salvo no Supabase para org=$organizationId');
     } else {
       throw Exception('Somente conta compartilhada é suportada neste aplicativo (por organização).');
     }
@@ -379,7 +340,7 @@ class GoogleDriveOAuthService {
         return m['email'] as String?;
       }
     } catch (e) {
-      debugPrint('GDrive OAuth: falha ao obter email do usuário: $e');
+      // Ignorar erro (operação não crítica)
     }
     return null;
   }
@@ -604,38 +565,21 @@ class GoogleDriveOAuthService {
     String? mimeType,
     String? organizationName,
   }) async {
-    debugPrint('🔵 [Drive] uploadToTaskFolder INICIADO');
-    debugPrint('   📁 Cliente: $clientName');
-    debugPrint('   📁 Projeto: $projectName');
-    debugPrint('   📁 Tarefa: $taskName');
-    debugPrint('   📄 Arquivo: $filename (${bytes.length} bytes)');
 
-    debugPrint('🔵 [Drive] Obtendo API do Drive...');
     final api = await _drive(client);
-    debugPrint('✅ [Drive] API obtida com sucesso');
 
-    debugPrint('🔵 [Drive] Garantindo pasta da tarefa...');
     final taskFolder = await ensureTaskFolder(client, clientName, projectName, taskName, organizationName: organizationName);
-    debugPrint('✅ [Drive] Pasta da tarefa: $taskFolder');
 
-    debugPrint('🔵 [Drive] Criando objeto File...');
     final file = drive.File()
       ..name = filename
       ..parents = [taskFolder];
-    debugPrint('✅ [Drive] Objeto File criado');
 
     final contentType = mimeType ?? mime.lookupMimeType(filename) ?? 'application/octet-stream';
-    debugPrint('🔵 [Drive] Content-Type: $contentType');
 
-    debugPrint('🔵 [Drive] Criando Media stream...');
     final media = drive.Media(Stream.value(bytes), bytes.length, contentType: contentType);
-    debugPrint('✅ [Drive] Media stream criado');
 
-    debugPrint('🔵 [Drive] Enviando arquivo para o Drive...');
     final created = await api.files.create(file, uploadMedia: media, $fields: 'id');
-    debugPrint('✅ [Drive] Arquivo enviado! ID: ${created.id}');
 
-    debugPrint('🔵 [Drive] Tornando arquivo público...');
     try {
       await api.permissions.create(
         drive.Permission()
@@ -643,20 +587,14 @@ class GoogleDriveOAuthService {
           ..role = 'reader',
         created.id!,
       );
-      debugPrint('✅ [Drive] Arquivo tornado público');
     } catch (e) {
-      debugPrint('⚠️ [Drive] Falha ao tornar arquivo público: $e');
-      debugPrint('Falha ao tornar arquivo público (link): $e');
+      // Ignorar erro (operação não crítica)
     }
 
-    debugPrint('🔵 [Drive] Obtendo metadados do arquivo...');
     final f = await api.files.get(created.id!, $fields: 'id,thumbnailLink') as drive.File;
     final id = f.id!;
     final publicViewUrl = Uri.https('drive.google.com', '/uc', {'export': 'view', 'id': id}).toString();
-    debugPrint('✅ [Drive] Metadados obtidos');
-    debugPrint('   🔗 URL pública: $publicViewUrl');
 
-    debugPrint('✅ [Drive] uploadToTaskFolder CONCLUÍDO');
     return UploadedDriveFile(
       id: id,
       publicViewUrl: publicViewUrl,
@@ -678,11 +616,6 @@ class GoogleDriveOAuthService {
     String? organizationName,
     String? companyName,
   }) async {
-    debugPrint('🔵 [Drive Resumable] Upload INICIADO');
-    debugPrint('   📁 Cliente: $clientName');
-    debugPrint('   📁 Projeto: $projectName');
-    debugPrint('   📁 Tarefa: $taskName');
-    debugPrint('   📄 Arquivo: $filename (${bytes.length} bytes)');
 
     final taskFolder = companyName != null && companyName.isNotEmpty
         ? await ensureTaskFolderWithCompany(client, clientName, companyName, projectName, taskName, organizationName: organizationName)
@@ -690,7 +623,6 @@ class GoogleDriveOAuthService {
     final contentType = mimeType ?? mime.lookupMimeType(filename) ?? 'application/octet-stream';
 
     // PASSO 1: Iniciar sessão de upload resumable
-    debugPrint('🔵 [Drive Resumable] Iniciando sessão de upload...');
     final metadata = {
       'name': filename,
       'parents': [taskFolder],
@@ -716,14 +648,12 @@ class GoogleDriveOAuthService {
       throw Exception('URL de upload não retornada');
     }
 
-    debugPrint('✅ [Drive Resumable] Sessão iniciada. URL: $uploadUrl');
 
     // PASSO 2: Enviar arquivo em chunks
     // Usar chunks de 10 MB para upload suave sem travar a UI
     const chunkSize = 10 * 1024 * 1024; // 10 MB por chunk
     int uploadedBytes = 0;
 
-    debugPrint('🔵 [Drive Resumable] Enviando arquivo em chunks de ${chunkSize ~/ 1024 ~/ 1024} MB...');
 
     while (uploadedBytes < bytes.length) {
       final end = (uploadedBytes + chunkSize < bytes.length)
@@ -733,7 +663,6 @@ class GoogleDriveOAuthService {
       final chunk = bytes.sublist(uploadedBytes, end);
       final contentRange = 'bytes $uploadedBytes-${end - 1}/${bytes.length}';
 
-      debugPrint('   📤 Enviando chunk: $contentRange');
 
       final chunkResponse = await http.put(
         Uri.parse(uploadUrl),
@@ -752,7 +681,6 @@ class GoogleDriveOAuthService {
         uploadedBytes = end;
         final progress = uploadedBytes / bytes.length;
         onProgress(progress);
-        debugPrint('   ✅ Chunk enviado. Progresso: ${(progress * 100).toStringAsFixed(1)}%');
 
         // Delay mínimo para permitir que a UI atualize
         await Future.delayed(const Duration(milliseconds: 1));
@@ -760,13 +688,11 @@ class GoogleDriveOAuthService {
         // Upload completo!
         uploadedBytes = bytes.length;
         onProgress(1.0);
-        debugPrint('✅ [Drive Resumable] Upload completo!');
 
         final fileData = convert.jsonDecode(chunkResponse.body);
         final fileId = fileData['id'] as String;
 
         // PASSO 3: Tornar arquivo público
-        debugPrint('🔵 [Drive Resumable] Tornando arquivo público...');
         try {
           final api = await _drive(client);
           await api.permissions.create(
@@ -775,18 +701,15 @@ class GoogleDriveOAuthService {
               ..role = 'reader',
             fileId,
           );
-          debugPrint('✅ [Drive Resumable] Arquivo tornado público');
         } catch (e) {
-          debugPrint('⚠️ [Drive Resumable] Falha ao tornar público: $e');
+          // Ignorar erro (operação não crítica)
         }
 
         // PASSO 4: Obter metadados
-        debugPrint('🔵 [Drive Resumable] Obtendo metadados...');
         final api = await _drive(client);
         final file = await api.files.get(fileId, $fields: 'id,thumbnailLink') as drive.File;
         final publicViewUrl = Uri.https('drive.google.com', '/uc', {'export': 'view', 'id': fileId}).toString();
 
-        debugPrint('✅ [Drive Resumable] Upload CONCLUÍDO');
         return UploadedDriveFile(
           id: fileId,
           publicViewUrl: publicViewUrl,
@@ -829,7 +752,7 @@ class GoogleDriveOAuthService {
         created.id!,
       );
     } catch (e) {
-      debugPrint('Falha ao tornar arquivo público (link): $e');
+      // Ignorar erro (operação não crítica)
     }
 
     final f = await api.files.get(created.id!, $fields: 'id,thumbnailLink') as drive.File;
@@ -861,9 +784,10 @@ class GoogleDriveOAuthService {
     required List<int> bytes,
     String? mimeType,
     String? companyName,
+    String? organizationName,
   }) async {
     final api = await _drive(client);
-    final folderId = await ensureProjectSubfolder(client, clientName, projectName, subfolderName, companyName: companyName);
+    final folderId = await ensureProjectSubfolder(client, clientName, projectName, subfolderName, companyName: companyName, organizationName: organizationName);
 
     final file = drive.File()
       ..name = filename
@@ -882,7 +806,7 @@ class GoogleDriveOAuthService {
         created.id!,
       );
     } catch (e) {
-      debugPrint('Falha ao tornar arquivo público (link): $e');
+      // Ignorar erro (operação não crítica)
     }
 
     final f = await api.files.get(created.id!, $fields: 'id,thumbnailLink') as drive.File;
@@ -937,7 +861,7 @@ class GoogleDriveOAuthService {
         created.id!,
       );
     } catch (e) {
-      debugPrint('Falha ao tornar arquivo público (link): $e');
+      // Ignorar erro (operação não crítica)
     }
 
     final f = await api.files.get(created.id!, $fields: 'id,thumbnailLink') as drive.File;
@@ -1021,7 +945,7 @@ class GoogleDriveOAuthService {
         created.id!,
       );
     } catch (e) {
-      debugPrint('Falha ao tornar arquivo público (link): $e');
+      // Ignorar erro (operação não crítica)
     }
 
     final f = await api.files.get(created.id!, $fields: 'id,thumbnailLink') as drive.File;
@@ -1048,12 +972,6 @@ class GoogleDriveOAuthService {
     String? companyName,
     Function(double progress)? onProgress,
   }) async {
-    debugPrint('🔵 [Drive Resumable Subfolder] Upload INICIADO');
-    debugPrint('   📁 Cliente: $clientName');
-    debugPrint('   📁 Projeto: $projectName');
-    debugPrint('   📁 Tarefa: $taskName');
-    debugPrint('   📁 Subpasta: $subfolderName');
-    debugPrint('   📄 Arquivo: $filename (${bytes.length} bytes)');
 
     final subfolder = await ensureTaskSubfolder(
       client: client,
@@ -1066,7 +984,6 @@ class GoogleDriveOAuthService {
     final contentType = mimeType ?? mime.lookupMimeType(filename) ?? 'application/octet-stream';
 
     // PASSO 1: Iniciar sessão de upload resumable
-    debugPrint('🔵 [Drive Resumable Subfolder] Iniciando sessão de upload...');
     final metadata = {
       'name': filename,
       'parents': [subfolder],
@@ -1092,14 +1009,12 @@ class GoogleDriveOAuthService {
       throw Exception('URL de upload não retornada');
     }
 
-    debugPrint('✅ [Drive Resumable Subfolder] Sessão iniciada. URL: $uploadUrl');
 
     // PASSO 2: Enviar arquivo em chunks
     // Usar chunks de 10 MB para upload suave sem travar a UI
     const chunkSize = 10 * 1024 * 1024; // 10 MB por chunk
     int uploadedBytes = 0;
 
-    debugPrint('🔵 [Drive Resumable Subfolder] Enviando arquivo em chunks de ${chunkSize ~/ 1024 ~/ 1024} MB...');
 
     while (uploadedBytes < bytes.length) {
       final end = (uploadedBytes + chunkSize < bytes.length)
@@ -1109,7 +1024,6 @@ class GoogleDriveOAuthService {
       final chunk = bytes.sublist(uploadedBytes, end);
       final contentRange = 'bytes $uploadedBytes-${end - 1}/${bytes.length}';
 
-      debugPrint('   📤 Enviando chunk: $contentRange');
 
       final chunkResponse = await http.put(
         Uri.parse(uploadUrl),
@@ -1128,7 +1042,6 @@ class GoogleDriveOAuthService {
         uploadedBytes = end;
         final progress = uploadedBytes / bytes.length;
         onProgress?.call(progress);
-        debugPrint('   ✅ Chunk enviado. Progresso: ${(progress * 100).toStringAsFixed(1)}%');
 
         // Delay mínimo para permitir que a UI atualize
         await Future.delayed(const Duration(milliseconds: 1));
@@ -1136,13 +1049,11 @@ class GoogleDriveOAuthService {
         // Upload completo!
         uploadedBytes = bytes.length;
         onProgress?.call(1.0);
-        debugPrint('✅ [Drive Resumable Subfolder] Upload completo!');
 
         final fileData = convert.jsonDecode(chunkResponse.body);
         final fileId = fileData['id'] as String;
 
         // PASSO 3: Tornar arquivo público
-        debugPrint('🔵 [Drive Resumable Subfolder] Tornando arquivo público...');
         try {
           final api = await _drive(client);
           await api.permissions.create(
@@ -1151,18 +1062,15 @@ class GoogleDriveOAuthService {
               ..role = 'reader',
             fileId,
           );
-          debugPrint('✅ [Drive Resumable Subfolder] Arquivo tornado público');
         } catch (e) {
-          debugPrint('⚠️ [Drive Resumable Subfolder] Falha ao tornar público: $e');
+          // Ignorar erro (operação não crítica)
         }
 
         // PASSO 4: Obter metadados
-        debugPrint('🔵 [Drive Resumable Subfolder] Obtendo metadados...');
         final api = await _drive(client);
         final file = await api.files.get(fileId, $fields: 'id,thumbnailLink') as drive.File;
         final publicViewUrl = Uri.https('drive.google.com', '/uc', {'export': 'view', 'id': fileId}).toString();
 
-        debugPrint('✅ [Drive Resumable Subfolder] Upload CONCLUÍDO');
         return UploadedDriveFile(
           id: fileId,
           publicViewUrl: publicViewUrl,
@@ -1217,7 +1125,6 @@ class GoogleDriveOAuthService {
       final clientFolderId = await findFolder(clientName, parentId: clientsFolderId);
 
       if (clientFolderId == null) {
-        debugPrint('⚠️ Pasta do cliente não encontrada: $clientName');
         return null;
       }
 
@@ -1227,7 +1134,6 @@ class GoogleDriveOAuthService {
       if (companyName != null && companyName.isNotEmpty) {
         final companyFolderId = await findFolder(companyName, parentId: clientFolderId);
         if (companyFolderId == null) {
-          debugPrint('⚠️ Pasta da empresa não encontrada: $companyName');
           return null;
         }
         projectParentId = companyFolderId;
@@ -1236,14 +1142,12 @@ class GoogleDriveOAuthService {
       // Buscar pasta do projeto
       final projectFolderId = await findFolder(projectName, parentId: projectParentId);
       if (projectFolderId == null) {
-        debugPrint('⚠️ Pasta do projeto não encontrada: $projectName');
         return null;
       }
 
       // Buscar subpasta (ex: "Invoices")
       final subfolderId = await findFolder(subfolderName, parentId: projectFolderId);
       if (subfolderId == null) {
-        debugPrint('⚠️ Subpasta não encontrada: $subfolderName');
         return null;
       }
 
@@ -1262,7 +1166,6 @@ class GoogleDriveOAuthService {
 
       return null;
     } catch (e) {
-      debugPrint('❌ Erro ao buscar arquivo no Drive: $e');
       return null;
     }
   }
@@ -1292,17 +1195,14 @@ class GoogleDriveOAuthService {
 
       final rootId = await findFolder('Gestor de Projetos');
       if (rootId == null) {
-        debugPrint('Drive delete: root folder not found');
         return;
       }
       final clientsId = await findFolder('Clientes', parentId: rootId);
       if (clientsId == null) {
-        debugPrint('Drive delete: Clientes folder not found');
         return;
       }
       final clientId = await findFolder(clientName, parentId: clientsId);
       if (clientId == null) {
-        debugPrint('Drive delete: client folder not found');
         return;
       }
 
@@ -1312,7 +1212,6 @@ class GoogleDriveOAuthService {
       if (companyName != null && companyName.isNotEmpty) {
         final companyId = await findFolder(companyName, parentId: clientId);
         if (companyId == null) {
-          debugPrint('Drive delete: company folder not found');
           return;
         }
         parentId = companyId;
@@ -1320,7 +1219,6 @@ class GoogleDriveOAuthService {
 
       final projectId = await findFolder(projectName, parentId: parentId);
       if (projectId == null) {
-        debugPrint('Drive delete: project folder not found');
         return;
       }
 
@@ -1333,14 +1231,12 @@ class GoogleDriveOAuthService {
         if (taskFolderId != null) break;
       }
       if (taskFolderId == null) {
-        debugPrint('Drive delete: task folder not found');
         return;
       }
 
       await api.files.delete(taskFolderId);
-      debugPrint('✅ Pasta da tarefa deletada do Google Drive: $taskName');
     } catch (e) {
-      debugPrint('⚠️ Erro ao deletar pasta da tarefa no Google Drive: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1371,25 +1267,21 @@ class GoogleDriveOAuthService {
 
       final rootId = await findFolder('Gestor de Projetos');
       if (rootId == null) {
-        debugPrint('Drive delete: root folder not found');
         return;
       }
       final clientId = await findFolder(clientName, parentId: rootId);
       if (clientId == null) {
-        debugPrint('Drive delete: client folder not found');
         return;
       }
       final projectId = await findFolder(projectName, parentId: clientId);
       if (projectId == null) {
-        debugPrint('Drive delete: project folder not found');
         return;
       }
 
       // Delete the entire project folder (this deletes all contents recursively)
       await api.files.delete(projectId);
-      debugPrint('Drive delete: successfully deleted project folder: $projectName');
     } catch (e) {
-      debugPrint('Drive delete: failed to delete project folder: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1419,25 +1311,21 @@ class GoogleDriveOAuthService {
 
       final rootId = await findFolder('Gestor de Projetos');
       if (rootId == null) {
-        debugPrint('Drive delete: root folder not found');
         return;
       }
       final clientsId = await findFolder('Clientes', parentId: rootId);
       if (clientsId == null) {
-        debugPrint('Drive delete: Clientes folder not found');
         return;
       }
       final clientId = await findFolder(clientName, parentId: clientsId);
       if (clientId == null) {
-        debugPrint('Drive delete: client folder not found');
         return;
       }
 
       // Delete the entire client folder (this deletes all contents recursively)
       await api.files.delete(clientId);
-      debugPrint('Drive delete: successfully deleted client folder: $clientName');
     } catch (e) {
-      debugPrint('Drive delete: failed to delete client folder: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1465,30 +1353,25 @@ class GoogleDriveOAuthService {
 
       final rootId = await findFolder('Gestor de Projetos');
       if (rootId == null) {
-        debugPrint('Drive delete: root folder not found');
         return;
       }
       final clientsId = await findFolder('Clientes', parentId: rootId);
       if (clientsId == null) {
-        debugPrint('Drive delete: Clientes folder not found');
         return;
       }
       final clientId = await findFolder(clientName, parentId: clientsId);
       if (clientId == null) {
-        debugPrint('Drive delete: client folder not found');
         return;
       }
       final companyId = await findFolder(companyName, parentId: clientId);
       if (companyId == null) {
-        debugPrint('Drive delete: company folder not found');
         return;
       }
 
       // Delete the entire company folder (this deletes all contents recursively)
       await api.files.delete(companyId);
-      debugPrint('Drive delete: successfully deleted company folder: $companyName');
     } catch (e) {
-      debugPrint('Drive delete: failed to delete company folder: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1500,7 +1383,6 @@ class GoogleDriveOAuthService {
     required String organizationName,
   }) async {
     try {
-      debugPrint('🗑️ Deletando pasta da organização no Google Drive: $organizationName');
       final api = await _drive(client);
 
       // Buscar pasta "Organizações"
@@ -1519,15 +1401,10 @@ class GoogleDriveOAuthService {
 
       if (res.files != null && res.files!.isNotEmpty) {
         final orgFolderId = res.files!.first.id!;
-        debugPrint('   📁 Pasta encontrada: ${res.files!.first.name} (ID: $orgFolderId)');
-        debugPrint('   🗑️ Deletando pasta recursivamente...');
         await api.files.delete(orgFolderId);
-        debugPrint('   ✅ Pasta da organização deletada com sucesso');
       } else {
-        debugPrint('   ⚠️ Pasta da organização não encontrada no Drive');
       }
     } catch (e) {
-      debugPrint('⚠️ Erro ao deletar pasta da organização no Google Drive: $e');
       // Não propagar o erro para não bloquear a exclusão da organização
     }
   }
@@ -1559,17 +1436,14 @@ class GoogleDriveOAuthService {
 
       final rootId = await findFolder('Gestor de Projetos');
       if (rootId == null) {
-        debugPrint('Drive rename: root folder not found');
         return;
       }
       final clientsId = await findFolder('Clientes', parentId: rootId);
       if (clientsId == null) {
-        debugPrint('Drive rename: Clientes folder not found');
         return;
       }
       final clientId = await findFolder(oldClientName, parentId: clientsId);
       if (clientId == null) {
-        debugPrint('Drive rename: client folder not found: $oldClientName');
         return;
       }
 
@@ -1578,9 +1452,8 @@ class GoogleDriveOAuthService {
         drive.File()..name = _sanitize(newClientName),
         clientId,
       );
-      debugPrint('✅ Pasta do cliente renomeada no Google Drive: $oldClientName -> $newClientName');
     } catch (e) {
-      debugPrint('⚠️ Erro ao renomear pasta do cliente no Google Drive: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1608,22 +1481,18 @@ class GoogleDriveOAuthService {
 
       final rootId = await findFolder('Gestor de Projetos');
       if (rootId == null) {
-        debugPrint('Drive rename: root folder not found');
         return;
       }
       final clientsId = await findFolder('Clientes', parentId: rootId);
       if (clientsId == null) {
-        debugPrint('Drive rename: Clientes folder not found');
         return;
       }
       final clientId = await findFolder(clientName, parentId: clientsId);
       if (clientId == null) {
-        debugPrint('Drive rename: client folder not found');
         return;
       }
       final companyId = await findFolder(oldCompanyName, parentId: clientId);
       if (companyId == null) {
-        debugPrint('Drive rename: company folder not found: $oldCompanyName');
         return;
       }
 
@@ -1632,9 +1501,8 @@ class GoogleDriveOAuthService {
         drive.File()..name = _sanitize(newCompanyName),
         companyId,
       );
-      debugPrint('✅ Pasta da empresa renomeada no Google Drive: $oldCompanyName -> $newCompanyName');
     } catch (e) {
-      debugPrint('⚠️ Erro ao renomear pasta da empresa no Google Drive: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1664,17 +1532,14 @@ class GoogleDriveOAuthService {
 
       final rootId = await findFolder('Gestor de Projetos');
       if (rootId == null) {
-        debugPrint('Drive rename: root folder not found');
         return;
       }
       final clientsId = await findFolder('Clientes', parentId: rootId);
       if (clientsId == null) {
-        debugPrint('Drive rename: Clientes folder not found');
         return;
       }
       final clientId = await findFolder(clientName, parentId: clientsId);
       if (clientId == null) {
-        debugPrint('Drive rename: client folder not found');
         return;
       }
 
@@ -1684,7 +1549,6 @@ class GoogleDriveOAuthService {
       if (companyName != null && companyName.isNotEmpty) {
         final companyId = await findFolder(companyName, parentId: clientId);
         if (companyId == null) {
-          debugPrint('Drive rename: company folder not found');
           return;
         }
         parentId = companyId;
@@ -1692,7 +1556,6 @@ class GoogleDriveOAuthService {
 
       final projectId = await findFolder(oldProjectName, parentId: parentId);
       if (projectId == null) {
-        debugPrint('Drive rename: project folder not found: $oldProjectName');
         return;
       }
 
@@ -1701,9 +1564,8 @@ class GoogleDriveOAuthService {
         drive.File()..name = _sanitize(newProjectName),
         projectId,
       );
-      debugPrint('✅ Pasta do projeto renomeada no Google Drive: $oldProjectName -> $newProjectName');
     } catch (e) {
-      debugPrint('⚠️ Erro ao renomear pasta do projeto no Google Drive: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1734,17 +1596,14 @@ class GoogleDriveOAuthService {
 
       final rootId = await findFolder('Gestor de Projetos');
       if (rootId == null) {
-        debugPrint('Drive rename: root folder not found');
         return;
       }
       final clientsId = await findFolder('Clientes', parentId: rootId);
       if (clientsId == null) {
-        debugPrint('Drive rename: Clientes folder not found');
         return;
       }
       final clientId = await findFolder(clientName, parentId: clientsId);
       if (clientId == null) {
-        debugPrint('Drive rename: client folder not found');
         return;
       }
 
@@ -1754,7 +1613,6 @@ class GoogleDriveOAuthService {
       if (companyName != null && companyName.isNotEmpty) {
         final companyId = await findFolder(companyName, parentId: clientId);
         if (companyId == null) {
-          debugPrint('Drive rename: company folder not found');
           return;
         }
         parentId = companyId;
@@ -1762,7 +1620,6 @@ class GoogleDriveOAuthService {
 
       final projectId = await findFolder(projectName, parentId: parentId);
       if (projectId == null) {
-        debugPrint('Drive rename: project folder not found');
         return;
       }
 
@@ -1779,7 +1636,6 @@ class GoogleDriveOAuthService {
       final res = await api.files.list(q: q, $fields: 'files(id,name)');
 
       if (res.files == null || res.files!.isEmpty) {
-        debugPrint('Drive rename: task folder not found: $oldTaskName');
         return;
       }
 
@@ -1795,7 +1651,6 @@ class GoogleDriveOAuthService {
         drive.File()..name = newName,
         taskId,
       );
-      debugPrint('✅ Pasta da tarefa renomeada no Google Drive: $oldTaskName -> $newTaskName');
 
       // Renomear imagens do briefing dentro da pasta Briefing
       await _renameBriefingImages(
@@ -1807,7 +1662,7 @@ class GoogleDriveOAuthService {
         projectName: projectName,
       );
     } catch (e) {
-      debugPrint('⚠️ Erro ao renomear pasta da tarefa no Google Drive: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1836,7 +1691,6 @@ class GoogleDriveOAuthService {
       );
 
       if (briefingFolderRes.files == null || briefingFolderRes.files!.isEmpty) {
-        debugPrint('📁 Pasta Briefing não encontrada, nada a renomear');
         return;
       }
 
@@ -1857,7 +1711,6 @@ class GoogleDriveOAuthService {
       );
 
       if (imagesRes.files == null || imagesRes.files!.isEmpty) {
-        debugPrint('📷 Nenhuma imagem do briefing encontrada para renomear');
         return;
       }
 
@@ -1879,16 +1732,14 @@ class GoogleDriveOAuthService {
             drive.File()..name = newName,
             image.id!,
           );
-          debugPrint('  📷 Imagem renomeada: $oldName -> $newName');
           renamedCount++;
         }
       }
 
       if (renamedCount > 0) {
-        debugPrint('✅ $renamedCount imagem(ns) do briefing renomeada(s)');
       }
     } catch (e) {
-      debugPrint('⚠️ Erro ao renomear imagens do briefing (ignorado): $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -2042,21 +1893,18 @@ class GoogleDriveOAuthService {
       // Buscar a pasta "Subtask" dentro da pasta da tarefa
       final subtaskContainerId = await findFolder('Subtask', parentId: taskId);
       if (subtaskContainerId == null) {
-        debugPrint('Drive delete: Subtask folder not found');
         return;
       }
 
       // Buscar a pasta da subtarefa dentro da pasta "Subtask"
       final subTaskId = await findFolder(subTaskName, parentId: subtaskContainerId);
       if (subTaskId == null) {
-        debugPrint('Drive delete: subtask folder not found: $subTaskName');
         return;
       }
 
       await api.files.delete(subTaskId);
-      debugPrint('✅ Pasta da subtarefa deletada do Google Drive: $subTaskName');
     } catch (e) {
-      debugPrint('⚠️ Erro ao deletar pasta da subtarefa no Google Drive (ignorado): $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -2088,17 +1936,14 @@ class GoogleDriveOAuthService {
 
       final rootId = await findFolder('Gestor de Projetos');
       if (rootId == null) {
-        debugPrint('Drive rename: root folder not found');
         return;
       }
       final clientsId = await findFolder('Clientes', parentId: rootId);
       if (clientsId == null) {
-        debugPrint('Drive rename: Clientes folder not found');
         return;
       }
       final clientId = await findFolder(clientName, parentId: clientsId);
       if (clientId == null) {
-        debugPrint('Drive rename: client folder not found');
         return;
       }
 
@@ -2107,7 +1952,6 @@ class GoogleDriveOAuthService {
       if (companyName != null && companyName.isNotEmpty) {
         final companyId = await findFolder(companyName, parentId: clientId);
         if (companyId == null) {
-          debugPrint('Drive rename: company folder not found');
           return;
         }
         parentId = companyId;
@@ -2115,7 +1959,6 @@ class GoogleDriveOAuthService {
 
       final projectId = await findFolder(projectName, parentId: parentId);
       if (projectId == null) {
-        debugPrint('Drive rename: project folder not found');
         return;
       }
 
@@ -2130,7 +1973,6 @@ class GoogleDriveOAuthService {
       ].join(' and ');
       final taskRes = await api.files.list(q: taskQuery, $fields: 'files(id,name)');
       if (taskRes.files == null || taskRes.files!.isEmpty) {
-        debugPrint('Drive rename: task folder not found');
         return;
       }
 
@@ -2139,14 +1981,12 @@ class GoogleDriveOAuthService {
       // Buscar a pasta "Subtask" dentro da pasta da tarefa
       final subtaskContainerId = await findFolder('Subtask', parentId: taskId);
       if (subtaskContainerId == null) {
-        debugPrint('Drive rename: Subtask folder not found');
         return;
       }
 
       // Buscar a pasta da subtarefa dentro da pasta "Subtask"
       final subTaskId = await findFolder(oldSubTaskName, parentId: subtaskContainerId);
       if (subTaskId == null) {
-        debugPrint('Drive rename: subtask folder not found: $oldSubTaskName');
         return;
       }
 
@@ -2155,9 +1995,8 @@ class GoogleDriveOAuthService {
         drive.File()..name = _sanitize(newSubTaskName),
         subTaskId,
       );
-      debugPrint('✅ Pasta da subtarefa renomeada no Google Drive: $oldSubTaskName -> $newSubTaskName');
     } catch (e) {
-      debugPrint('⚠️ Erro ao renomear pasta da subtarefa no Google Drive: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -2174,6 +2013,210 @@ class GoogleDriveOAuthService {
   /// Remove token compartilhado da organização (apenas admin/gestor)
   Future<void> disconnectShared(String organizationId) async {
     await OAuthTokenStore.removeSharedToken('google', organizationId);
+  }
+
+  // ============================================================================
+  // DESIGN MATERIALS METHODS
+  // ============================================================================
+
+  /// Cria estrutura: Gestor de Projetos/Organizações/{Org}/Clientes/{Cliente}/{Empresa}/Design Materials/
+  Future<String> ensureDesignMaterialsFolder(
+    auth.AuthClient client,
+    String clientName,
+    String companyName, {
+    String? organizationName,
+  }) async {
+    final orgName = _getOrganizationName(organizationName);
+    final api = await _drive(client);
+    final companyId = await ensureCompanyFolder(client, clientName, companyName, organizationName: orgName);
+    return _findOrCreateFolder(api, 'Design Materials', parentId: companyId);
+  }
+
+  /// Cria uma pasta dentro de Design Materials
+  /// Retorna o ID da pasta criada
+  Future<String> createDesignMaterialsSubfolder({
+    required auth.AuthClient client,
+    required String clientName,
+    required String companyName,
+    required String folderName,
+    String? parentFolderId,
+    String? organizationName,
+  }) async {
+    final orgName = _getOrganizationName(organizationName);
+    final api = await _drive(client);
+
+    // Se não há parent, usar a pasta raiz de Design Materials
+    final parentId = parentFolderId ?? await ensureDesignMaterialsFolder(client, clientName, companyName, organizationName: orgName);
+
+    return _findOrCreateFolder(api, _sanitize(folderName), parentId: parentId);
+  }
+
+  /// Renomeia uma pasta de Design Materials no Google Drive
+  Future<void> renameDesignMaterialsFolder({
+    required auth.AuthClient client,
+    required String folderId,
+    required String newName,
+  }) async {
+    try {
+      final api = await _drive(client);
+      await api.files.update(
+        drive.File()..name = _sanitize(newName),
+        folderId,
+      );
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Faz upload de um arquivo para uma pasta de Design Materials
+  /// Usa upload resumable (em chunks) para arquivos grandes - MESMO SISTEMA DOS ASSETS
+  Future<UploadedDriveFile> uploadToDesignMaterialsFolder({
+    required auth.AuthClient client,
+    required String folderId,
+    required String filename,
+    required List<int> bytes,
+    String? mimeType,
+    void Function(double progress)? onProgress,
+  }) async {
+
+    final contentType = mimeType ?? mime.lookupMimeType(filename) ?? 'application/octet-stream';
+
+    // PASSO 1: Iniciar sessão de upload resumable
+    final metadata = {
+      'name': filename,
+      'parents': [folderId],
+    };
+
+    final initResponse = await http.post(
+      Uri.parse('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable'),
+      headers: {
+        'Authorization': 'Bearer ${client.credentials.accessToken.data}',
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': contentType,
+        'X-Upload-Content-Length': bytes.length.toString(),
+      },
+      body: convert.jsonEncode(metadata),
+    );
+
+    if (initResponse.statusCode != 200) {
+      throw Exception('Falha ao iniciar upload resumable: ${initResponse.statusCode} - ${initResponse.body}');
+    }
+
+    final uploadUrl = initResponse.headers['location'];
+    if (uploadUrl == null) {
+      throw Exception('URL de upload não retornada');
+    }
+
+
+    // PASSO 2: Enviar arquivo em chunks
+    const chunkSize = 10 * 1024 * 1024; // 10 MB por chunk
+    int uploadedBytes = 0;
+
+
+    while (uploadedBytes < bytes.length) {
+      final end = (uploadedBytes + chunkSize < bytes.length)
+          ? uploadedBytes + chunkSize
+          : bytes.length;
+
+      final chunk = bytes.sublist(uploadedBytes, end);
+      final contentRange = 'bytes $uploadedBytes-${end - 1}/${bytes.length}';
+
+      final chunkResponse = await http.put(
+        Uri.parse(uploadUrl),
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': chunk.length.toString(),
+          'Content-Range': contentRange,
+        },
+        body: chunk,
+      );
+
+      if (chunkResponse.statusCode == 308) {
+        // Continuar enviando
+        uploadedBytes = end;
+        final progress = uploadedBytes / bytes.length;
+        onProgress?.call(progress);
+        await Future.delayed(const Duration(milliseconds: 1));
+      } else if (chunkResponse.statusCode == 200 || chunkResponse.statusCode == 201) {
+        // Upload completo!
+        uploadedBytes = bytes.length;
+        onProgress?.call(1.0);
+
+        final fileData = convert.jsonDecode(chunkResponse.body);
+        final fileId = fileData['id'] as String;
+
+        // PASSO 3: Tornar arquivo público
+        try {
+          final api = await _drive(client);
+          await api.permissions.create(
+            drive.Permission()
+              ..type = 'anyone'
+              ..role = 'reader',
+            fileId,
+          );
+        } catch (e) {
+          // Ignorar erro (operação não crítica)
+        }
+
+        // PASSO 4: Obter metadados
+        final api = await _drive(client);
+        final file = await api.files.get(fileId, $fields: 'id,thumbnailLink') as drive.File;
+        final publicViewUrl = Uri.https('drive.google.com', '/uc', {'export': 'view', 'id': fileId}).toString();
+
+        return UploadedDriveFile(
+          id: fileId,
+          publicViewUrl: publicViewUrl,
+          thumbnailLink: file.thumbnailLink,
+        );
+      } else {
+        throw Exception('Erro no upload do chunk: ${chunkResponse.statusCode} - ${chunkResponse.body}');
+      }
+    }
+
+    throw Exception('Upload não foi concluído corretamente');
+  }
+
+  /// Renomeia um arquivo de Design Materials no Google Drive
+  Future<void> renameDesignMaterialsFile({
+    required auth.AuthClient client,
+    required String fileId,
+    required String newName,
+  }) async {
+    try {
+      final api = await _drive(client);
+      await api.files.update(
+        drive.File()..name = newName,
+        fileId,
+      );
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Deleta uma pasta de Design Materials no Google Drive
+  Future<void> deleteDesignMaterialsFolder({
+    required auth.AuthClient client,
+    required String folderId,
+  }) async {
+    try {
+      final api = await _drive(client);
+      await api.files.delete(folderId);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Deleta um arquivo de Design Materials no Google Drive
+  Future<void> deleteDesignMaterialsFile({
+    required auth.AuthClient client,
+    required String fileId,
+  }) async {
+    try {
+      final api = await _drive(client);
+      await api.files.delete(fileId);
+    } catch (e) {
+      rethrow;
+    }
   }
 }
 

@@ -75,7 +75,7 @@ class _CompaniesPageState extends State<CompaniesPage> {
           usersMap[user['id']] = user;
         }
       } catch (e) {
-        debugPrint('Erro ao buscar perfis de usuários: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
 
@@ -93,7 +93,6 @@ class _CompaniesPageState extends State<CompaniesPage> {
     try {
       await ProjectAssigneesHelper.enrichCompaniesWithAssignees(result);
     } catch (e) {
-      debugPrint('Erro ao enriquecer empresas com responsáveis: $e');
       // Em caso de erro, adicionar valores padrão
       for (final company in result) {
         company['task_people'] = [];
@@ -278,7 +277,6 @@ class _CompaniesPageState extends State<CompaniesPage> {
           orElse: () => initial,
         );
       } catch (e) {
-        debugPrint('❌ Erro ao recarregar dados da empresa: $e');
         freshData = initial;
       }
     }
@@ -774,7 +772,6 @@ class _CompanyFormDialogState extends State<CompanyFormDialog> {
       }
       if (mounted) navigator.pop(true);
     } catch (e) {
-      debugPrint('Erro ao salvar empresa: $e');
       messenger.showSnackBar(const SnackBar(content: Text('Erro ao salvar')));
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -863,7 +860,7 @@ class _CompanyFormDialogState extends State<CompanyFormDialog> {
           content: _notes.text,
         );
       } catch (e) {
-        debugPrint('Erro ao salvar menções das notas: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
   }

@@ -86,7 +86,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       }
 
       final tasks = await favoritesModule.getFavoriteTasks();
-      debugPrint('✅ Tarefas favoritas: ${tasks.length}');
 
       // Ordenar tarefas por data de criação (mais recente primeiro)
       tasks.sort((a, b) {
@@ -99,7 +98,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       });
 
       final subtasks = await favoritesModule.getFavoriteSubTasks();
-      debugPrint('➡️ Subtarefas favoritas: ${subtasks.length}');
 
       // Combinar tarefas e subtarefas em uma única lista
       final allTasks = [...tasks, ...subtasks];
@@ -122,7 +120,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         'tasks': allTasks,
       };
     } catch (e) {
-      debugPrint('❌ Erro ao carregar favoritos: $e');
       return {
         'projects': [],
         'tasks': [],
@@ -130,30 +127,23 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     }
   }
 
-  /// Carrega tarefas atribuídas ao usuário que vencem nesta semana (segunda a domingo) + tarefas atrasadas
+  /// Carrega tarefas atribuídas ao usuário que vencem nos próximos 7 dias + tarefas atrasadas
   Future<List<Map<String, dynamic>>> _loadWeekTasks() async {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
-        debugPrint('❌ Usuário não autenticado');
         return [];
       }
 
-      // Calcular início e fim da semana (segunda a domingo)
+      // Calcular hoje e os próximos 7 dias
       final now = DateTime.now();
-      final currentWeekday = now.weekday; // 1 = segunda, 7 = domingo
+      final today = DateTime(now.year, now.month, now.day); // Hoje às 00:00:00
 
-      // Início da semana (segunda-feira às 00:00:00)
-      final startOfWeek = DateTime(now.year, now.month, now.day)
-          .subtract(Duration(days: currentWeekday - 1));
+      // Próximos 7 dias (hoje + 7 dias às 23:59:59)
+      final next7Days = today
+          .add(const Duration(days: 7, hours: 23, minutes: 59, seconds: 59));
 
-      // Fim da semana (domingo às 23:59:59)
-      final endOfWeek = startOfWeek
-          .add(const Duration(days: 6, hours: 23, minutes: 59, seconds: 59));
-
-      debugPrint('📅 Buscando tarefas da semana: ${startOfWeek.toIso8601String()} até ${endOfWeek.toIso8601String()}');
-
-      // Buscar tarefas atribuídas ao usuário que vencem nesta semana OU estão atrasadas
+      // Buscar tarefas atribuídas ao usuário que vencem nos próximos 7 dias OU estão atrasadas
       // Inclui tarefas onde o usuário está em assigned_to OU no array assignee_user_ids
       final response = await Supabase.instance.client
           .from('tasks')
@@ -177,31 +167,28 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             updated_by_profile:updated_by(id, full_name, avatar_url)
           ''')
           .or('assigned_to.eq.$userId,assignee_user_ids.cs.{$userId}') // Responsável principal OU múltiplos responsáveis
-          .lte('due_date', endOfWeek.toIso8601String()) // Até o fim da semana (inclui atrasadas)
+          .lte('due_date', next7Days.toIso8601String()) // Até os próximos 7 dias (inclui atrasadas)
           .neq('status', 'completed') // Excluir tarefas concluídas
           .order('due_date', ascending: true);
 
       final allTasks = List<Map<String, dynamic>>.from(response);
 
-      // Filtrar para incluir apenas: tarefas da semana + tarefas atrasadas
+      // Filtrar para incluir apenas: tarefas dos próximos 7 dias + tarefas atrasadas
       final tasks = allTasks.where((task) {
         final dueDate = task['due_date'] != null ? DateTime.tryParse(task['due_date']) : null;
         if (dueDate == null) return false;
 
-        // Incluir se estiver atrasada (antes do início da semana) OU dentro da semana
-        return dueDate.isBefore(startOfWeek) ||
-               (dueDate.isAfter(startOfWeek.subtract(const Duration(seconds: 1))) &&
-                dueDate.isBefore(endOfWeek.add(const Duration(seconds: 1))));
+        // Incluir se estiver atrasada (antes de hoje) OU dentro dos próximos 7 dias
+        return dueDate.isBefore(today) ||
+               (dueDate.isAfter(today.subtract(const Duration(seconds: 1))) &&
+                dueDate.isBefore(next7Days.add(const Duration(seconds: 1))));
       }).toList();
-
-      debugPrint('✅ Tarefas da semana (incluindo atrasadas): ${tasks.length}');
 
       // Enriquecer tarefas com perfis de responsáveis
       await enrichTasksWithAssignees(tasks);
 
       return tasks;
     } catch (e) {
-      debugPrint('❌ Erro ao carregar tarefas da semana: $e');
       return [];
     }
   }
@@ -234,7 +221,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Card de Tarefas da Semana
+                    // Card de Tarefas dos Próximos 7 Dias
                     Container(
                   decoration: BoxDecoration(
                     color: UIConst.sectionBg,
@@ -258,7 +245,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Text(
-                                    'Minhas Tarefas da Semana',
+                                    'Minhas Tarefas dos Próximos 7 Dias',
                                     style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.w600,
@@ -266,7 +253,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Inclui tarefas atrasadas e da semana atual',
+                                    'Inclui tarefas atrasadas e dos próximos 7 dias',
                                     style: TextStyle(
                                       fontSize: 12,
                                       color: Colors.grey.shade500,
@@ -286,7 +273,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                         ),
                       ),
 
-                      // Tabela de Tarefas da Semana
+                      // Tabela de Tarefas dos Próximos 7 Dias
                       SizedBox(
                         height: 400,
                         child: Padding(
@@ -571,7 +558,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
               ),
               const SizedBox(height: 12),
               Text(
-                'Nenhuma tarefa para esta semana',
+                'Nenhuma tarefa para os próximos 7 dias',
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey.shade600,
@@ -679,7 +666,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     ];
   }
 
-  // Comparadores de ordenação para tarefas da semana
+  // Comparadores de ordenação para tarefas dos próximos 7 dias
   List<int Function(Map<String, dynamic>, Map<String, dynamic>)> _getWeekTaskSortComparators() {
     return [
       compareByTitle,
@@ -701,11 +688,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
 
     switch (type) {
       case 'project':
+        final tabId = 'project_$itemId';
         final tab = TabItem(
-          id: 'project_$itemId',
+          id: tabId,
           title: item['name'] ?? 'Projeto',
           icon: Icons.folder,
-          page: ProjectDetailPage(projectId: itemId),
+          page: ProjectDetailPage(
+            key: ValueKey(tabId),
+            projectId: itemId,
+          ),
           canClose: true,
           selectedMenuIndex: currentTab?.selectedMenuIndex ?? 0, // Preserva o índice do menu
         );
@@ -713,11 +704,15 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         break;
       case 'task':
       case 'subtask':
+        final tabId = 'task_$itemId';
         final tab = TabItem(
-          id: 'task_$itemId',
+          id: tabId,
           title: item['title'] ?? 'Tarefa',
           icon: Icons.task,
-          page: TaskDetailPage(taskId: itemId),
+          page: TaskDetailPage(
+            key: ValueKey(tabId),
+            taskId: itemId,
+          ),
           canClose: true,
           selectedMenuIndex: currentTab?.selectedMenuIndex ?? 0, // Preserva o índice do menu
         );

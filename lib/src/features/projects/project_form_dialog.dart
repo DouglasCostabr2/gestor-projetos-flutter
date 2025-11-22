@@ -178,6 +178,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
             thumbByKey['product:$pid'] = url;
           }
         } catch (_) {}
+        // Ignorar erro (operação não crítica)
       }
       // Buscar thumbs de pacotes
       for (final pkgId in packageIds) {
@@ -192,6 +193,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
             thumbByKey['package:$pkgId'] = url;
           }
         } catch (_) {}
+        // Ignorar erro (operação não crítica)
       }
 
       setState(() {
@@ -276,6 +278,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
             if (oc != null && oc.isNotEmpty) k['comment'] = oc;
           }
         } catch (_) {}
+        // Ignorar erro (operação não crítica)
       }
       setState(() { _packageProductsById[packageId] = list; });
     } catch (e) {
@@ -352,7 +355,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
         });
       });
     } catch (e) {
-      debugPrint('Falha ao reprecificar itens para $currency: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -451,12 +454,10 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
           if (uid != null) 'updated_by': uid,
         };
 
-        debugPrint('📋 Criando projeto: ${base['name']} (org: $orgId)');
 
         final inserted = await client.from('projects').insert(payload).select('id').maybeSingle();
         projectId = (inserted?['id'] ?? '').toString();
 
-        debugPrint('✅ Projeto criado com sucesso: $projectId');
       } else {
         projectId = (widget.initial!['id'] ?? '').toString();
         final payload = {
@@ -482,7 +483,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
             content: _name.text,
           );
         } catch (e) {
-          debugPrint('Erro ao salvar menções do título: $e');
+          // Ignorar erro (operação não crítica)
         }
 
         try {
@@ -492,7 +493,7 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
             content: _description.text,
           );
         } catch (e) {
-          debugPrint('Erro ao salvar menções da descrição: $e');
+          // Ignorar erro (operação não crítica)
         }
 
         // Replace custos adicionais de forma isolada
@@ -651,7 +652,6 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      debugPrint('Erro ao salvar projeto: $e');
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao salvar projeto: ${e.toString()}')));
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -660,7 +660,6 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('🔷 ProjectFormDialog.build() chamado');
     final appState = AppStateScope.of(context);
     final canEditFinancial = appState.isAdmin || appState.isFinanceiro; // controla edição
     final isEdit = widget.initial != null;
@@ -1270,7 +1269,6 @@ class _ProjectFormDialogState extends State<ProjectFormDialog> {
       ),
       PrimaryButton(
         onPressed: _saving ? null : () {
-          debugPrint('🟡 Botão Salvar PRESSIONADO!');
           _save();
         },
         label: 'Salvar',
@@ -1410,7 +1408,6 @@ class _SelectCatalogItemDialogState extends State<_SelectCatalogItemDialog> {
         throw Exception('Nenhuma organização ativa');
       }
 
-      debugPrint('🛍️ Carregando catálogo para organização: $orgId');
 
       // Filtrar produtos e pacotes por organization_id
       final prods = await client
@@ -1427,7 +1424,6 @@ class _SelectCatalogItemDialogState extends State<_SelectCatalogItemDialog> {
 
       if (!mounted) return;
 
-      debugPrint('✅ Catálogo carregado: ${(prods as List).length} produtos, ${(packs as List).length} pacotes');
 
       setState(() {
         _products = List<Map<String, dynamic>>.from(prods);
@@ -1435,7 +1431,6 @@ class _SelectCatalogItemDialogState extends State<_SelectCatalogItemDialog> {
         _loading = false;
       });
     } catch (e) {
-      debugPrint('❌ Erro ao carregar catálogo: $e');
       if (!mounted) return; setState(() { _error = 'Falha ao carregar catálogo'; _loading = false; });
     }
   }

@@ -81,7 +81,7 @@ class _SelectProjectProductDialogState extends State<SelectProjectProductDialog>
           }
         }
       } catch (e) {
-        debugPrint('Erro ao buscar produtos vinculados: $e');
+        // Ignorar erro (operação não crítica)
       }
 
       // 1) Itens do catálogo do projeto (produtos e pacotes) com comentários
@@ -263,7 +263,7 @@ class _SelectProjectProductDialogState extends State<SelectProjectProductDialog>
                       'new_value': null,
                     });
                   } catch (e) {
-                    debugPrint('Erro ao registrar histórico de desvinculação: $e');
+                    // Ignorar erro (operação não crítica)
                   }
                 }
 

@@ -59,15 +59,12 @@ class TaskTimerService extends ChangeNotifier {
         if (activeLog != null && activeLog['id'] == savedTimeLogId) {
           // Retomar o timer
           _resumeTimer();
-          debugPrint('✅ Timer retomado: Task $savedTaskId');
         } else {
           // Limpar estado se o time_log não existe mais
           await _clearState();
-          debugPrint('⚠️ Timer não retomado: time_log não encontrado');
         }
       }
     } catch (e) {
-      debugPrint('❌ Erro ao inicializar TaskTimerService: $e');
       await _clearState();
     }
   }
@@ -97,9 +94,7 @@ class TaskTimerService extends ChangeNotifier {
       _startTimer();
 
       notifyListeners();
-      debugPrint('✅ Timer iniciado para tarefa: $taskId');
     } catch (e) {
-      debugPrint('❌ Erro ao iniciar timer: $e');
       rethrow;
     }
   }
@@ -114,7 +109,6 @@ class TaskTimerService extends ChangeNotifier {
 
     await _saveState();
     notifyListeners();
-    debugPrint('⏸️ Timer pausado');
   }
 
   /// Retomar cronômetro pausado
@@ -126,7 +120,6 @@ class TaskTimerService extends ChangeNotifier {
 
     await _saveState();
     notifyListeners();
-    debugPrint('▶️ Timer retomado');
   }
 
   /// Parar cronômetro e finalizar time_log
@@ -161,9 +154,7 @@ class TaskTimerService extends ChangeNotifier {
         notifyListeners();
       }
 
-      debugPrint('⏹️ Timer parado e time_log finalizado');
     } catch (e) {
-      debugPrint('❌ Erro ao parar timer: $e');
       rethrow;
     }
   }
@@ -221,7 +212,7 @@ class TaskTimerService extends ChangeNotifier {
         await _clearState();
       }
     } catch (e) {
-      debugPrint('❌ Erro ao salvar estado do timer: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -233,7 +224,7 @@ class TaskTimerService extends ChangeNotifier {
       await prefs.remove(_keyStartTime);
       await prefs.remove(_keyElapsedSeconds);
     } catch (e) {
-      debugPrint('❌ Erro ao limpar estado do timer: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 

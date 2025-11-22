@@ -19,8 +19,6 @@ Future<String> uploadBriefingCachedImages({
   required String taskTitle,
   String? companyName,
 }) async {
-  debugPrint('🔄 uploadBriefingCachedImages - INICIANDO');
-  debugPrint('📁 Cliente: $clientName, Projeto: $projectName, Tarefa: $taskTitle');
 
   try {
     final doc = jsonDecode(briefingJson) as Map<String, dynamic>;
@@ -28,46 +26,35 @@ Future<String> uploadBriefingCachedImages({
     // Percorrer todos os nós do documento
     final docMap = doc['document'] as Map?;
     if (docMap == null) {
-      debugPrint('⚠️ docMap é null');
       return briefingJson;
     }
 
     final nodes = docMap['children'] as List?;
     if (nodes == null) {
-      debugPrint('⚠️ nodes é null');
       return briefingJson;
     }
 
-    debugPrint('📋 Total de nós no documento: ${nodes.length}');
 
     for (var i = 0; i < nodes.length; i++) {
       final node = nodes[i];
-      debugPrint('🔍 Nó $i: tipo = ${node is Map ? node['type'] : 'não é Map'}');
 
       if (node is Map && node['type'] == 'image') {
-        debugPrint('🖼️ Encontrou nó de imagem!');
 
         // AppFlowy Editor armazena dados em 'data', não em 'attributes'
         final data = node['data'] as Map?;
-        debugPrint('📦 Data: $data');
 
         if (data != null) {
           final url = data['url'] as String?;
-          debugPrint('🔗 URL da imagem: $url');
 
           // Verificar se é uma URL local (cache)
           if (url != null && url.startsWith('file://')) {
-            debugPrint('💾 É uma URL local! Iniciando upload...');
             try {
               final localPath = url.substring(7); // Remove 'file://'
               final file = File(localPath);
 
-              debugPrint('📂 Caminho local: $localPath');
-              debugPrint('✓ Arquivo existe: ${await file.exists()}');
 
               if (await file.exists()) {
                 // Fazer upload para o Google Drive
-                debugPrint('🚀 Iniciando upload para Google Drive...');
                 final driveService = GoogleDriveOAuthService();
                 final driveClient = await driveService.getAuthedClient();
 
@@ -75,7 +62,6 @@ Future<String> uploadBriefingCachedImages({
                 final bytes = await file.readAsBytes();
                 final extension = path.extension(localPath).substring(1); // Remove o '.'
 
-                debugPrint('📤 Fazendo upload: $fileName (${bytes.length} bytes)');
 
                 final uploadedFile = await driveService.uploadToTaskSubfolder(
                   client: driveClient,
@@ -92,35 +78,26 @@ Future<String> uploadBriefingCachedImages({
                 // Atualizar URL no documento
                 data['url'] = uploadedFile.publicViewUrl ?? url;
 
-                debugPrint('✅ Imagem do briefing enviada para Google Drive: ${uploadedFile.publicViewUrl}');
 
                 // Deletar arquivo do cache
                 try {
                   await file.delete();
-                  debugPrint('🗑️ Arquivo de cache deletado');
                 } catch (e) {
-                  debugPrint('⚠️ Erro ao deletar arquivo de cache: $e');
+                  // Ignorar erro (operação não crítica)
                 }
               }
             } catch (e) {
-              debugPrint('❌ Erro ao fazer upload da imagem do briefing: $e');
-              debugPrint('Stack trace: ${StackTrace.current}');
               // Manter URL local em caso de erro
             }
           } else {
-            debugPrint('🌐 URL não é local (já está no Drive ou é remota)');
           }
         } else {
-          debugPrint('⚠️ Data é null!');
         }
       }
     }
 
-    debugPrint('✅ uploadBriefingCachedImages - CONCLUÍDO');
     return jsonEncode(doc);
   } catch (e) {
-    debugPrint('❌ Erro ao processar JSON do briefing: $e');
-    debugPrint('Stack trace: ${StackTrace.current}');
     return briefingJson;
   }
 }
@@ -874,7 +851,6 @@ class _AppFlowyTextFieldWithToolbarState
       final name = companies?['name'] as String?;
       return (name != null && name.trim().isNotEmpty) ? name : null;
     } catch (e) {
-      debugPrint('⚠️ [AppFlowy] Falha ao buscar companyName: $e');
       return null;
     }
   }
@@ -884,7 +860,6 @@ class _AppFlowyTextFieldWithToolbarState
   Future<String> uploadCachedImagesAndGetJson() async {
     // Verificar se temos as informações necessárias
     if (widget.clientName == null || widget.projectName == null || widget.taskTitle == null) {
-      debugPrint('⚠️ Informações da tarefa não disponíveis, retornando JSON sem upload');
       return toJson();
     }
     // Buscar companyName (se taskId disponível)
@@ -894,7 +869,7 @@ class _AppFlowyTextFieldWithToolbarState
         companyName = await _fetchCompanyNameForTask(widget.taskId!);
       }
     } catch (e) {
-      debugPrint('⚠️ Falha ao buscar companyName: $e');
+      // Ignorar erro (operação não crítica)
     }
 
     final doc = _editorState.document.toJson();
@@ -942,17 +917,15 @@ class _AppFlowyTextFieldWithToolbarState
                 // Atualizar URL no documento
                 attributes['url'] = uploadedFile.publicViewUrl ?? url;
 
-                debugPrint('✅ Imagem enviada para Google Drive: ${uploadedFile.publicViewUrl}');
 
                 // Deletar arquivo do cache
                 try {
                   await file.delete();
                 } catch (e) {
-                  debugPrint('⚠️ Erro ao deletar arquivo de cache: $e');
+                  // Ignorar erro (operação não crítica)
                 }
               }
             } catch (e) {
-              debugPrint('⚠️ Erro ao fazer upload da imagem: $e');
               // Manter URL local em caso de erro
             }
           }
@@ -977,7 +950,6 @@ class CustomTodoListBlockBuilder extends TodoListBlockComponentBuilder {
   BlockComponentWidget build(BlockComponentContext blockComponentContext) {
     final node = blockComponentContext.node;
 
-    debugPrint('🔨 CustomTodoListBlockBuilder.build - node: ${node.id}');
 
     // Retornar widget customizado que permite clicar em read-only
     return _ClickableTodoListBlockWidget(
@@ -1010,7 +982,6 @@ class _ClickableTodoListBlockWidgetState extends State<_ClickableTodoListBlockWi
       final appFlowyState = context.findAncestorStateOfType<_AppFlowyTextFieldWithToolbarState>();
       return appFlowyState?._editorState;
     } catch (e) {
-      debugPrint('❌ Erro ao obter EditorState: $e');
       return null;
     }
   }
@@ -1019,7 +990,6 @@ class _ClickableTodoListBlockWidgetState extends State<_ClickableTodoListBlockWi
     final state = editorState;
     if (state == null) return true;
     final editable = state.editable;
-    debugPrint('📝 isReadOnly check - editable: $editable');
     return !editable;
   }
 
@@ -1027,7 +997,6 @@ class _ClickableTodoListBlockWidgetState extends State<_ClickableTodoListBlockWi
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('🔨 _ClickableTodoListBlockWidget.build - isReadOnly: $isReadOnly, isChecked: $isChecked');
 
     final delta = widget.node.delta;
     if (delta == null) {
@@ -1041,7 +1010,6 @@ class _ClickableTodoListBlockWidgetState extends State<_ClickableTodoListBlockWi
         // Checkbox
         GestureDetector(
           onTap: isReadOnly ? () {
-            debugPrint('🖱️ Checkbox clicado em modo read-only!');
             _toggleCheckbox();
           } : null,
           child: Container(
@@ -1076,17 +1044,14 @@ class _ClickableTodoListBlockWidgetState extends State<_ClickableTodoListBlockWi
   void _toggleCheckbox() {
     final state = editorState;
     if (state == null) {
-      debugPrint('❌ EditorState é null');
       return;
     }
 
-    debugPrint('🔄 Toggling checkbox: $isChecked -> ${!isChecked}');
     final transaction = state.transaction;
     transaction.updateNode(widget.node, {
       TodoListBlockKeys.checked: !isChecked,
     });
     state.apply(transaction);
-    debugPrint('✅ Checkbox toggled! Forçando rebuild...');
 
     // Forçar rebuild
     if (mounted) {
@@ -1418,19 +1383,15 @@ class _CustomImageBlockWidgetState extends State<_CustomImageBlockWidget>
     // A URL está diretamente em node.attributes[ImageBlockKeys.url]
     final url = node.attributes[ImageBlockKeys.url] as String?;
 
-    debugPrint('🗑️ Removendo imagem do briefing...');
-    debugPrint('   URL: $url');
 
     // Se for uma URL do Google Drive, deletar do Drive
     if (url != null && url.contains('drive.google.com')) {
       try {
-        debugPrint('🔥 Deletando imagem do Google Drive...');
 
         // Extrair o file ID da URL
         final fileIdMatch = RegExp(r'id=([^&]+)').firstMatch(url);
         if (fileIdMatch != null) {
           final fileId = fileIdMatch.group(1);
-          debugPrint('   File ID: $fileId');
 
           final driveService = GoogleDriveOAuthService();
           final driveClient = await driveService.getAuthedClient();
@@ -1440,10 +1401,8 @@ class _CustomImageBlockWidgetState extends State<_CustomImageBlockWidget>
             Uri.parse('https://www.googleapis.com/drive/v3/files/$fileId'),
           );
 
-          debugPrint('✅ Imagem deletada do Google Drive com sucesso!');
         }
       } catch (e) {
-        debugPrint('⚠️ Erro ao deletar imagem do Google Drive: $e');
         // Continua removendo do editor mesmo se falhar no Drive
       }
     } else if (url != null && url.startsWith('file://')) {
@@ -1453,10 +1412,9 @@ class _CustomImageBlockWidgetState extends State<_CustomImageBlockWidget>
         final file = File(localPath);
         if (await file.exists()) {
           await file.delete();
-          debugPrint('🗑️ Imagem local deletada do cache');
         }
       } catch (e) {
-        debugPrint('⚠️ Erro ao deletar imagem local: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
 
@@ -1466,9 +1424,8 @@ class _CustomImageBlockWidgetState extends State<_CustomImageBlockWidget>
         final transaction = appFlowyState._editorState.transaction;
         transaction.deleteNode(node);
         appFlowyState._editorState.apply(transaction);
-        debugPrint('✅ Imagem removida do editor');
       } catch (e) {
-        debugPrint('❌ Erro ao remover imagem do editor: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
   }
@@ -1578,7 +1535,7 @@ class _CustomImageBlockWidgetState extends State<_CustomImageBlockWidget>
         appFlowyState._editorState.apply(transaction);
       }
     } catch (e) {
-      debugPrint('Erro ao salvar linhas de conteúdo: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 

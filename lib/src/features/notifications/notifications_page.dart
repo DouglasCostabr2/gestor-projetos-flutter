@@ -67,15 +67,11 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
   }
 
   Future<void> _loadNotifications() async {
-    debugPrint('🔔 [NOTIFICATIONS PAGE] Carregando notificações...');
     setState(() => _loading = true);
     try {
       final all = await notificationsModule.getNotifications(limit: 100);
-      debugPrint('🔔 [NOTIFICATIONS PAGE] Total carregadas: ${all.length}');
       final unread = await notificationsModule.getUnreadNotifications();
-      debugPrint('🔔 [NOTIFICATIONS PAGE] Não lidas: ${unread.length}');
       final count = await notificationsModule.getUnreadCount();
-      debugPrint('🔔 [NOTIFICATIONS PAGE] Contagem não lidas: $count');
 
       if (mounted) {
         setState(() {
@@ -184,7 +180,6 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
     final inviteId = notification.metadata['invite_id'];
 
     if (inviteId == null) {
-      debugPrint('❌ Invite ID não encontrado nos metadados da notificação');
       return;
     }
 
@@ -195,14 +190,12 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
     final appState = AppStateScope.of(context);
 
     try {
-      debugPrint('✅ Aceitando convite $inviteIdStr...');
       await organizationsModule.acceptInvite(inviteIdStr);
 
       // Marcar notificação como lida
       await notificationsModule.markAsRead(notification.id);
 
       // Recarregar lista de organizações no AppState
-      debugPrint('🔄 Atualizando lista de organizações...');
       await appState.refreshOrganizations();
 
       // Recarregar notificações
@@ -217,7 +210,6 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
         );
       }
     } catch (e) {
-      debugPrint('❌ Erro ao aceitar convite: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -233,7 +225,6 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
     final inviteId = notification.metadata['invite_id'];
 
     if (inviteId == null) {
-      debugPrint('❌ Invite ID não encontrado nos metadados da notificação');
       return;
     }
 
@@ -241,7 +232,6 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
     final inviteIdStr = inviteId.toString();
 
     try {
-      debugPrint('❌ Rejeitando convite $inviteIdStr...');
       await organizationsModule.rejectInvite(inviteIdStr);
 
       // Marcar notificação como lida e deletar
@@ -260,7 +250,6 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
         );
       }
     } catch (e) {
-      debugPrint('❌ Erro ao recusar convite: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -373,11 +362,15 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
       switch (notification.entityType!) {
         case models.NotificationEntityType.task:
           // Navegar para detalhes da tarefa na aba atual
+          final tabId = 'task_${notification.entityId}';
           final taskTab = TabItem(
-            id: 'task_${notification.entityId}',
+            id: tabId,
             title: notification.title,
             icon: Icons.task,
-            page: TaskDetailPage(taskId: notification.entityId!),
+            page: TaskDetailPage(
+              key: ValueKey(tabId),
+              taskId: notification.entityId!,
+            ),
             canClose: true,
             selectedMenuIndex: 4, // Índice do menu de Tarefas
           );
@@ -416,7 +409,6 @@ class _NotificationsPageState extends State<NotificationsPage> with SingleTicker
 
         case models.NotificationEntityType.payment:
           // Navegação para pagamentos será implementada quando houver página de detalhes
-          debugPrint('Notificação de pagamento: ${notification.title}');
           break;
 
         case models.NotificationEntityType.client:

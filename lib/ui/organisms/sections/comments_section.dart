@@ -67,7 +67,6 @@ class _CommentsSectionState extends State<CommentsSection> {
       final name = companies?['name'] as String?;
       return (name != null && name.trim().isNotEmpty) ? name : null;
     } catch (e) {
-      debugPrint('⚠️ [Comments] Falha ao buscar companyName: $e');
       return null;
     }
   }
@@ -82,7 +81,6 @@ class _CommentsSectionState extends State<CommentsSection> {
       final title = parent?['title'] as String?;
       return (title != null && title.trim().isNotEmpty) ? title : null;
     } catch (e) {
-      debugPrint('⚠️ [Comments] Falha ao buscar título da tarefa pai: $e');
       return null;
     }
   }
@@ -105,12 +103,10 @@ class _CommentsSectionState extends State<CommentsSection> {
       try {
         final prevMax = _lastMaxExtent;
         final currMax = pos.maxScrollExtent;
-        debugPrint('🧭 PageScroll: pixels=${pos.pixels.toStringAsFixed(1)} max=${currMax.toStringAsFixed(1)} viewport=${pos.viewportDimension.toStringAsFixed(1)} dir=${pos.userScrollDirection}');
         // Detecta encolhimento significativo do conteúdo quando estamos no fim
         if (prevMax != null && currMax + 1.0 < prevMax && pos.pixels + 8.0 >= currMax) {
           if (!_shrinkFixPending) {
             _shrinkFixPending = true;
-            debugPrint('🛟 ShrinkGuard: max ${prevMax.toStringAsFixed(1)} -> ${currMax.toStringAsFixed(1)} | pixels=${pos.pixels.toStringAsFixed(1)} | agendando ensureVisible (allowUp)');
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
               _shrinkFixPending = false;
@@ -122,7 +118,6 @@ class _CommentsSectionState extends State<CommentsSection> {
         if (prevMax != null && currMax > prevMax + 1.0 && pos.pixels + 24.0 >= prevMax - 16.0) {
           if (!_growFixPending) {
             _growFixPending = true;
-            debugPrint('🌱 GrowthGuard: max ${prevMax.toStringAsFixed(1)} -> ${currMax.toStringAsFixed(1)} | pixels=${pos.pixels.toStringAsFixed(1)} | agendando ensureVisible (down)');
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
               _growFixPending = false;
@@ -132,7 +127,7 @@ class _CommentsSectionState extends State<CommentsSection> {
         }
         _lastMaxExtent = currMax;
       } catch (e) {
-        debugPrint('🧭 PageScroll: metrics indisponíveis ($e)');
+        // Ignorar erro (operação não crítica)
       }
     };
     _observedPageCtrl!.addListener(_pageScrollLogListener!);
@@ -143,12 +138,10 @@ class _CommentsSectionState extends State<CommentsSection> {
         if (_observedPageCtrl != null && _observedPageCtrl!.hasClients) {
           final pos = _observedPageCtrl!.position;
           _lastMaxExtent = pos.maxScrollExtent; // baseline inicial
-          debugPrint('🧭 PageScroll(attach): pixels=${pos.pixels.toStringAsFixed(1)} max=${pos.maxScrollExtent.toStringAsFixed(1)} viewport=${pos.viewportDimension.toStringAsFixed(1)}');
         } else {
-          debugPrint('🧭 PageScroll(attach): ainda sem clients');
         }
       } catch (e) {
-        debugPrint('🧭 PageScroll(attach): metrics indisponíveis ($e)');
+        // Ignorar erro (operação não crítica)
       }
     });
   }
@@ -191,6 +184,7 @@ class _CommentsSectionState extends State<CommentsSection> {
             results.add({'id': id, 'url': url});
           }
         } catch (_) {}
+        // Ignorar erro (operação não crítica)
       }
     } catch (_) {}
     return results;
@@ -221,7 +215,7 @@ class _CommentsSectionState extends State<CommentsSection> {
         idx++;
       }
     } catch (e) {
-      debugPrint('⚠️ [Comment] Falha ao persistir arquivos do comentário: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -238,16 +232,12 @@ class _CommentsSectionState extends State<CommentsSection> {
     try {
       final data = jsonDecode(json) as Map<String, dynamic>;
       final blocks = (data['blocks'] as List?) ?? [];
-      final types = blocks.map((b) => (b['type'] ?? 'text').toString()).toList();
       final empty = blocks.every((b) => (b['content'] ?? '').toString().trim().isEmpty);
 
-      debugPrint('🧰 EditorChanged: blocks=${blocks.length} types=$types empty=$empty');
 
       if (empty != _composeEmpty) {
-        debugPrint('🔴🔴🔴 [_onEditorChanged] MUDANDO _composeEmpty de $_composeEmpty para $empty');
         if (!mounted) return;
         setState(() { _composeEmpty = empty; });
-        debugPrint('🔴🔴🔴 [_onEditorChanged] _composeEmpty agora é: $_composeEmpty');
       }
 
       // Sempre fazer scroll após mudanças para acompanhar o conteúdo
@@ -265,7 +255,7 @@ class _CommentsSectionState extends State<CommentsSection> {
         _imageInsertionInProgress = false;
       }
     } catch (e) {
-      debugPrint('\u26a0\ufe0f EditorChanged: parse error: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -273,19 +263,15 @@ class _CommentsSectionState extends State<CommentsSection> {
     // Garantir compositor visível, respeitando overlays (ex.: emoji picker)
     final pos = _findScrollPosition();
     if (pos != null) {
-      final bottomInset = MediaQuery.maybeOf(context)?.padding.bottom ?? 0;
-      final emojiOverlay = _showingEmojiPicker ? 280.0 : 0.0; // altura aproximada do picker
-      final baseMargin = _showingEmojiPicker ? 24.0 : 16.0; // margem mínima quando não há overlay
-      final extra = baseMargin + bottomInset + emojiOverlay;
+ // altura aproximada do picker
+ // margem mínima quando não há overlay
       // Se detectarmos encolhimento recente e estamos colados no fim, permitir subir para recolocar o compositor
       final prevMax = _lastMaxExtent;
       final currMax = pos.maxScrollExtent;
       bool finalAllowUp = allowUpIfShrink;
       if (!finalAllowUp && prevMax != null && currMax + 1.0 < prevMax && pos.pixels + 8.0 >= currMax) {
         finalAllowUp = true;
-        debugPrint('🛟 ShrinkGuard(late): prevMax=${prevMax.toStringAsFixed(1)} -> currMax=${currMax.toStringAsFixed(1)} | pixels=${pos.pixels.toStringAsFixed(1)}');
       }
-      debugPrint('🧲 _scrollToComposeField: pixels=${pos.pixels.toStringAsFixed(1)} max=${currMax.toStringAsFixed(1)} viewport=${pos.viewportDimension.toStringAsFixed(1)} extra=$extra emojiPicker=$_showingEmojiPicker allowUp=$finalAllowUp');
 
       // Estratégia: rolar até o final absoluto (maxScrollExtent) para garantir que todo o compositor fique visível
       // Isso é especialmente importante com o SliverPadding que adiciona espaço extra
@@ -293,15 +279,12 @@ class _CommentsSectionState extends State<CommentsSection> {
       final current = pos.pixels;
       final delta = (target - current).abs();
 
-      debugPrint('📊 ScrollToCompose: current=${current.toStringAsFixed(1)} target=${target.toStringAsFixed(1)} delta=${delta.toStringAsFixed(1)}');
 
       // Só rola se necessário (não está já no final ou se allowUp está ativo)
       if (finalAllowUp || delta >= 1.0) {
         if (delta < 24.0) {
-          debugPrint('⚡ ScrollToCompose: jumpTo');
           pos.jumpTo(target);
         } else {
-          debugPrint('🎞 ScrollToCompose: animateTo');
           pos.animateTo(
             target,
             duration: const Duration(milliseconds: 180),
@@ -309,7 +292,6 @@ class _CommentsSectionState extends State<CommentsSection> {
           );
         }
       } else {
-        debugPrint('↩︎ ScrollToCompose: skip (já no final)');
       }
 
       // Passo de estabilização: após permitir subida por encolhimento, faz um segundo ensure sem subir
@@ -320,7 +302,6 @@ class _CommentsSectionState extends State<CommentsSection> {
           if (p2 != null) {
             final currMax2 = p2.maxScrollExtent;
             final delta2 = (currMax2 - p2.pixels).abs();
-            debugPrint('🧲 _scrollToComposeField(second pass): pixels=${p2.pixels.toStringAsFixed(1)} max=${currMax2.toStringAsFixed(1)} delta=${delta2.toStringAsFixed(1)}');
             if (delta2 >= 1.0) {
               if (delta2 < 24.0) {
                 p2.jumpTo(currMax2);
@@ -338,14 +319,12 @@ class _CommentsSectionState extends State<CommentsSection> {
       }
       _lastMaxExtent = currMax; // mantenha baseline atualizada
     } else {
-      debugPrint('🧲 _scrollToComposeField: sem posição de scroll (pos=null)');
     }
   }
 
   @override
   void initState() {
     super.initState();
-    debugPrint('🔥🔥🔥🔥🔥 [CommentsSection.initState] WIDGET CRIADO!');
     _composeEmpty = true;
     // Anexa o logger de scroll no prximo frame para evitar mtricas nulas
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -359,7 +338,6 @@ class _CommentsSectionState extends State<CommentsSection> {
   void didUpdateWidget(covariant CommentsSection oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pageScrollController != widget.pageScrollController) {
-      debugPrint('🔄 CommentsSection: pageScrollController mudou (reattach logger)');
     }
     _attachPageScrollLogger();
   }
@@ -437,32 +415,22 @@ class _CommentsSectionState extends State<CommentsSection> {
 
 
   Future<void> _send() async {
-    debugPrint('🔴🔴🔴 [Comments._send] ===== INICIANDO ENVIO DE COMENTÁRIO =====');
     setState(() { _sending = true; _error = null; });
-    debugPrint('🔴🔴🔴 [Comments._send] START editing=${_editingCommentId != null} composeLen=${_composeJson.length}');
     // Guardar conteúdo atual para possível restauração em caso de erro
     final originalJson = _composeJson;
-    debugPrint('🔴🔴🔴 [Comments._send] originalJson length: ${originalJson.length}');
     try {
       // Verificar se há conteúdo
-      debugPrint('🔴🔴🔴 [Comments._send] tentando fazer jsonDecode...');
       final data = jsonDecode(_composeJson) as Map<String, dynamic>;
-      debugPrint('🔴🔴🔴 [Comments._send] jsonDecode OK');
       final blocks = (data['blocks'] as List?) ?? [];
       final isEmpty = blocks.every((b) => (b['content'] ?? '').toString().trim().isEmpty);
-      debugPrint('🔴🔴🔴 [Comments._send] blocks=${blocks.length} isEmpty=$isEmpty');
-      debugPrint('🔴🔴🔴 [Comments._send] verificação de conteúdo OK');
 
       if (isEmpty) {
-        debugPrint('🔴🔴🔴 [Comments._send] Comentário vazio, retornando');
         setState(() { _sending = false; _error = 'Comentário vazio'; });
         return;
       }
 
-      debugPrint('🔴🔴🔴 [Comments._send] Comentário NÃO está vazio, continuando...');
       // Inserir placeholder otimista no topo e limpar o editor imediatamente
       if (_editingCommentId != null) {
-        debugPrint('🔴🔴🔴 [Comments._send] Editando comentário existente');
         // Marcamos o comentário existente como pendente e atualizamos o conteúdo visível
         final idx = _comments.indexWhere((c) => c['id'] == _editingCommentId);
         if (idx >= 0) {
@@ -475,7 +443,6 @@ class _CommentsSectionState extends State<CommentsSection> {
           });
         }
       } else {
-        debugPrint('🔴🔴🔴 [Comments._send] Novo comentário, criando pendente...');
         final uid = Supabase.instance.client.auth.currentUser?.id;
         final app = AppStateScope.of(context);
         final profile = app.profile;
@@ -483,7 +450,6 @@ class _CommentsSectionState extends State<CommentsSection> {
         final fullName = (profile?['full_name'] ?? 'Você').toString();
         final avatarUrl = profile?['avatar_url'] as String?;
 
-        final orgId = app.currentOrganizationId;
         final pendingId = 'pending_${DateTime.now().millisecondsSinceEpoch}';
         final pending = <String, dynamic>{
           'id': pendingId,
@@ -498,13 +464,11 @@ class _CommentsSectionState extends State<CommentsSection> {
           'updated_at': null,
           'pending': true,
         };
-        debugPrint('🔴🔴🔴 [Comments._send] Pendente criado, adicionando à lista...');
         final bool shouldAuto = _isNearBottom();
         final int insertIdx = 1 + _combinedItems.length;
         setState(() {
           _pendingComments.add(pending);
         });
-        debugPrint('🔴🔴🔴 [Comments._send] Inserindo item na lista...');
         _listKey.currentState?.insertItem(
           insertIdx,
           duration: const Duration(milliseconds: 220),
@@ -512,23 +476,12 @@ class _CommentsSectionState extends State<CommentsSection> {
         if (shouldAuto) {
           _autoScrollToBottomSoon();
         }
-        debugPrint('🔴🔴🔴 [Comments._send] Item inserido, preparando para upload...');
         // Processa este envio em background
         final clientName = (widget.task['projects']?['clients']?['name'] ?? 'Cliente').toString();
         final projectName = (widget.task['projects']?['name'] ?? 'Projeto').toString();
         final taskTitle = (widget.task['title'] ?? 'Tarefa').toString();
-        debugPrint('🔴🔴🔴 [Comments._send] clientName=$clientName, projectName=$projectName, taskTitle=$taskTitle');
-        debugPrint('🔴🔴🔴 [Comments._send] scheduling background upload...');
         Future(() async {
-          debugPrint('🟢🟢🟢 [Comments._send/BG] started');
           try {
-            final shared = orgId != null ? await OAuthTokenStore.getSharedToken('google', orgId) : null;
-            debugPrint('🟢🟢🟢 [Comments._send/BG] sharedToken.refresh=${shared != null && shared["refresh_token"] != null}');
-            debugPrint('🟢🟢🟢 [Comments._send/BG] ANTES DE CHAMAR uploadCachedImages');
-            debugPrint('🟢 clientName: $clientName');
-            debugPrint('🟢 projectName: $projectName');
-            debugPrint('🟢 taskTitle: $taskTitle');
-            debugPrint('🟢 originalJson length: ${originalJson.length}');
             final companyName = await _fetchCompanyNameForTask(widget.task['id'] as String);
             final bool isSubTask = (widget.task['parent_task_id'] as String?) != null;
             String effectiveTaskTitle = taskTitle;
@@ -550,7 +503,6 @@ class _CommentsSectionState extends State<CommentsSection> {
               filePrefix: 'Comentario',
               overrideJson: originalJson,
             );
-            debugPrint('🟢🟢🟢 [Comments._send/BG] DEPOIS DE uploadCachedImages, contentJsonLen=${contentJson.length}');
             final created = await commentsModule.createComment(
               taskId: widget.task['id'] as String,
               content: contentJson,
@@ -564,7 +516,7 @@ class _CommentsSectionState extends State<CommentsSection> {
                 content: contentJson,
               );
             } catch (e) {
-              debugPrint('⚠️ Erro ao salvar menções do comentário: $e');
+              // Ignorar erro (operação não crítica)
             }
             // Remove o pendente com animação e insere o criado
             final current = _combinedItems;
@@ -608,9 +560,7 @@ class _CommentsSectionState extends State<CommentsSection> {
             if (_isNearBottom()) {
               _autoScrollToBottomSoon();
             }
-          } catch (e, stackTrace) {
-            debugPrint('🔴 [Comments._send/BG] ERRO CAPTURADO: $e');
-            debugPrint('🔴 [Comments._send/BG] StackTrace: $stackTrace');
+          } catch (e) {
             if (!mounted) return;
             // Falha: remove pendente e restaura conteúdo
             final current = _combinedItems;
@@ -641,7 +591,6 @@ class _CommentsSectionState extends State<CommentsSection> {
               errorMessage = 'Google Drive não conectado. Peça ao administrador para conectar uma conta do Google Drive nas configurações.';
             }
 
-            debugPrint('🔴 [Comments._send/BG] Mensagem de erro: $errorMessage');
             setState(() {
               _error = errorMessage;
             });
@@ -709,9 +658,7 @@ class _CommentsSectionState extends State<CommentsSection> {
           });
         }
       }
-    } catch (e, stackTrace) {
-      debugPrint('🔴 [Comments._send] ERRO NO CATCH EXTERNO: $e');
-      debugPrint('🔴 [Comments._send] StackTrace: $stackTrace');
+    } catch (e) {
       // Restaurar conteúdo apenas se o compositor estiver vazio (não sobrescrever rascunho atual)
       String errorMessage = 'Falha ao enviar: $e';
 
@@ -721,7 +668,6 @@ class _CommentsSectionState extends State<CommentsSection> {
         errorMessage = 'Google Drive não conectado. Peça ao administrador para conectar uma conta do Google Drive nas configurações.';
       }
 
-      debugPrint('🔴 [Comments._send] Mensagem de erro (catch externo): $errorMessage');
       setState(() { _error = errorMessage; });
       if (_composeEmpty) {
         _composeEditorCtl.setJson(originalJson);
@@ -748,11 +694,9 @@ class _CommentsSectionState extends State<CommentsSection> {
     );
     if (ok == true) {
       try {
-        debugPrint('🗑️ [Comment] Removendo comentário: ${c['id']}');
 
         // 1. Buscar anexos do comentário
         final files = await _filesRepo.listByComment(c['id'] as String);
-        debugPrint('🗑️ [Comment] Encontrados ${files.length} anexo(s)');
 
         // 2. Deletar anexos do Google Drive (registros no DB)
         final removedIds = <String>{};
@@ -763,23 +707,17 @@ class _CommentsSectionState extends State<CommentsSection> {
               final driveFileId = file['drive_file_id'] as String?;
               if (driveFileId != null && driveFileId.isNotEmpty) {
                 removedIds.add(driveFileId);
-                debugPrint('🗑️ [Comment] Removendo anexo do Drive: $driveFileId');
                 try {
                   await _drive.deleteFile(client: client, driveFileId: driveFileId);
-                  debugPrint('✅ [Comment] Anexo removido do Drive');
                 } catch (e) {
-                  debugPrint('⚠️ [Comment] Erro ao remover anexo do Drive: $e');
                   // Continua mesmo se falhar no Drive
                 }
               }
 
               // Deletar do banco de dados
-              debugPrint('🗑️ [Comment] Removendo anexo do banco: ${file['id']}');
               await _filesRepo.delete(file['id'] as String);
-              debugPrint('✅ [Comment] Anexo removido do banco');
             }
           } catch (e) {
-            debugPrint('⚠️ [Comment] Erro ao processar anexos: $e');
             // Continua mesmo se falhar
           }
         }
@@ -795,21 +733,18 @@ class _CommentsSectionState extends State<CommentsSection> {
               if (id == null || id.isEmpty) continue;
               if (removedIds.contains(id)) continue; // já removido via registros
               try {
-                debugPrint('🗑️ [Comment] (fallback) Removendo imagem do Drive: $id');
                 await _drive.deleteFile(client: client, driveFileId: id);
               } catch (e) {
-                debugPrint('⚠️ [Comment] (fallback) Erro ao remover imagem: $e');
+                // Ignorar erro (operação não crítica)
               }
             }
           }
         } catch (e) {
-          debugPrint('⚠️ [Comment] Fallback de remoção falhou: $e');
+          // Ignorar erro (operação não crítica)
         }
 
         // 3. Deletar comentário
-        debugPrint('🗑️ [Comment] Removendo comentário do banco');
         await commentsModule.deleteComment(c['id'] as String);
-        debugPrint('✅ [Comment] Comentário removido');
 
         if (mounted) {
           final current = _combinedItems;
@@ -837,7 +772,6 @@ class _CommentsSectionState extends State<CommentsSection> {
           }
         }
       } catch (e) {
-        debugPrint('❌ [Comment] Erro ao deletar comentário: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Erro ao deletar comentário: $e')),
@@ -941,7 +875,6 @@ class _CommentsSectionState extends State<CommentsSection> {
   }
 
   Widget _buildComposerCard(BuildContext context) {
-    debugPrint('🟡 [_buildComposerCard] _composeEmpty=$_composeEmpty, _sending=$_sending');
     return DropTarget(
       onDragEntered: (details) {
         setState(() => _isDragging = true);
@@ -1057,7 +990,6 @@ class _CommentsSectionState extends State<CommentsSection> {
               ] else ...[
                 Builder(
                   builder: (context) {
-                    debugPrint('🟣🟣🟣 [Builder _SendButton] _composeEmpty=$_composeEmpty, onPressed=${_composeEmpty ? "NULL" : "NOT NULL"}');
                     return _SendButton(
                       onPressed: _composeEmpty ? null : _send,
                       enabled: !_composeEmpty,
@@ -1100,7 +1032,6 @@ class _CommentsSectionState extends State<CommentsSection> {
   }
 
   void _onEmojiSelected(String emoji) {
-    debugPrint('😀 _onEmojiSelected: "$emoji"');
     _composeEditorCtl.insertEmoji(emoji);
     setState(() {
       _showingEmojiPicker = false;
@@ -1111,18 +1042,14 @@ class _CommentsSectionState extends State<CommentsSection> {
     try {
       final preferred = widget.pageScrollController;
       if (preferred != null && preferred.hasClients) {
-        debugPrint('🎯 _findScrollPosition: usando pageScrollController');
         return preferred.position;
       }
       final scrollable = Scrollable.maybeOf(context);
       if (scrollable != null) {
-        debugPrint('🎯 _findScrollPosition: usando Scrollable.of(context)');
         return scrollable.position;
       }
-      debugPrint('🎯 _findScrollPosition: nenhuma posição encontrada');
       return null;
     } catch (e) {
-      debugPrint('🎯 _findScrollPosition: erro: $e');
       return null;
     }
   }
@@ -1227,7 +1154,6 @@ class _SendButtonState extends State<_SendButton> {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('🟠🟠🟠 [_SendButton.build] enabled=${widget.enabled}, onPressed=${widget.onPressed != null ? "NOT NULL" : "NULL"}');
 
     // Usa a mesma cor do hover do botão ghost/tab bar (0xFF2A2A2A)
     final backgroundColor = widget.enabled
@@ -1245,10 +1171,7 @@ class _SendButtonState extends State<_SendButton> {
       child: IconButton(
         onPressed: widget.enabled
             ? () {
-                debugPrint('🔴🔴🔴 [SendButton] BOTÃO CLICADO!!! enabled=${widget.enabled}');
-                debugPrint('🔴🔴🔴 [SendButton] onPressed callback: ${widget.onPressed}');
                 widget.onPressed?.call();
-                debugPrint('🔴🔴🔴 [SendButton] callback chamado');
               }
             : null,
         icon: const Icon(Icons.arrow_upward, size: 20),

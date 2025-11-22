@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 import '../../core/exceptions/app_exceptions.dart';
@@ -25,7 +24,6 @@ class GoogleDriveFolderService {
       final driveApi = drive.DriveApi(client);
       const folderName = 'Gestor de Projetos';
 
-      debugPrint('📁 Buscando pasta raiz: $folderName');
 
       // Buscar pasta existente
       final query = "name='$folderName' and mimeType='application/vnd.google-apps.folder' and trashed=false";
@@ -37,12 +35,10 @@ class GoogleDriveFolderService {
 
       if (fileList.files != null && fileList.files!.isNotEmpty) {
         final folderId = fileList.files!.first.id!;
-        debugPrint('✅ Pasta raiz encontrada: $folderId');
         return folderId;
       }
 
       // Criar nova pasta
-      debugPrint('📁 Criando pasta raiz: $folderName');
       final folder = drive.File()
         ..name = folderName
         ..mimeType = 'application/vnd.google-apps.folder';
@@ -50,19 +46,16 @@ class GoogleDriveFolderService {
       final createdFolder = await driveApi.files.create(folder);
       final folderId = createdFolder.id!;
       
-      debugPrint('✅ Pasta raiz criada: $folderId');
       return folderId;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFolderService.getOrCreateRootFolder',
       );
       
       throw DriveException(
         'Erro ao buscar/criar pasta raiz',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -85,7 +78,6 @@ class GoogleDriveFolderService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('📁 Buscando subpasta: $folderName em $parentFolderId');
 
       // Buscar subpasta existente
       final query = "name='$folderName' and '$parentFolderId' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false";
@@ -97,12 +89,10 @@ class GoogleDriveFolderService {
 
       if (fileList.files != null && fileList.files!.isNotEmpty) {
         final folderId = fileList.files!.first.id!;
-        debugPrint('✅ Subpasta encontrada: $folderId');
         return folderId;
       }
 
       // Criar nova subpasta
-      debugPrint('📁 Criando subpasta: $folderName');
       final folder = drive.File()
         ..name = folderName
         ..mimeType = 'application/vnd.google-apps.folder'
@@ -111,19 +101,16 @@ class GoogleDriveFolderService {
       final createdFolder = await driveApi.files.create(folder);
       final folderId = createdFolder.id!;
       
-      debugPrint('✅ Subpasta criada: $folderId');
       return folderId;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFolderService.getOrCreateSubfolder',
       );
       
       throw DriveException(
         'Erro ao buscar/criar subpasta: $folderName',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -144,7 +131,6 @@ class GoogleDriveFolderService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('✏️ Renomeando pasta $folderId para: $newName');
 
       final file = drive.File()..name = newName;
       
@@ -154,18 +140,15 @@ class GoogleDriveFolderService {
         $fields: 'id, name',
       );
 
-      debugPrint('✅ Pasta renomeada com sucesso');
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFolderService.renameFolder',
       );
       
       throw DriveException(
         'Erro ao renomear pasta',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -184,22 +167,18 @@ class GoogleDriveFolderService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('🗑️ Deletando pasta: $folderId');
 
       await driveApi.files.delete(folderId);
 
-      debugPrint('✅ Pasta deletada com sucesso');
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFolderService.deleteFolder',
       );
       
       throw DriveException(
         'Erro ao deletar pasta',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -222,7 +201,6 @@ class GoogleDriveFolderService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('🔍 Buscando pasta: $folderName em $parentFolderId');
 
       final query = "name='$folderName' and '$parentFolderId' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false";
       final fileList = await driveApi.files.list(
@@ -233,16 +211,13 @@ class GoogleDriveFolderService {
 
       if (fileList.files != null && fileList.files!.isNotEmpty) {
         final folderId = fileList.files!.first.id!;
-        debugPrint('✅ Pasta encontrada: $folderId');
         return folderId;
       }
 
-      debugPrint('⚠️ Pasta não encontrada');
       return null;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFolderService.findFolderByName',
       );
       return null;

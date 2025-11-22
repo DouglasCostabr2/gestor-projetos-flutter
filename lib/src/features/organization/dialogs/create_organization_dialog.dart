@@ -80,9 +80,6 @@ class _CreateOrganizationDialogState extends State<CreateOrganizationDialog> {
     setState(() => _saving = true);
 
     try {
-      debugPrint('🏢 [CreateOrgDialog] Iniciando criação de organização...');
-      debugPrint('   Nome: ${_nameController.text.trim()}');
-      debugPrint('   Slug: ${_slugController.text.trim()}');
 
       // Criar organização usando o módulo
       final newOrg = await organizationsModule.createOrganization(
@@ -99,7 +96,6 @@ class _CreateOrganizationDialogState extends State<CreateOrganizationDialog> {
             : _phoneController.text.trim(),
       );
 
-      debugPrint('✅ [CreateOrgDialog] Organização criada: ${newOrg['id']}');
 
       if (!mounted) return;
 

@@ -69,31 +69,7 @@ class ErrorHandler {
     StackTrace? stackTrace,
     String? context,
   }) {
-    final buffer = StringBuffer();
-    
-    if (context != null) {
-      buffer.writeln('❌ ERRO [$context]');
-    } else {
-      buffer.writeln('❌ ERRO');
-    }
-
-    buffer.writeln('Tipo: ${error.runtimeType}');
-    buffer.writeln('Mensagem: ${getErrorMessage(error)}');
-
-    if (error is AppException && error.code != null) {
-      buffer.writeln('Código: ${error.code}');
-    }
-
-    if (error is AppException && error.originalError != null) {
-      buffer.writeln('Erro original: ${error.originalError}');
-    }
-
-    if (stackTrace != null) {
-      buffer.writeln('Stack trace:');
-      buffer.writeln(stackTrace.toString());
-    }
-
-    debugPrint(buffer.toString());
+    // Log silenciado
   }
 
   /// Mostrar erro em um SnackBar
@@ -151,8 +127,8 @@ class ErrorHandler {
   }) async {
     try {
       return await function();
-    } catch (error, stackTrace) {
-      logError(error, stackTrace: stackTrace, context: context);
+    } catch (error) {
+      logError(error, context: context);
       onError?.call(error);
       return null;
     }
@@ -166,8 +142,8 @@ class ErrorHandler {
   }) {
     try {
       return function();
-    } catch (error, stackTrace) {
-      logError(error, stackTrace: stackTrace, context: context);
+    } catch (error) {
+      logError(error, context: context);
       onError?.call(error);
       return null;
     }

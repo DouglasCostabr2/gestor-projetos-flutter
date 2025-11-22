@@ -324,7 +324,7 @@ class _ClientFormState extends State<ClientForm> {
                   content: _notes.text,
                 );
               } catch (e) {
-                debugPrint('Erro ao salvar menções das notas: $e');
+                // Ignorar erro (operação não crítica)
               }
             }
           }
@@ -375,7 +375,7 @@ class _ClientFormState extends State<ClientForm> {
               content: _notes.text,
             );
           } catch (e) {
-            debugPrint('Erro ao salvar menções das notas: $e');
+            // Ignorar erro (operação não crítica)
           }
         }
       }

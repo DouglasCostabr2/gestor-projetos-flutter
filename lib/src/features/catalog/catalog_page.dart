@@ -86,7 +86,6 @@ class _CatalogPageState extends State<CatalogPage> {
       // 1. Decodificar a imagem
       final image = img.decodeImage(imageBytes);
       if (image == null) {
-        debugPrint('❌ Erro ao decodificar imagem');
         return null;
       }
 
@@ -100,17 +99,14 @@ class _CatalogPageState extends State<CatalogPage> {
           height: image.height >= image.width ? maxSize : null,
           interpolation: img.Interpolation.linear,
         );
-        debugPrint('📐 Imagem redimensionada de ${image.width}x${image.height} para ${thumbnail.width}x${thumbnail.height}');
       } else {
         thumbnail = image;
-        debugPrint('📐 Imagem já está no tamanho adequado: ${image.width}x${image.height}');
       }
 
       // 3. Comprimir como JPEG com qualidade 85
       final compressed = img.encodeJpg(thumbnail, quality: 85);
-      final originalSize = imageBytes.length / 1024; // KB
-      final compressedSize = compressed.length / 1024; // KB
-      debugPrint('🗜️ Compressão: ${originalSize.toStringAsFixed(1)}KB → ${compressedSize.toStringAsFixed(1)}KB (${((1 - compressedSize / originalSize) * 100).toStringAsFixed(1)}% redução)');
+ // KB
+ // KB
 
       // 4. Deletar miniatura antiga se existir
       if (oldThumbnailUrl != null && oldThumbnailUrl.isNotEmpty) {
@@ -123,10 +119,9 @@ class _CatalogPageState extends State<CatalogPage> {
             await Supabase.instance.client.storage
                 .from('product-thumbnails')
                 .remove([oldPath]);
-            debugPrint('✅ Miniatura antiga deletada: $oldPath');
           }
         } catch (e) {
-          debugPrint('⚠️ Erro ao deletar miniatura antiga: $e');
+          // Ignorar erro (operação não crítica)
         }
       }
 
@@ -165,10 +160,8 @@ class _CatalogPageState extends State<CatalogPage> {
           .from('product-thumbnails')
           .getPublicUrl(path);
 
-      debugPrint('✅ Miniatura enviada com sucesso: $url');
       return url;
     } catch (e) {
-      debugPrint('❌ Erro ao fazer upload da miniatura: $e');
       return null;
     }
   }
@@ -303,14 +296,12 @@ class _CatalogPageState extends State<CatalogPage> {
               final orgId = OrganizationContext.currentOrganizationId;
               if (orgId == null) throw 'Nenhuma organização ativa';
 
-              debugPrint('📁 Criando categoria: $name (org: $orgId)');
 
               await client.from('catalog_categories').insert({
                 'name': name,
                 'organization_id': orgId,
               });
 
-              debugPrint('✅ Categoria criada com sucesso');
             } else {
               await client.from('catalog_categories').update({'name': name}).eq('id', (initial['id'] ?? '').toString());
             }
@@ -536,14 +527,12 @@ class _CatalogPageState extends State<CatalogPage> {
                 final orgId = OrganizationContext.currentOrganizationId;
                 if (orgId == null) throw 'Nenhuma organização ativa';
 
-                debugPrint('📁 Criando categoria: $name (org: $orgId)');
 
                 await client.from('catalog_categories').insert({
                   'name': name,
                   'organization_id': orgId,
                 });
 
-                debugPrint('✅ Categoria criada com sucesso');
               } else {
                 await client.from('catalog_categories').update({'name': name}).eq('id', (initial['id'] ?? '').toString());
               }
@@ -820,10 +809,9 @@ class _CatalogPageState extends State<CatalogPage> {
                         await Supabase.instance.client.storage
                             .from('product-thumbnails')
                             .remove([oldPath]);
-                        debugPrint('✅ Miniatura deletada: $oldPath');
                       }
                     } catch (e) {
-                      debugPrint('⚠️ Erro ao deletar miniatura: $e');
+                      // Ignorar erro (operação não crítica)
                     }
                   }
                   imagePublicUrl = null;
@@ -831,7 +819,7 @@ class _CatalogPageState extends State<CatalogPage> {
                   imagePublicUrl = imageUrl; // mantém existente
                 }
               } catch (e) {
-                debugPrint('❌ Erro no upload da miniatura: $e');
+                // Ignorar erro (operação não crítica)
               }
               payload['image_url'] = imagePublicUrl;
             }
@@ -864,12 +852,10 @@ class _CatalogPageState extends State<CatalogPage> {
                 payload['updated_by'] = userId;
               }
 
-              debugPrint('🛍️ Criando ${table == 'products' ? 'produto' : 'pacote'}: ${payload['name']} (org: $orgId)');
 
               final ins = await client.from(table).insert(payload).select('id').single();
               itemId = (ins['id'] ?? '').toString();
 
-              debugPrint('✅ ${table == 'products' ? 'Produto' : 'Pacote'} criado com sucesso: $itemId');
               if (table == 'packages') {
                 final newId = itemId;
                 if (pkgItems.isNotEmpty) {
@@ -931,7 +917,7 @@ class _CatalogPageState extends State<CatalogPage> {
                 );
               }
             } catch (e) {
-              debugPrint('Erro ao salvar menções da descrição: $e');
+              // Ignorar erro (operação não crítica)
             }
 
             if (context.mounted) Navigator.pop(context, true);

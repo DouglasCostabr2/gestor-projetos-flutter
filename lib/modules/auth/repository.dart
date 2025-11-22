@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:http/http.dart' as http;
@@ -82,17 +81,13 @@ class AuthRepository implements AuthContract {
   Future<bool> signInWithGoogle() async {
     HttpServer? server;
     try {
-      debugPrint('Iniciando login com Google...');
 
       // Criar servidor HTTP local para capturar o callback
       // Tentar porta 3000, se falhar, usar porta 0 (aleatória)
       try {
         server = await HttpServer.bind('localhost', 3000);
-        debugPrint('✅ Servidor local iniciado na porta 3000');
       } catch (e) {
-        debugPrint('⚠️ Porta 3000 em uso, tentando porta aleatória...');
         server = await HttpServer.bind('localhost', 0);
-        debugPrint('✅ Servidor local iniciado na porta ${server.port}');
       }
 
       final port = server.port;
@@ -107,15 +102,11 @@ class AuthRepository implements AuthContract {
         'access_type': 'offline',
       });
 
-      debugPrint('🌐 Abrindo navegador para OAuth...');
-      debugPrint('📍 Redirect URI: $redirectUri');
       await launchUrl(authUrl, mode: LaunchMode.externalApplication);
 
       // Aguardar callback do OAuth
-      debugPrint('Aguardando callback do OAuth...');
       await for (final request in server) {
         final uri = request.uri;
-        debugPrint('Callback recebido: ${uri.path}');
 
         // Enviar resposta HTML para o navegador
         final html = '''
@@ -163,20 +154,16 @@ class AuthRepository implements AuthContract {
         final error = uri.queryParameters['error'];
 
         if (error != null) {
-          debugPrint('Erro do OAuth: $error');
           return false;
         }
 
         if (code == null) {
-          debugPrint('Código OAuth não encontrado no callback');
           return false;
         }
 
-        debugPrint('Código OAuth recebido');
 
         // Trocar código por access token do Google
         try {
-          debugPrint('Trocando código por access token...');
           final tokenResponse = await http.post(
             Uri.parse('https://oauth2.googleapis.com/token'),
             headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -190,7 +177,6 @@ class AuthRepository implements AuthContract {
           );
 
           if (tokenResponse.statusCode != 200) {
-            debugPrint('Erro ao trocar código: ${tokenResponse.statusCode}');
             return false;
           }
 
@@ -198,11 +184,9 @@ class AuthRepository implements AuthContract {
           final idToken = tokenData['id_token'] as String?;
 
           if (idToken == null) {
-            debugPrint('ID token não encontrado na resposta');
             return false;
           }
 
-          debugPrint('ID token recebido, fazendo login no Supabase...');
 
           // Fazer login no Supabase com o ID token do Google
           await _client.auth.signInWithIdToken(
@@ -210,23 +194,17 @@ class AuthRepository implements AuthContract {
             idToken: idToken,
           );
 
-          debugPrint('Login no Supabase realizado com sucesso!');
           return true;
-        } catch (e, stackTrace) {
-          debugPrint('Erro ao processar OAuth: $e');
-          debugPrint('StackTrace: $stackTrace');
+        } catch (e) {
           return false;
         }
       }
 
       return false;
-    } catch (e, stackTrace) {
-      debugPrint('Erro no signInWithGoogle: $e');
-      debugPrint('StackTrace: $stackTrace');
+    } catch (e) {
       rethrow;
     } finally {
       await server?.close();
-      debugPrint('Servidor local encerrado');
     }
   }
 
@@ -238,7 +216,6 @@ class AuthRepository implements AuthContract {
   Future<bool> linkGoogleAccount() async {
     HttpServer? server;
     try {
-      debugPrint('Vinculando conta Google...');
 
       // Forçar atualização do usuário antes de verificar
       await _client.auth.refreshSession();
@@ -257,14 +234,10 @@ class AuthRepository implements AuthContract {
       // Tentar porta 3000, se falhar, usar porta 0 (aleatória)
       try {
         server = await HttpServer.bind('localhost', 3000);
-        debugPrint('✅ Servidor local iniciado na porta 3000');
       } catch (e) {
-        debugPrint('⚠️ Porta 3000 em uso, tentando porta aleatória...');
         try {
           server = await HttpServer.bind('localhost', 0);
-          debugPrint('✅ Servidor local iniciado na porta ${server.port}');
         } catch (e2) {
-          debugPrint('❌ Erro ao criar servidor: $e2');
           throw Exception(
             'Não foi possível iniciar o servidor local.\n\n'
             'Tente fechar e reabrir o aplicativo.'
@@ -284,8 +257,6 @@ class AuthRepository implements AuthContract {
         'access_type': 'offline',
       });
 
-      debugPrint('🌐 Abrindo navegador para vinculação...');
-      debugPrint('📍 Redirect URI: $redirectUri');
       await launchUrl(authUrl, mode: LaunchMode.externalApplication);
 
       // Aguardar callback
@@ -333,16 +304,13 @@ class AuthRepository implements AuthContract {
         final error = uri.queryParameters['error'];
 
         if (error != null) {
-          debugPrint('Erro do OAuth: $error');
           return false;
         }
 
         if (code == null) {
-          debugPrint('Código OAuth não encontrado');
           return false;
         }
 
-        debugPrint('Código OAuth recebido para vinculação');
 
         // Trocar código por ID token
         try {
@@ -359,7 +327,6 @@ class AuthRepository implements AuthContract {
           );
 
           if (tokenResponse.statusCode != 200) {
-            debugPrint('Erro ao trocar código: ${tokenResponse.statusCode}');
             return false;
           }
 
@@ -367,11 +334,9 @@ class AuthRepository implements AuthContract {
           final idToken = tokenData['id_token'] as String?;
 
           if (idToken == null) {
-            debugPrint('ID token não encontrado');
             return false;
           }
 
-          debugPrint('ID token recebido, vinculando ao usuário atual...');
 
           // Salvar o ID do usuário atual antes de vincular
           final userIdBeforeLink = currentUser.id;
@@ -393,7 +358,6 @@ class AuthRepository implements AuthContract {
             // 1. O ID do usuário deve permanecer o mesmo
             // 2. A identidade Google deve ter sido adicionada
             if (updatedUser?.id != userIdBeforeLink) {
-              debugPrint('Erro: Usuário diferente após vinculação');
               throw Exception('Erro inesperado ao vincular conta Google');
             }
 
@@ -403,10 +367,8 @@ class AuthRepository implements AuthContract {
             ) ?? false;
 
             if (hasGoogleIdentity) {
-              debugPrint('Conta Google vinculada com sucesso!');
               return true;
             } else {
-              debugPrint('Erro: Identidade Google não foi adicionada');
               throw Exception(
                 'Não foi possível vincular a conta Google.\n\n'
                 'Possíveis causas:\n'
@@ -415,7 +377,6 @@ class AuthRepository implements AuthContract {
               );
             }
           } on AuthApiException catch (e) {
-            debugPrint('❌ Erro ao vincular: ${e.code} - ${e.message}');
 
             if (e.code == 'identity_already_exists') {
               throw Exception('Esta conta Google já está vinculada a outro usuário');
@@ -429,18 +390,15 @@ class AuthRepository implements AuthContract {
             throw Exception('Erro ao vincular conta Google: ${e.message}');
           }
         } catch (e) {
-          debugPrint('Erro ao vincular conta: $e');
           return false;
         }
       }
 
       return false;
     } catch (e) {
-      debugPrint('Erro ao vincular conta Google: $e');
       rethrow;
     } finally {
       await server?.close();
-      debugPrint('Servidor local encerrado');
     }
   }
 
@@ -448,7 +406,6 @@ class AuthRepository implements AuthContract {
   @override
   Future<bool> unlinkGoogleAccount() async {
     try {
-      debugPrint('Desvinculando conta Google...');
 
       // Forçar atualização do usuário antes de desvincular
       await _client.auth.refreshSession();
@@ -491,10 +448,8 @@ class AuthRepository implements AuthContract {
         ) ?? false;
 
         if (!stillHasGoogle) {
-          debugPrint('Conta Google desvinculada com sucesso!');
           return true;
         } else {
-          debugPrint('Erro: Identidade Google ainda está presente');
           throw Exception('Erro ao desvincular conta Google');
         }
       } on AuthApiException catch (e) {
@@ -507,7 +462,6 @@ class AuthRepository implements AuthContract {
         rethrow;
       }
     } catch (e) {
-      debugPrint('Erro ao desvincular conta Google: $e');
       rethrow;
     }
   }

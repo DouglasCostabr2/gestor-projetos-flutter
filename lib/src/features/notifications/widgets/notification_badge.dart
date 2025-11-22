@@ -5,8 +5,8 @@ import '../../../../modules/notifications/module.dart';
 /// Atualiza em tempo real quando novas notificações chegam
 ///
 /// IMPORTANTE: Este widget agora depende do NotificationRealtimeService global
-/// para receber atualizações em tempo real. Ele apenas escuta eventos locais
-/// via NotificationEventBus.
+/// para receber atualizações em tempo real. Ele escuta eventos locais
+/// via NotificationEventBus usando ValueListenableBuilder.
 class NotificationBadge extends StatefulWidget {
   final Widget child;
   final bool showZero;
@@ -22,7 +22,7 @@ class NotificationBadge extends StatefulWidget {
 }
 
 class _NotificationBadgeState extends State<NotificationBadge> {
-  int _unreadCount = 0;
+  final ValueNotifier<int> _unreadCountNotifier = ValueNotifier<int>(0);
 
   @override
   void initState() {
@@ -34,6 +34,7 @@ class _NotificationBadgeState extends State<NotificationBadge> {
   @override
   void dispose() {
     notificationEventBus.events.removeListener(_handleLocalEvent);
+    _unreadCountNotifier.dispose();
     super.dispose();
   }
 
@@ -43,34 +44,30 @@ class _NotificationBadgeState extends State<NotificationBadge> {
 
   void _handleLocalEvent() {
     final event = notificationEventBus.events.value;
-    if (event == null || !mounted) return;
+    if (event == null) return;
 
     switch (event.type) {
       case NotificationEventType.markedAsRead:
-        setState(() {
-          if (_unreadCount > 0) _unreadCount--;
-        });
+        if (_unreadCountNotifier.value > 0) {
+          _unreadCountNotifier.value--;
+        }
         break;
 
       case NotificationEventType.markedAllAsRead:
-        setState(() {
-          _unreadCount = 0;
-        });
+        _unreadCountNotifier.value = 0;
         break;
 
       case NotificationEventType.deleted:
         if (event.count != null && event.count! > 0) {
-          setState(() {
-            if (_unreadCount > 0) _unreadCount--;
-          });
+          if (_unreadCountNotifier.value > 0) {
+            _unreadCountNotifier.value--;
+          }
         }
         break;
 
       case NotificationEventType.created:
         if (event.count != null && event.count! > 0) {
-          setState(() {
-            _unreadCount++;
-          });
+          _unreadCountNotifier.value++;
         }
         break;
     }
@@ -79,52 +76,57 @@ class _NotificationBadgeState extends State<NotificationBadge> {
   Future<void> _loadUnreadCount() async {
     try {
       final count = await notificationsModule.getUnreadCount();
-      if (mounted) {
-        setState(() => _unreadCount = count);
-      }
+      _unreadCountNotifier.value = count;
     } catch (e) {
-      debugPrint('Erro ao carregar contador de notificações: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final shouldShow = _unreadCount > 0 || widget.showZero;
+    return ValueListenableBuilder<int>(
+      valueListenable: _unreadCountNotifier,
+      builder: (context, unreadCount, child) {
+        final shouldShow = unreadCount > 0 || widget.showZero;
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        widget.child,
-        if (shouldShow)
-          Positioned(
-            right: -6,
-            top: -6,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF4D4D),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: const Color(0xFF151515),
-                  width: 2,
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            widget.child,
+            if (shouldShow)
+              Positioned(
+                right: -6,
+                top: -6,
+                child: Container(
+                  // Usar key única baseada no contador para forçar rebuild
+                  key: ValueKey('notification_badge_$unreadCount'),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFF4D4D),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: const Color(0xFF151515),
+                      width: 2,
+                    ),
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 20,
+                    minHeight: 20,
+                  ),
+                  child: Text(
+                    unreadCount > 99 ? '99+' : '$unreadCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
-              constraints: const BoxConstraints(
-                minWidth: 20,
-                minHeight: 20,
-              ),
-              child: Text(
-                _unreadCount > 99 ? '99+' : '$_unreadCount',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-      ],
+          ],
+        );
+      },
     );
   }
 }

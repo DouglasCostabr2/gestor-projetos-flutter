@@ -32,7 +32,7 @@ class TimerCloseConfirmationDialog extends StatelessWidget {
         final task = await tasksModule.getTaskById(activeTaskId);
         taskTitle = task?['title'] as String?;
       } catch (e) {
-        debugPrint('❌ Erro ao buscar tarefa: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
 
@@ -218,23 +218,24 @@ class TimerCloseConfirmationDialog extends StatelessWidget {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       try {
         final tabManager = serviceLocator.get<ITabManager>();
-        
+        final tabId = 'task_$taskId';
+
         final updatedTab = TabItem(
-          id: 'task_$taskId',
+          id: tabId,
           title: taskTitle,
           icon: Icons.task,
           page: TaskDetailPage(
+            key: ValueKey(tabId),
             taskId: taskId,
             openTimerCard: true,
           ),
           canClose: true,
           selectedMenuIndex: 1,
         );
-        
+
         tabManager.updateTab(tabManager.currentIndex, updatedTab);
-        debugPrint('✅ Navegando para tarefa: $taskTitle (ID: $taskId) com timer aberto');
       } catch (e) {
-        debugPrint('❌ Erro ao navegar para tarefa: $e');
+        // Ignorar erro (operação não crítica)
       }
     });
   }

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../common/organization_context.dart';
@@ -13,7 +12,6 @@ class ProductsRepository implements ProductsContract {
     try {
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
         return [];
       }
 
@@ -25,7 +23,6 @@ class ProductsRepository implements ProductsContract {
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar produtos por moeda: $e');
       return [];
     }
   }
@@ -40,7 +37,6 @@ class ProductsRepository implements ProductsContract {
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar pacotes por moeda: $e');
       return [];
     }
   }
@@ -54,7 +50,6 @@ class ProductsRepository implements ProductsContract {
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar produtos: $e');
       return [];
     }
   }
@@ -68,7 +63,6 @@ class ProductsRepository implements ProductsContract {
           .order('name');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar pacotes: $e');
       return [];
     }
   }

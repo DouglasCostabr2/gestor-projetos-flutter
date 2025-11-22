@@ -7,6 +7,7 @@ import '../../atoms/avatars/cached_avatar.dart';
 import '../../atoms/buttons/buttons.dart';
 import '../../molecules/organization_switcher.dart';
 import '../../../src/features/notifications/widgets/notification_badge.dart';
+import '../../../modules/notifications/module.dart';
 
 // OTIMIZAÇÃO: Constantes de design extraídas para evitar recriação
 const _kCardColor = Color(0xFF151515);
@@ -32,10 +33,8 @@ const _kMenuDecoration = BoxDecoration(
 );
 
 /// Widget do menu lateral da aplicação
-///
-/// OTIMIZAÇÃO: Usa AnimatedContainer ao invés de AnimatedBuilder
-/// para melhor performance nas animações de abrir/fechar
-class SideMenu extends StatelessWidget {
+/// MUDADO PARA STATEFUL para escutar eventos de notificação
+class SideMenu extends StatefulWidget {
   final bool collapsed;
   final int selectedIndex;
   final void Function(int) onSelect;
@@ -58,12 +57,36 @@ class SideMenu extends StatelessWidget {
   });
 
   @override
+  State<SideMenu> createState() => _SideMenuState();
+}
+
+class _SideMenuState extends State<SideMenu> {
+  @override
+  void initState() {
+    super.initState();
+    notificationEventBus.events.addListener(_onNotificationEvent);
+  }
+
+  @override
+  void dispose() {
+    notificationEventBus.events.removeListener(_onNotificationEvent);
+    super.dispose();
+  }
+
+  void _onNotificationEvent() {
+    if (!mounted) return;
+    final event = notificationEventBus.events.value;
+    if (event == null) return;
+    setState(() {}); // Force rebuild to update NotificationBadge
+  }
+
+  @override
   Widget build(BuildContext context) {
     // OTIMIZAÇÃO: AnimatedContainer anima apenas a largura
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeInOut,
-      width: collapsed ? 72 : 260,
+      width: widget.collapsed ? 72 : 260,
       color: Colors.transparent,
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -74,35 +97,33 @@ class SideMenu extends StatelessWidget {
             children: [
               // Header com toggle
               _MenuHeader(
-                collapsed: collapsed,
-                onToggle: onToggle,
+                collapsed: widget.collapsed,
+                onToggle: widget.onToggle,
               ),
 
               // Seletor de Organização
               OrganizationSwitcher(
-                appState: appState,
-                collapsed: collapsed,
+                appState: widget.appState,
+                collapsed: widget.collapsed,
               ),
 
               // Navegação
               Expanded(
-                child: RepaintBoundary(
-                  child: _MenuNavigation(
-                    collapsed: collapsed,
-                    selectedIndex: selectedIndex,
-                    userRole: userRole,
-                    onSelect: onSelect,
-                  ),
+                child: _MenuNavigation(
+                  collapsed: widget.collapsed,
+                  selectedIndex: widget.selectedIndex,
+                  userRole: widget.userRole,
+                  onSelect: widget.onSelect,
                 ),
               ),
 
               // Perfil + Configurações + Logout (movido para baixo)
               _BottomSection(
-                collapsed: collapsed,
-                profile: profile,
-                userRole: userRole,
-                onLogout: onLogout,
-                onSelect: onSelect,
+                collapsed: widget.collapsed,
+                profile: widget.profile,
+                userRole: widget.userRole,
+                onLogout: widget.onLogout,
+                onSelect: widget.onSelect,
               ),
             ],
           ),
@@ -390,8 +411,7 @@ class _BottomSectionState extends State<_BottomSection> {
   }
 }
 
-/// OTIMIZAÇÃO: Widget separado para a navegação
-/// Usa RepaintBoundary para isolar repaints
+/// Widget para a navegação (StatelessWidget simples)
 class _MenuNavigation extends StatelessWidget {
   final bool collapsed;
   final int selectedIndex;
@@ -414,39 +434,32 @@ class _MenuNavigation extends StatelessWidget {
         .where((entry) => entry.value.isAccessibleBy(userRole))
         .toList();
 
-    debugPrint('📋 [SideMenu] UserRole: $userRole, Itens acessíveis: ${accessibleItems.length}');
-    debugPrint('📋 [SideMenu] Itens: ${accessibleItems.map((e) => e.value.label).join(', ')}');
-
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: accessibleItems.length,
       separatorBuilder: (_, __) => const SizedBox(height: 4),
-      // OTIMIZAÇÃO: Desabilita keepAlives se não precisar manter estado
       addAutomaticKeepAlives: false,
-      // OTIMIZAÇÃO: Isola repaint de cada item
-      addRepaintBoundaries: true,
+      addRepaintBoundaries: false,
       itemBuilder: (context, listIndex) {
         final entry = accessibleItems[listIndex];
         final config = entry.value;
-        final pageIndex = config.page.index; // Usar o índice do AppPage enum
+        final pageIndex = config.page.index;
 
         return _MenuItem(
           config: config,
           collapsed: collapsed,
           selected: pageIndex == selectedIndex,
           userRole: userRole,
-          onTap: () {
-            debugPrint('🖱️ [SideMenu] Clique no item: ${config.label} (index: $pageIndex)');
-            onSelect(pageIndex);
-          },
+          onTap: () => onSelect(pageIndex),
         );
       },
     );
   }
 }
 
-/// OTIMIZAÇÃO: Widget separado para cada item do menu
-class _MenuItem extends StatelessWidget {
+/// Widget para cada item do menu
+/// IMPORTANTE: Mudado para StatefulWidget para permitir rebuild quando NotificationBadge atualizar
+class _MenuItem extends StatefulWidget {
   final MenuItemConfig config;
   final bool collapsed;
   final bool selected;
@@ -462,12 +475,17 @@ class _MenuItem extends StatelessWidget {
   });
 
   @override
+  State<_MenuItem> createState() => _MenuItemState();
+}
+
+class _MenuItemState extends State<_MenuItem> {
+  @override
   Widget build(BuildContext context) {
-    final hasAccess = config.isAccessibleBy(userRole);
-    final isNotificationsPage = config.page == AppPage.notifications;
+    final hasAccess = widget.config.isAccessibleBy(widget.userRole);
+    final isNotificationsPage = widget.config.page == AppPage.notifications;
 
     Widget iconWidget = Icon(
-      config.icon,
+      widget.config.icon,
       size: 20,
       color: hasAccess ? _kOnCard : _kOnMuted,
     );
@@ -478,18 +496,18 @@ class _MenuItem extends StatelessWidget {
     }
 
     final tile = InkWell(
-      onTap: hasAccess ? onTap : null,
+      onTap: hasAccess ? widget.onTap : null,
       borderRadius: const BorderRadius.all(Radius.circular(12)),
       child: Container(
         height: 44,
         padding: EdgeInsets.symmetric(
-          horizontal: collapsed ? 0 : 12,
+          horizontal: widget.collapsed ? 0 : 12,
         ),
         decoration: BoxDecoration(
-          color: selected ? _kSelectedFill : Colors.transparent,
+          color: widget.selected ? _kSelectedFill : Colors.transparent,
           borderRadius: const BorderRadius.all(Radius.circular(12)),
         ),
-        child: collapsed
+        child: widget.collapsed
             ? Center(child: iconWidget)
             : Row(
                 children: [
@@ -497,10 +515,10 @@ class _MenuItem extends StatelessWidget {
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      config.label,
+                      widget.config.label,
                       style: TextStyle(
                         color: hasAccess ? _kOnCard : _kOnMuted,
-                        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                        fontWeight: widget.selected ? FontWeight.w600 : FontWeight.w400,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -511,7 +529,7 @@ class _MenuItem extends StatelessWidget {
     );
 
     // Tooltip desabilitado para evitar erro de múltiplos tickers
-    return collapsed
+    return widget.collapsed
         ? Center(
             child: SizedBox(
               width: 44,

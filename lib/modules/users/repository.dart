@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../auth/module.dart';
@@ -45,7 +44,6 @@ class UsersRepository implements UsersContract {
 
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar perfil: $e');
       // Retornar perfil básico em caso de erro
       return {
         'id': user.id,
@@ -88,7 +86,6 @@ class UsersRepository implements UsersContract {
           .maybeSingle();
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar perfil por ID: $e');
       return null;
     }
   }
@@ -99,11 +96,9 @@ class UsersRepository implements UsersContract {
       // Obter organization_id
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa ao buscar perfis');
         return [];
       }
 
-      debugPrint('👥 Buscando perfis da organização: $orgId');
 
       // Buscar membros ativos da organização usando RPC
       final response = await _client.rpc(
@@ -124,10 +119,8 @@ class UsersRepository implements UsersContract {
         });
       }
 
-      debugPrint('✅ Perfis carregados: ${profiles.length}');
       return profiles;
     } catch (e) {
-      debugPrint('❌ Erro ao buscar perfis: $e');
       return [];
     }
   }
@@ -137,11 +130,9 @@ class UsersRepository implements UsersContract {
     try {
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa ao buscar funcionários');
         return [];
       }
 
-      debugPrint('👥 Buscando perfis de funcionários da organização: $orgId');
 
       // Buscar membros ativos da organização usando RPC
       final response = await _client.rpc(
@@ -163,10 +154,8 @@ class UsersRepository implements UsersContract {
         });
       }
 
-      debugPrint('✅ Perfis de funcionários encontrados: ${profiles.length}');
       return profiles;
     } catch (e) {
-      debugPrint('❌ Erro ao buscar perfis de funcionários: $e');
       return [];
     }
   }
@@ -174,7 +163,6 @@ class UsersRepository implements UsersContract {
   /// Cria uma organização padrão para um novo usuário
   Future<void> _createDefaultOrganization(String userId, String userName, String userEmail) async {
     try {
-      debugPrint('🏢 [UsersRepository] Criando organização padrão para novo usuário: $userName');
 
       // Gerar nome e slug da organização baseado no nome do usuário
       final orgName = '$userName - Organização';
@@ -196,9 +184,7 @@ class UsersRepository implements UsersContract {
         'p_phone': null,
       });
 
-      debugPrint('✅ [UsersRepository] Organização padrão criada com sucesso');
     } catch (e) {
-      debugPrint('❌ [UsersRepository] Erro ao criar organização padrão: $e');
       // Não lançar exceção - a criação da organização é opcional
       // O usuário pode criar manualmente depois se for admin
     }

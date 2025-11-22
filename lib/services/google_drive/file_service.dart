@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 import '../../core/exceptions/app_exceptions.dart';
@@ -34,22 +33,18 @@ class GoogleDriveFileService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('🗑️ Deletando arquivo: $driveFileId');
 
       await driveApi.files.delete(driveFileId);
 
-      debugPrint('✅ Arquivo deletado com sucesso');
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFileService.deleteFile',
       );
       
       throw DriveException(
         'Erro ao deletar arquivo do Google Drive',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -79,7 +74,6 @@ class GoogleDriveFileService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('✏️ Renomeando arquivo $fileId para: $newName');
 
       final file = drive.File()..name = newName;
       
@@ -89,18 +83,15 @@ class GoogleDriveFileService {
         $fields: 'id, name',
       );
 
-      debugPrint('✅ Arquivo renomeado com sucesso');
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFileService.renameFile',
       );
       
       throw DriveException(
         'Erro ao renomear arquivo',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -132,7 +123,6 @@ class GoogleDriveFileService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('📂 Listando arquivos na pasta: $folderId');
 
       String query = "'$folderId' in parents and trashed=false";
       if (namePattern != null) {
@@ -146,20 +136,17 @@ class GoogleDriveFileService {
       );
 
       final files = fileList.files ?? [];
-      debugPrint('✅ Encontrados ${files.length} arquivos');
       
       return files;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFileService.listFilesInFolder',
       );
       
       throw DriveException(
         'Erro ao listar arquivos',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -192,7 +179,6 @@ class GoogleDriveFileService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('📦 Movendo arquivo $fileId de $currentParentId para $newParentId');
 
       await driveApi.files.update(
         drive.File(),
@@ -202,18 +188,15 @@ class GoogleDriveFileService {
         $fields: 'id, parents',
       );
 
-      debugPrint('✅ Arquivo movido com sucesso');
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFileService.moveFile',
       );
       
       throw DriveException(
         'Erro ao mover arquivo',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -245,7 +228,6 @@ class GoogleDriveFileService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('🔍 Buscando arquivo: $fileName em $folderId');
 
       final query = "name='$fileName' and '$folderId' in parents and trashed=false";
       final fileList = await driveApi.files.list(
@@ -256,16 +238,13 @@ class GoogleDriveFileService {
 
       if (fileList.files != null && fileList.files!.isNotEmpty) {
         final fileId = fileList.files!.first.id!;
-        debugPrint('✅ Arquivo encontrado: $fileId');
         return fileId;
       }
 
-      debugPrint('⚠️ Arquivo não encontrado');
       return null;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFileService.findFileByName',
       );
       return null;
@@ -288,19 +267,16 @@ class GoogleDriveFileService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('📄 Buscando metadados do arquivo: $fileId');
 
       final file = await driveApi.files.get(
         fileId,
         $fields: 'id, name, mimeType, size, createdTime, modifiedTime, parents, webViewLink',
       ) as drive.File;
 
-      debugPrint('✅ Metadados obtidos');
       return file;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveFileService.getFileMetadata',
       );
       return null;

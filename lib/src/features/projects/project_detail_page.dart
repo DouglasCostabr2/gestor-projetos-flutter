@@ -95,7 +95,7 @@ class _ProjectDetailPageState extends State<ProjectDetailPage> {
         setState(() => _isFavorite = isFav);
       }
     } catch (e) {
-      debugPrint('Erro ao carregar status de favorito: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 

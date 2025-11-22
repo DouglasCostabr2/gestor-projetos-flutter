@@ -559,10 +559,8 @@ class _FiscalAndBankPageState extends State<FiscalAndBankPage> {
       final authUser = authModule.currentUser;
 
       if (currentUser != null && authUser != null) {
-        debugPrint('🔍 [AUDIT] Iniciando registro de auditoria');
 
         // Detectar mudanças
-        debugPrint('🔍 [AUDIT] Decodificando oldFiscalData...');
         final existingFiscalData = org?['fiscal_data'];
         Map<String, dynamic> oldFiscalData = {};
 
@@ -573,9 +571,7 @@ class _FiscalAndBankPageState extends State<FiscalAndBankPage> {
             oldFiscalData = Map<String, dynamic>.from(existingFiscalData);
           }
         }
-        debugPrint('🔍 [AUDIT] oldFiscalData tipo: ${oldFiscalData.runtimeType}');
 
-        debugPrint('🔍 [AUDIT] Decodificando oldBankData...');
         final existingBankData = org?['bank_data'];
         Map<String, dynamic> oldBankData = {};
 
@@ -586,30 +582,23 @@ class _FiscalAndBankPageState extends State<FiscalAndBankPage> {
             oldBankData = Map<String, dynamic>.from(existingBankData);
           }
         }
-        debugPrint('🔍 [AUDIT] oldBankData tipo: ${oldBankData.runtimeType}');
 
         final changedFields = <String>[];
 
         // Detectar mudanças em dados fiscais
-        debugPrint('🔍 [AUDIT] Extraindo oldCountryFiscalData...');
         Map<String, dynamic>? oldCountryFiscalData;
         if (oldFiscalData.containsKey(_selectedCountryCode)) {
           final temp = oldFiscalData[_selectedCountryCode];
-          debugPrint('🔍 [AUDIT] temp tipo: ${temp.runtimeType}');
           if (temp is Map) {
             oldCountryFiscalData = Map<String, dynamic>.from(temp);
-            debugPrint('🔍 [AUDIT] oldCountryFiscalData tipo: ${oldCountryFiscalData.runtimeType}');
           }
         }
 
-        debugPrint('🔍 [AUDIT] Extraindo oldPersonTypeData...');
         Map<String, dynamic>? oldPersonTypeData;
         if (oldCountryFiscalData != null && oldCountryFiscalData.containsKey(_personType)) {
           final temp = oldCountryFiscalData[_personType];
-          debugPrint('🔍 [AUDIT] temp personType: ${temp.runtimeType}');
           if (temp is Map) {
             oldPersonTypeData = Map<String, dynamic>.from(temp);
-            debugPrint('🔍 [AUDIT] oldPersonTypeData tipo: ${oldPersonTypeData.runtimeType}');
           }
         }
 
@@ -618,14 +607,11 @@ class _FiscalAndBankPageState extends State<FiscalAndBankPage> {
         }
 
         // Detectar mudanças em dados bancários
-        debugPrint('🔍 [AUDIT] Extraindo oldCountryBankData...');
         Map<String, dynamic>? oldCountryBankData;
         if (oldBankData.containsKey(_selectedCountryCode)) {
           final temp = oldBankData[_selectedCountryCode];
-          debugPrint('🔍 [AUDIT] temp bank tipo: ${temp.runtimeType}');
           if (temp is Map) {
             oldCountryBankData = Map<String, dynamic>.from(temp);
-            debugPrint('🔍 [AUDIT] oldCountryBankData tipo: ${oldCountryBankData.runtimeType}');
           }
         }
 
@@ -649,37 +635,22 @@ class _FiscalAndBankPageState extends State<FiscalAndBankPage> {
         }
 
         // Converter para Map<String, dynamic> corretamente
-        debugPrint('🔍 [AUDIT] Criando changedFieldsMap...');
         final changedFieldsMap = <String, dynamic>{
           'fields': changedFields,
         };
-        debugPrint('🔍 [AUDIT] changedFieldsMap tipo: ${changedFieldsMap.runtimeType}');
 
-        debugPrint('🔍 [AUDIT] Criando previousValuesMap...');
-        debugPrint('🔍 [AUDIT] oldPersonTypeData: ${oldPersonTypeData?.runtimeType}');
-        debugPrint('🔍 [AUDIT] oldCountryBankData: ${oldCountryBankData?.runtimeType}');
 
         final previousValuesMap = <String, dynamic>{
           'fiscal': oldPersonTypeData != null ? Map<String, dynamic>.from(oldPersonTypeData) : <String, dynamic>{},
           'bank': oldCountryBankData != null ? Map<String, dynamic>.from(oldCountryBankData) : <String, dynamic>{},
         };
-        debugPrint('🔍 [AUDIT] previousValuesMap tipo: ${previousValuesMap.runtimeType}');
-        debugPrint('🔍 [AUDIT] previousValuesMap[fiscal] tipo: ${previousValuesMap['fiscal'].runtimeType}');
-        debugPrint('🔍 [AUDIT] previousValuesMap[bank] tipo: ${previousValuesMap['bank'].runtimeType}');
 
-        debugPrint('🔍 [AUDIT] Criando newValuesMap...');
-        debugPrint('🔍 [AUDIT] personTypeData tipo: ${personTypeData.runtimeType}');
-        debugPrint('🔍 [AUDIT] countryBankData tipo: ${countryBankData.runtimeType}');
 
         final newValuesMap = <String, dynamic>{
           'fiscal': personTypeData.toJson(),
           'bank': countryBankData.toJson(),
         };
-        debugPrint('🔍 [AUDIT] newValuesMap tipo: ${newValuesMap.runtimeType}');
-        debugPrint('🔍 [AUDIT] newValuesMap[fiscal] tipo: ${newValuesMap['fiscal'].runtimeType}');
-        debugPrint('🔍 [AUDIT] newValuesMap[bank] tipo: ${newValuesMap['bank'].runtimeType}');
 
-        debugPrint('🔍 [AUDIT] Chamando createAuditLog...');
         try {
           await auditRepo.createAuditLog(
             organizationId: orgId,
@@ -696,7 +667,7 @@ class _FiscalAndBankPageState extends State<FiscalAndBankPage> {
 
           // Atualizar informações de auditoria na UI
           _latestAudit = await auditRepo.getLatestAudit(orgId);
-        } catch (auditError, stackTrace) {
+        } catch (auditError) {
           // Mostrar erro de auditoria em um dialog
           if (mounted) {
             showDialog(
@@ -713,13 +684,6 @@ class _FiscalAndBankPageState extends State<FiscalAndBankPage> {
                       Text(
                         auditError.toString(),
                         style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text('Stack trace:'),
-                      const SizedBox(height: 8),
-                      Text(
-                        stackTrace.toString(),
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
                       ),
                     ],
                   ),
@@ -746,10 +710,8 @@ class _FiscalAndBankPageState extends State<FiscalAndBankPage> {
           ),
         );
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       // Log error for debugging
-      debugPrint('Error saving fiscal and bank data: $e');
-      debugPrint('Stack trace: $stackTrace');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -769,7 +731,7 @@ class _FiscalAndBankPageState extends State<FiscalAndBankPage> {
               width: 600,
               child: SingleChildScrollView(
                 child: SelectableText(
-                  'ERRO:\n${e.toString()}\n\nSTACK TRACE:\n${stackTrace.toString()}',
+                  'ERRO:\n${e.toString()}',
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                 ),
               ),

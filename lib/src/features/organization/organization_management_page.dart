@@ -44,14 +44,9 @@ class _OrganizationManagementPageState extends State<OrganizationManagementPage>
   Widget build(BuildContext context) {
     final appState = AppStateScope.of(context);
     final currentOrg = appState.currentOrganization;
-    final myOrgs = appState.myOrganizations;
 
-    debugPrint('🏢 [OrganizationManagementPage] Build - currentOrg: ${currentOrg?['name']}, myOrgs.length: ${myOrgs.length}');
-    debugPrint('🏢 [OrganizationManagementPage] currentOrgRole: ${appState.currentOrgRole}');
-    debugPrint('🏢 [OrganizationManagementPage] myOrgs: ${myOrgs.map((o) => o['name']).join(', ')}');
 
     if (currentOrg == null) {
-      debugPrint('⚠️ [OrganizationManagementPage] Nenhuma organização ativa');
       return Scaffold(
         body: Center(
           child: Column(

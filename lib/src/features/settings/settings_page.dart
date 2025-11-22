@@ -476,9 +476,8 @@ class _SettingsPageState extends State<SettingsPage> {
               await Supabase.instance.client.storage
                   .from('avatars')
                   .remove([oldPath]);
-              debugPrint('✅ Avatar antigo deletado: $oldPath');
             } catch (e) {
-              debugPrint('⚠️ Erro ao deletar avatar antigo (pode não existir): $e');
+              // Ignorar erro (operação não crítica)
             }
           } else if (pathSegments.length >= 4 && pathSegments[pathSegments.length - 2] == 'avatars') {
             // Formato legado: avatars/avatar_xxx.jpg
@@ -487,14 +486,13 @@ class _SettingsPageState extends State<SettingsPage> {
               await Supabase.instance.client.storage
                   .from('avatars')
                   .remove([oldPath]);
-              debugPrint('✅ Avatar antigo (legado) deletado: $oldPath');
             } catch (e) {
-              debugPrint('⚠️ Erro ao deletar avatar antigo (pode não existir): $e');
+              // Ignorar erro (operação não crítica)
             }
           }
         }
       } catch (e) {
-        debugPrint('⚠️ Erro ao verificar avatar antigo: $e');
+        // Ignorar erro (operação não crítica)
       }
 
       // Fazer upload do novo avatar

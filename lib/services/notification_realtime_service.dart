@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../modules/notifications/module.dart';
 
@@ -68,7 +67,6 @@ class NotificationRealtimeService {
     if (_currentStatus != status) {
       _currentStatus = status;
       _connectionStatusController.add(status);
-      debugPrint('🔔 [NOTIFICATION REALTIME] Status: $status');
     }
   }
 
@@ -78,7 +76,6 @@ class NotificationRealtimeService {
   /// É seguro chamar múltiplas vezes - só inicializa uma vez.
   Future<void> initialize() async {
     if (_isInitialized) {
-      debugPrint('🔔 [NOTIFICATION REALTIME] Já inicializado, ignorando...');
       return;
     }
 
@@ -86,36 +83,18 @@ class NotificationRealtimeService {
     _reconnectAttempts = 0;
 
     try {
-      debugPrint('🔔 [NOTIFICATION REALTIME] Inicializando subscription global...');
-
       _realtimeChannel = notificationsModule.subscribeToNotifications(
         onInsert: (notification) {
-          debugPrint('🔔 [NOTIFICATION REALTIME] 🆕 Nova notificação recebida!');
-          debugPrint('   ID: ${notification.id}');
-          debugPrint('   Type: ${notification.type}');
-          debugPrint('   Title: ${notification.title}');
-          debugPrint('   Is Read: ${notification.isRead}');
-
-          // Emitir evento local para atualizar widgets
           if (!notification.isRead) {
             notificationEventBus.emitCreated(true);
           }
         },
         onUpdate: (notification) {
-          debugPrint('🔔 [NOTIFICATION REALTIME] 🔄 Notificação atualizada!');
-          debugPrint('   ID: ${notification.id}');
-          debugPrint('   Is Read: ${notification.isRead}');
-
-          // Emitir evento local para atualizar widgets
           if (notification.isRead) {
             notificationEventBus.emitMarkedAsRead(notification.id);
           }
         },
         onDelete: (notification) {
-          debugPrint('🔔 [NOTIFICATION REALTIME] 🗑️ Notificação deletada!');
-          debugPrint('   ID: ${notification.id}');
-
-          // Emitir evento local para atualizar widgets
           notificationEventBus.emitDeleted(notification.id, !notification.isRead);
         },
       );
@@ -123,10 +102,7 @@ class NotificationRealtimeService {
       _isInitialized = true;
       _updateStatus(RealtimeConnectionStatus.connected);
       _reconnectAttempts = 0; // Reset contador de tentativas
-      debugPrint('✅ [NOTIFICATION REALTIME] Subscription global ativa!');
-    } catch (e, stackTrace) {
-      debugPrint('❌ [NOTIFICATION REALTIME] Erro ao inicializar: $e');
-      debugPrint('Stack trace: $stackTrace');
+    } catch (e) {
       _isInitialized = false;
       _updateStatus(RealtimeConnectionStatus.error);
 
@@ -138,17 +114,14 @@ class NotificationRealtimeService {
   /// Agenda uma tentativa de reconexão
   void _scheduleReconnect() {
     if (_reconnectAttempts >= _maxReconnectAttempts) {
-      debugPrint('❌ [NOTIFICATION REALTIME] Máximo de tentativas de reconexão atingido');
       _updateStatus(RealtimeConnectionStatus.error);
       return;
     }
 
     _reconnectAttempts++;
-    debugPrint('🔄 [NOTIFICATION REALTIME] Tentativa de reconexão $_reconnectAttempts/$_maxReconnectAttempts em ${_reconnectDelay.inSeconds}s...');
 
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(_reconnectDelay, () {
-      debugPrint('🔄 [NOTIFICATION REALTIME] Reconectando...');
       reinitialize();
     });
   }
@@ -158,11 +131,9 @@ class NotificationRealtimeService {
   /// Deve ser chamado no logout do usuário.
   void dispose() {
     if (!_isInitialized) {
-      debugPrint('🔔 [NOTIFICATION REALTIME] Não inicializado, nada para limpar');
       return;
     }
 
-    debugPrint('🔔 [NOTIFICATION REALTIME] Cancelando subscription global...');
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _realtimeChannel?.unsubscribe();
@@ -170,14 +141,12 @@ class NotificationRealtimeService {
     _isInitialized = false;
     _reconnectAttempts = 0;
     _updateStatus(RealtimeConnectionStatus.disconnected);
-    debugPrint('✅ [NOTIFICATION REALTIME] Subscription cancelada');
   }
 
   /// Reinicializa a subscription
   ///
   /// Útil para reconectar após perda de conexão ou mudança de usuário.
   Future<void> reinitialize() async {
-    debugPrint('🔔 [NOTIFICATION REALTIME] Reinicializando...');
     _reconnectTimer?.cancel();
     _realtimeChannel?.unsubscribe();
     _realtimeChannel = null;

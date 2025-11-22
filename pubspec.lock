@@ -547,6 +547,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_mentions:
+    dependency: "direct main"
+    description:
+      name: flutter_mentions
+      sha256: "86206b70e14a96c195130202f258c5764ef16f406c72613dfadbaea6bc4717d2"
+      url: "https://pub.dev"
+    source: hosted
+    version: "2.0.1"
   flutter_plugin_android_lifecycle:
     dependency: transitive
     description:
@@ -555,6 +563,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.31"
+  flutter_portal:
+    dependency: transitive
+    description:
+      name: flutter_portal
+      sha256: "0e3f9428dbe9f5253b0e65cdc5ce4fa65a1d8cd6ec2a3f3770b46785aa3c57fd"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.4.0"
   flutter_quill:
     dependency: "direct main"
     description:
@@ -1102,7 +1118,7 @@ packages:
     source: hosted
     version: "7.0.1"
   photo_view:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: photo_view
       sha256: "1fc3d970a91295fbd1364296575f854c9863f225505c28c46e0a03e48960c75e"
@@ -1683,7 +1699,7 @@ packages:
     source: hosted
     version: "3.1.4"
   uuid:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: uuid
       sha256: a5be9ef6618a7ac1e964353ef476418026db906c4facdedaa299b7a2e71690ff

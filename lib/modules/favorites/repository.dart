@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'contract.dart';
+import '../common/organization_context.dart';
 
 /// Implementação do módulo de favoritos
 class FavoritesRepository implements FavoritesContract {
@@ -8,6 +9,9 @@ class FavoritesRepository implements FavoritesContract {
   /// Obter ID do usuário autenticado
   String? get _userId => _supabase.auth.currentUser?.id;
 
+  /// Obter ID da organização ativa
+  String? get _organizationId => OrganizationContext.currentOrganizationId;
+
   @override
   Future<bool> addFavorite({
     required String itemType,
@@ -15,6 +19,10 @@ class FavoritesRepository implements FavoritesContract {
   }) async {
     if (_userId == null) {
       throw Exception('Usuário não autenticado');
+    }
+
+    if (_organizationId == null) {
+      throw Exception('Nenhuma organização ativa');
     }
 
     try {
@@ -27,6 +35,7 @@ class FavoritesRepository implements FavoritesContract {
       // Inserir favorito
       await _supabase.from('user_favorites').insert({
         'user_id': _userId,
+        'organization_id': _organizationId,
         'item_type': itemType,
         'item_id': itemId,
       });

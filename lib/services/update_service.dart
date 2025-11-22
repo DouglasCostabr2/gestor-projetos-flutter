@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -30,12 +29,9 @@ class UpdateService {
   /// ```
   Future<AppUpdate?> checkForUpdates() async {
     try {
-      debugPrint('🔍 Verificando atualizações...');
-
       // 1. Obter versão atual do app
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
-      debugPrint('📱 Versão atual: $currentVersion');
 
       // 2. Buscar versão mais recente no Supabase
       final response = await _supabase
@@ -46,22 +42,18 @@ class UpdateService {
           .maybeSingle();
 
       if (response == null) {
-        debugPrint('ℹ️ Nenhuma versão encontrada no servidor');
         return null;
       }
 
       final latestVersion = response['version'] as String;
-      debugPrint('🌐 Versão mais recente no servidor: $latestVersion');
 
       // 3. Comparar versões
       if (_isNewerVersion(latestVersion, currentVersion)) {
-        debugPrint('✨ Nova versão disponível!');
         final update = AppUpdate.fromJson(response);
 
         // Verificar se a versão atual está abaixo da mínima suportada
         if (update.minSupportedVersion != null) {
           if (_isNewerVersion(update.minSupportedVersion!, currentVersion)) {
-            debugPrint('⚠️ Versão atual está abaixo da mínima suportada - atualização obrigatória');
             return AppUpdate(
               version: update.version,
               downloadUrl: update.downloadUrl,
@@ -76,11 +68,8 @@ class UpdateService {
         return update;
       }
 
-      debugPrint('✅ Aplicativo está atualizado');
       return null;
-    } catch (e, stackTrace) {
-      debugPrint('❌ Erro ao verificar atualizações: $e');
-      debugPrint('Stack trace: $stackTrace');
+    } catch (e) {
       return null;
     }
   }
@@ -114,7 +103,6 @@ class UpdateService {
 
       return false;
     } catch (e) {
-      debugPrint('⚠️ Erro ao comparar versões: $e');
       return false;
     }
   }
@@ -133,14 +121,10 @@ class UpdateService {
   /// ```
   Future<String?> downloadUpdate(AppUpdate update) async {
     try {
-      debugPrint('⬇️ Iniciando download da atualização ${update.version}...');
-
       // Obter diretório temporário
       final tempDir = await getTemporaryDirectory();
       final fileName = 'MyBusiness-Setup-${update.version}.exe';
       final filePath = '${tempDir.path}\\$fileName';
-
-      debugPrint('📁 Salvando em: $filePath');
 
       // Baixar arquivo com progresso
       await _dio.download(
@@ -150,16 +134,12 @@ class UpdateService {
           if (total != -1) {
             final progress = received / total;
             onDownloadProgress?.call(progress);
-            debugPrint('📥 Download: ${(progress * 100).toStringAsFixed(1)}%');
           }
         },
       );
 
-      debugPrint('✅ Download concluído: $filePath');
       return filePath;
-    } catch (e, stackTrace) {
-      debugPrint('❌ Erro ao baixar atualização: $e');
-      debugPrint('Stack trace: $stackTrace');
+    } catch (e) {
       return null;
     }
   }
@@ -177,12 +157,9 @@ class UpdateService {
   /// ```
   Future<void> installUpdate(String installerPath) async {
     try {
-      debugPrint('🚀 Executando instalador: $installerPath');
-
       // Verificar se o arquivo existe
       final file = File(installerPath);
       if (!await file.exists()) {
-        debugPrint('❌ Arquivo do instalador não encontrado: $installerPath');
         return;
       }
 
@@ -193,17 +170,13 @@ class UpdateService {
         mode: ProcessStartMode.detached,
       );
 
-      debugPrint('✅ Instalador iniciado');
-      debugPrint('👋 Fechando aplicativo para permitir instalação...');
-
       // Aguardar um pouco para garantir que o instalador iniciou
       await Future.delayed(const Duration(seconds: 1));
 
       // Fechar o aplicativo
       exit(0);
-    } catch (e, stackTrace) {
-      debugPrint('❌ Erro ao executar instalador: $e');
-      debugPrint('Stack trace: $stackTrace');
+    } catch (e) {
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -234,14 +207,13 @@ class UpdateService {
         if (file.path.contains('MyBusiness-Setup-') && file.path.endsWith('.exe')) {
           try {
             await file.delete();
-            debugPrint('🗑️ Removido: ${file.path}');
           } catch (e) {
-            debugPrint('⚠️ Não foi possível remover: ${file.path}');
+            // Falha ao remover arquivo
           }
         }
       }
     } catch (e) {
-      debugPrint('⚠️ Erro ao limpar downloads antigos: $e');
+      // Falha ao limpar downloads antigos
     }
   }
 }

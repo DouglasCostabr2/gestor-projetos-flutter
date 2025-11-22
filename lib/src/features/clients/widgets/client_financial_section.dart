@@ -44,7 +44,7 @@ class _ClientFinancialSectionState extends State<ClientFinancialSection> {
       final supa = Supabase.instance.client;
       final projects = List<Map<String, dynamic>>.from(await supa
           .from('projects')
-          .select('id, name, currency_code, value_cents, clients(name)')
+          .select('id, name, currency_code, value_cents, company_id, organization_id, clients(name), companies(name)')
           .eq('client_id', widget.clientId)
           .order('created_at', ascending: false));
       // tenta obter o nome do cliente (qualquer projeto serve, pois todos têm o mesmo client_id)
@@ -77,6 +77,24 @@ class _ClientFinancialSectionState extends State<ClientFinancialSection> {
         }
       }
 
+      // Buscar organizações únicas
+      final orgIds = projects
+          .map((p) => p['organization_id'] as String?)
+          .where((id) => id != null)
+          .toSet()
+          .toList();
+
+      Map<String, String> orgNames = {};
+      if (orgIds.isNotEmpty) {
+        final orgs = await supa
+            .from('organizations')
+            .select('id, name')
+            .inFilter('id', orgIds);
+        for (final org in orgs) {
+          orgNames[org['id'] as String] = org['name'] as String;
+        }
+      }
+
       int tBRL = 0, rBRL = 0, tUSD = 0, rUSD = 0, tEUR = 0, rEUR = 0;
       final list = <_ProjectFinance>[];
       for (final p in projects) {
@@ -86,12 +104,18 @@ class _ClientFinancialSectionState extends State<ClientFinancialSection> {
         final add = addCosts[pid] ?? 0;
         final tot = base + add;
         final rec = received[pid] ?? 0;
+        final companyName = p['companies']?['name'] as String?;
+        final organizationId = p['organization_id'] as String?;
+        final organizationName = organizationId != null ? orgNames[organizationId] : null;
+
         list.add(_ProjectFinance(
           id: pid,
           name: (p['name'] as String?) ?? '-',
           currency: cur,
           totalCents: tot,
           receivedCents: rec,
+          companyName: companyName,
+          organizationName: organizationName,
         ));
         switch (cur) {
           case 'USD':
@@ -166,6 +190,8 @@ class _ClientFinancialSectionState extends State<ClientFinancialSection> {
                           currency: p.currency,
                           clientName: _clientName,
                           projectName: p.name,
+                          companyName: p.companyName,
+                          organizationName: p.organizationName,
                         ),
                       );
                       if (added == true) _reload();
@@ -339,6 +365,7 @@ class _PaymentsListState extends State<_PaymentsList> {
                         await Supabase.instance.client.from('payments').delete().eq('id', r['id']);
                         if (context.mounted) _load();
                       } catch (_) {}
+                      // Ignorar erro (operação não crítica)
                     }
                   } else if (v == 'edit') {
                     final code = widget.currencySymbol == 'R\$' ? 'BRL' : (widget.currencySymbol == '\$' ? 'USD' : 'EUR');
@@ -360,7 +387,9 @@ class _PaymentDialog extends StatefulWidget {
   final String currency;
   final String? clientName;
   final String? projectName;
-  const _PaymentDialog({required this.projectId, required this.currency, this.clientName, this.projectName});
+  final String? companyName;
+  final String? organizationName;
+  const _PaymentDialog({required this.projectId, required this.currency, this.clientName, this.projectName, this.companyName, this.organizationName});
 
   @override
   State<_PaymentDialog> createState() => _PaymentDialogState();
@@ -422,6 +451,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                     final ok = await showDialog<bool>(context: context, builder: (_) => DriveConnectDialog(service: _drive));
                     if (ok == true) {
                       try { client = await _drive.getAuthedClient(); } catch (_) {}
+                      // Ignorar erro (operação não crítica)
                     }
                   }
                   if (client != null) {
@@ -444,6 +474,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
                       subfolderName: 'Financeiro',
                       filename: newName,
                       bytes: bytes,
+                      companyName: widget.companyName,
+                      organizationName: widget.organizationName,
                     );
                     url = up.publicViewUrl;
                     setState(() { _receiptUrl = url; });
@@ -558,7 +590,9 @@ class _ProjectFinance {
   final String currency;
   final int totalCents;
   final int receivedCents;
-  _ProjectFinance({required this.id, required this.name, required this.currency, required this.totalCents, required this.receivedCents});
+  final String? companyName;
+  final String? organizationName;
+  _ProjectFinance({required this.id, required this.name, required this.currency, required this.totalCents, required this.receivedCents, this.companyName, this.organizationName});
 }
 
 

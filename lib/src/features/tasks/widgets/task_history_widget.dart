@@ -47,7 +47,6 @@ class _TaskHistoryWidgetState extends State<TaskHistoryWidget> {
         history = List<Map<String, dynamic>>.from(response);
       } catch (e) {
         // Fallback: load without join and enrich manually
-        debugPrint('task_history: Could not join profiles, using fallback: $e');
         final response = await Supabase.instance.client
             .from('task_history')
             .select('*')
@@ -87,7 +86,7 @@ class _TaskHistoryWidgetState extends State<TaskHistoryWidget> {
               }
             }
           } catch (e) {
-            debugPrint('task_history: Could not load profiles: $e');
+            // Ignorar erro (operação não crítica)
           }
         }
       }
@@ -121,7 +120,7 @@ class _TaskHistoryWidgetState extends State<TaskHistoryWidget> {
             _userNamesCache[id] = fullName ?? email ?? id;
           }
         } catch (e) {
-          debugPrint('task_history: Could not load assigned_to profiles: $e');
+          // Ignorar erro (operação não crítica)
         }
       }
 
@@ -364,6 +363,7 @@ class _TaskHistoryWidgetState extends State<TaskHistoryWidget> {
           try {
             timestamp = DateTime.parse(createdAt);
           } catch (_) {}
+          // Ignorar erro (operação não crítica)
         }
 
         return ListTile(

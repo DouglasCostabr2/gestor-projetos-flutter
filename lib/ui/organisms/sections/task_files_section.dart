@@ -303,6 +303,7 @@ class _TaskFilesTabViewState extends State<_TaskFilesTabView> with SingleTickerP
     final driveFileId = f['drive_file_id'] as String?;
     final mimeType = f['mime_type'] as String? ?? '';
     final filename = f['filename'] as String? ?? 'Sem nome';
+    final isFromDesignMaterials = f['is_from_design_materials'] == true;
 
     final thumbnailUrl = driveFileId != null && mimeType.startsWith('image/')
         ? 'https://drive.google.com/thumbnail?id=$driveFileId&sz=w800'
@@ -392,6 +393,39 @@ class _TaskFilesTabViewState extends State<_TaskFilesTabView> with SingleTickerP
                 ),
               ),
             ),
+
+            // Badge "Design Materials" no canto superior esquerdo
+            if (isFromDesignMaterials)
+              Positioned(
+                top: 4,
+                left: 4,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.folder_special,
+                        size: 10,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'DM',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onPrimary,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
 
             // Botão de download no canto superior direito
             Positioned(

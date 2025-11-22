@@ -46,11 +46,9 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
-    debugPrint('🧹 [AppState] Limpando recursos...');
     _authStateSubscription?.cancel();
     _authStateSubscription = null;
     sideMenuCollapsedNotifier.dispose();
-    debugPrint('✅ [AppState] Recursos limpos');
     super.dispose();
   }
 
@@ -98,8 +96,12 @@ class AppState extends ChangeNotifier {
       await refreshOrganizations();
 
       // Inicializar subscription de notificações em tempo real após login
-      await notificationRealtimeService.initialize();
-    } catch (_) {
+      try {
+        await notificationRealtimeService.initialize();
+      } catch (e) {
+        // Ignorar erro (operação não crítica)
+      }
+    } catch (e) {
       role = 'convidado';
       currentOrganization = null;
       myOrganizations = [];
@@ -110,40 +112,27 @@ class AppState extends ChangeNotifier {
 
   /// Atualizar lista de organizações e definir organização ativa
   Future<void> refreshOrganizations() async {
-    debugPrint('🔄 [AppState] Iniciando refreshOrganizations...');
     try {
       // Buscar organizações do usuário
       myOrganizations = await organizationsModule.getMyOrganizations();
-      debugPrint('📋 [AppState] Organizações carregadas: ${myOrganizations.length}');
-
-      if (myOrganizations.isNotEmpty) {
-        debugPrint('📋 [AppState] Organizações: ${myOrganizations.map((o) => o['name']).join(', ')}');
-      }
 
       // Se não há organização ativa, definir a primeira
       if (currentOrganization == null && myOrganizations.isNotEmpty) {
-        debugPrint('🎯 [AppState] Definindo primeira organização como ativa...');
         await setCurrentOrganization(myOrganizations.first['id']);
       }
       // Se a organização ativa não está mais na lista, limpar
       else if (currentOrganization != null &&
                !myOrganizations.any((org) => org['id'] == currentOrganization!['id'])) {
-        debugPrint('⚠️ [AppState] Organização ativa não está mais na lista, limpando...');
         currentOrganization = null;
         currentOrgRole = null;
         if (myOrganizations.isNotEmpty) {
           await setCurrentOrganization(myOrganizations.first['id']);
         }
-      } else if (currentOrganization != null) {
-        debugPrint('✅ [AppState] Organização ativa: ${currentOrganization!['name']} (role: $currentOrgRole)');
       }
 
       // Notificar listeners para atualizar UI
       notifyListeners();
-      debugPrint('🔔 [AppState] Listeners notificados após refreshOrganizations');
-    } catch (e, stackTrace) {
-      debugPrint('❌ [AppState] Erro ao atualizar organizações: $e');
-      debugPrint('Stack trace: $stackTrace');
+    } catch (e) {
       myOrganizations = [];
       currentOrganization = null;
       currentOrgRole = null;
@@ -153,30 +142,21 @@ class AppState extends ChangeNotifier {
 
   /// Definir organização ativa
   Future<void> setCurrentOrganization(String organizationId) async {
-    debugPrint('🎯 [AppState] setCurrentOrganization: $organizationId');
     try {
       // Buscar dados completos da organização
-      debugPrint('🔍 [AppState] Buscando dados da organização...');
       final org = await organizationsModule.getOrganization(organizationId);
       if (org == null) {
-        debugPrint('❌ [AppState] Organização não encontrada!');
         throw Exception('Organização não encontrada');
       }
-      debugPrint('✅ [AppState] Organização encontrada: ${org['name']}');
 
       // Buscar role do usuário nesta organização
-      debugPrint('🔍 [AppState] Buscando role do usuário...');
       final userRole = await organizationsModule.getUserRole(organizationId);
-      debugPrint('✅ [AppState] Role do usuário: $userRole');
 
       currentOrganization = org;
       currentOrgRole = userRole;
 
-      debugPrint('✅ [AppState] Organização ativa alterada para: ${org['name']} (role: $userRole)');
-
       notifyListeners();
     } catch (e) {
-      debugPrint('Erro ao definir organização ativa: $e');
       rethrow;
     }
   }

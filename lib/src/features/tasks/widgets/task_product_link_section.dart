@@ -72,11 +72,9 @@ class _TaskProductLinkSectionState extends State<TaskProductLinkSection> {
 
   Future<void> _loadLinkedProducts() async {
     if (widget.taskId == null) {
-      debugPrint('TaskProductLinkSection: taskId is null, skipping load');
       return;
     }
 
-    debugPrint('TaskProductLinkSection: Loading products for task ${widget.taskId}');
     setState(() => _loading = true);
 
     try {
@@ -88,7 +86,6 @@ class _TaskProductLinkSectionState extends State<TaskProductLinkSection> {
           .select('product_id, package_id')
           .eq('task_id', widget.taskId!);
 
-      debugPrint('TaskProductLinkSection: Found ${taskProducts.length} linked products');
 
       final products = <Map<String, dynamic>>[];
 
@@ -151,7 +148,6 @@ class _TaskProductLinkSectionState extends State<TaskProductLinkSection> {
 
       if (!mounted) return;
 
-      debugPrint('TaskProductLinkSection: Loaded ${products.length} products, notifying parent');
 
       setState(() {
         _linkedProducts = products;
@@ -161,7 +157,6 @@ class _TaskProductLinkSectionState extends State<TaskProductLinkSection> {
       // Notify parent
       widget.onLinkedProductsChanged(products);
     } catch (e) {
-      debugPrint('Error loading linked products: $e');
       if (mounted) {
         setState(() {
           _linkedProducts = [];

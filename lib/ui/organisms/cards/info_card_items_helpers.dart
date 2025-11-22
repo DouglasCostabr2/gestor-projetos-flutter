@@ -69,11 +69,15 @@ class InfoCardItemsHelpers {
     final tabManager = TabManagerScope.maybeOf(context);
     if (tabManager != null) {
       final currentIndex = tabManager.currentIndex;
+      final tabId = 'client_$clientId';
       final updatedTab = TabItem(
-        id: 'client_$clientId',
+        id: tabId,
         title: clientName,
         icon: Icons.person,
-        page: ClientDetailPage(clientId: clientId),
+        page: ClientDetailPage(
+          key: ValueKey(tabId),
+          clientId: clientId,
+        ),
         canClose: true,
         selectedMenuIndex: 1, // Índice do menu de Clientes
       );

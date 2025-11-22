@@ -166,7 +166,6 @@ class _OverviewTabState extends State<_OverviewTab> {
         });
       }
     } catch (e) {
-      debugPrint('Erro ao carregar estatísticas: $e');
       if (mounted) {
         setState(() => _loading = false);
       }

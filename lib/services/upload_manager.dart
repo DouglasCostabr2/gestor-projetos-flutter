@@ -43,6 +43,8 @@ class UploadManager {
     required String taskTitle,
     required List<MemoryUploadItem> items,
     String? companyName,
+    bool isSubTask = false,
+    String? parentTaskTitle,
   }) async {
     if (items.isEmpty) return;
     final notifier = _taskProgress.putIfAbsent(taskId, () => ValueNotifier<double?>(0));
@@ -51,27 +53,44 @@ class UploadManager {
       final total = items.length;
       var done = 0;
       for (final it in items) {
-        debugPrint('📤 UploadManager: Enviando arquivo ${done + 1}/$total: ${it.name} (${it.bytes.length} bytes)');
 
-        // Upload usando Resumable Upload API (suporta arquivos grandes sem travar)
-        final up = await _drive.uploadToTaskSubfolderResumable(
-          client: client,
-          clientName: clientName,
-          projectName: projectName,
-          taskName: taskTitle,
-          subfolderName: it.subfolderName,
-          filename: it.name,
-          bytes: it.bytes,
-          mimeType: it.mimeType,
-          companyName: companyName,
-          onProgress: (progress) {
-            // Atualizar progresso geral
-            final itemProgress = (done + progress) / total;
-            notifier.value = itemProgress;
-          },
-        );
+        // Upload usando método apropriado (task ou subtask)
+        final UploadedDriveFile up;
 
-        debugPrint('📤 UploadManager: Arquivo enviado ao Drive. ID: ${up.id}');
+        if (isSubTask && parentTaskTitle != null) {
+          // Upload para subtask: .../Task/Subtask/{SubTaskName}/Assets/
+          up = await _drive.uploadToSubTaskSubfolder(
+            client: client,
+            clientName: clientName,
+            projectName: projectName,
+            taskName: parentTaskTitle,
+            subTaskName: taskTitle,
+            subfolderName: it.subfolderName,
+            filename: it.name,
+            bytes: it.bytes,
+            mimeType: it.mimeType,
+            companyName: companyName,
+          );
+        } else {
+          // Upload para task normal: .../Task/Assets/
+          up = await _drive.uploadToTaskSubfolderResumable(
+            client: client,
+            clientName: clientName,
+            projectName: projectName,
+            taskName: taskTitle,
+            subfolderName: it.subfolderName,
+            filename: it.name,
+            bytes: it.bytes,
+            mimeType: it.mimeType,
+            companyName: companyName,
+            onProgress: (progress) {
+              // Atualizar progresso geral
+              final itemProgress = (done + progress) / total;
+              notifier.value = itemProgress;
+            },
+          );
+        }
+
 
         await _repo.saveFile(
           taskId: taskId,
@@ -83,7 +102,6 @@ class UploadManager {
           category: it.category,
         );
 
-        debugPrint('📤 UploadManager: Arquivo salvo no banco de dados');
 
         done += 1;
         notifier.value = done / total;

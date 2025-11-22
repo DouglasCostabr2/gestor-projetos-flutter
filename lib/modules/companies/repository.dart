@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../../services/google_drive_oauth_service.dart';
@@ -12,19 +11,13 @@ class CompaniesRepository implements CompaniesContract {
 
   @override
   Future<List<Map<String, dynamic>>> getCompanies(String clientId) async {
-    debugPrint('═══════════════════════════════════════════════════════');
-    debugPrint('🔍🔍🔍 [CompaniesRepository] getCompanies() CHAMADO!');
-    debugPrint('🔍 clientId: $clientId');
-    debugPrint('═══════════════════════════════════════════════════════');
 
     try {
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
         return [];
       }
 
-      debugPrint('🔍 organizationId: $orgId');
 
       // Tentar primeiro com o join
       try {
@@ -38,20 +31,10 @@ class CompaniesRepository implements CompaniesContract {
             .eq('organization_id', orgId)
             .order('created_at', ascending: false);
 
-        debugPrint('✅ Resposta do Supabase para empresas (com join): $response');
 
-        // Log detalhado dos dados fiscais/bancários
         final companies = List<Map<String, dynamic>>.from(response);
-        for (var company in companies) {
-          debugPrint('🔍 Empresa: ${company['name']}');
-          debugPrint('🔍   fiscal_data do Supabase: ${company['fiscal_data']}');
-          debugPrint('🔍   bank_data do Supabase: ${company['bank_data']}');
-          debugPrint('🔍   fiscal_country do Supabase: ${company['fiscal_country']}');
-        }
-
         return companies;
       } catch (joinError) {
-        debugPrint('⚠️ Erro no join, tentando sem join: $joinError');
 
         // Se o join falhar, buscar sem join e enriquecer manualmente
         final response = await _client
@@ -88,11 +71,9 @@ class CompaniesRepository implements CompaniesContract {
           }
         }
 
-        debugPrint('✅ Resposta do Supabase para empresas (sem join, enriquecido): $companies');
         return companies;
       }
     } catch (e) {
-      debugPrint('❌ Erro ao buscar empresas: $e');
       return [];
     }
   }
@@ -100,17 +81,14 @@ class CompaniesRepository implements CompaniesContract {
   @override
   Future<Map<String, dynamic>?> getCompanyById(String companyId) async {
     try {
-      debugPrint('Buscando empresa por ID: $companyId');
       final response = await _client
           .from('companies')
           .select('*')
           .eq('id', companyId)
           .single();
 
-      debugPrint('Empresa encontrada: $response');
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar empresa por ID: $e');
       return null;
     }
   }
@@ -170,8 +148,6 @@ class CompaniesRepository implements CompaniesContract {
           .single();
       return response;
     } catch (e) {
-      debugPrint('Erro ao criar empresa: $e');
-      debugPrint('Dados enviados: $companyData');
       rethrow;
     }
   }
@@ -210,7 +186,7 @@ class CompaniesRepository implements CompaniesContract {
         final clientData = current['clients'] as Map<String, dynamic>?;
         clientName = clientData?['name'] as String?;
       } catch (e) {
-        debugPrint('Erro ao buscar dados antigos da empresa: $e');
+        // Ignorar erro ao buscar nome antigo (não crítico)
       }
     }
 
@@ -260,13 +236,12 @@ class CompaniesRepository implements CompaniesContract {
             newCompanyName: name.trim(),
           );
         } catch (e) {
-          debugPrint('⚠️ Erro ao renomear pasta da empresa no Google Drive (ignorado): $e');
+          // Ignorar erro ao renomear pasta no Drive (não crítico)
         }
       }
 
       return response;
     } catch (e) {
-      debugPrint('Erro ao atualizar empresa: $e');
       rethrow;
     }
   }
@@ -287,7 +262,7 @@ class CompaniesRepository implements CompaniesContract {
         final clientData = response['clients'] as Map<String, dynamic>?;
         clientName = clientData?['name'] as String?;
       } catch (e) {
-        debugPrint('Erro ao buscar dados da empresa: $e');
+        // Ignorar erro ao buscar nomes (não crítico)
       }
 
       // Deletar do banco de dados
@@ -307,13 +282,11 @@ class CompaniesRepository implements CompaniesContract {
             clientName: clientName,
             companyName: companyName,
           );
-          debugPrint('✅ Pasta da empresa deletada do Google Drive: $companyName');
         } catch (e) {
-          debugPrint('⚠️ Erro ao deletar pasta da empresa do Google Drive (ignorado): $e');
+          // Ignorar erro ao deletar pasta no Drive (não crítico)
         }
       }
     } catch (e) {
-      debugPrint('Erro ao deletar empresa: $e');
       rethrow;
     }
   }
@@ -333,16 +306,14 @@ class CompaniesRepository implements CompaniesContract {
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', companyId);
-      debugPrint('✅ Empresa $companyId atualizada (touch)');
     } catch (e) {
-      debugPrint('⚠️ Erro ao atualizar empresa (touch): $e');
+      // Ignorar erro ao atualizar timestamp (não crítico)
     }
   }
 
   @override
   Future<List<Map<String, dynamic>>> getCompanyProjectsWithStats(String companyId) async {
     try {
-      debugPrint('🚀 Buscando projetos da empresa com stats (RPC): $companyId');
 
       // OTIMIZAÇÃO: Usar RPC function para evitar N+1 queries
       final response = await _client
@@ -350,10 +321,8 @@ class CompaniesRepository implements CompaniesContract {
             'company_id_param': companyId,
           });
 
-      debugPrint('✅ Projetos com stats encontrados: ${response.length}');
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('❌ Erro ao buscar projetos com stats: $e');
       return [];
     }
   }
@@ -392,9 +361,7 @@ class CompaniesRepository implements CompaniesContract {
           .update(updateData)
           .eq('id', companyId);
 
-      debugPrint('✅ Dados fiscais/bancários da empresa atualizados: $companyId');
     } catch (e) {
-      debugPrint('❌ Erro ao atualizar dados fiscais/bancários da empresa: $e');
       rethrow;
     }
   }

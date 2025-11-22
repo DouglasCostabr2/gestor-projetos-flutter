@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../common/organization_context.dart';
@@ -14,11 +13,9 @@ class MonitoringRepository implements MonitoringContract {
       // Obter organization_id
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa ao buscar dados de monitoramento');
         return [];
       }
 
-      debugPrint('📊 Carregando monitoramento para organização: $orgId');
 
       // 1. Buscar membros ativos da organização usando RPC
       final membersData = await _client.rpc(
@@ -39,7 +36,6 @@ class MonitoringRepository implements MonitoringContract {
         });
       }
 
-      debugPrint('✅ Encontrados ${profiles.length} membros na organização');
 
       // 2. Buscar TODAS as tasks da organização de uma vez com todos os campos necessários
       final allTasksData = await _client
@@ -107,7 +103,6 @@ class MonitoringRepository implements MonitoringContract {
 
       return profiles;
     } catch (e) {
-      debugPrint('Erro ao buscar dados de monitoramento: $e');
       return [];
     }
   }
@@ -132,7 +127,6 @@ class MonitoringRepository implements MonitoringContract {
         'created_tasks': List<Map<String, dynamic>>.from(createdTasks),
       };
     } catch (e) {
-      debugPrint('Erro ao buscar atividades do usuário: $e');
       return {
         'assigned_tasks': [],
         'created_tasks': [],
@@ -171,7 +165,6 @@ class MonitoringRepository implements MonitoringContract {
         'completed_tasks': completedTasks.count,
       };
     } catch (e) {
-      debugPrint('Erro ao buscar estatísticas do sistema: $e');
       return {
         'total_users': 0,
         'total_projects': 0,

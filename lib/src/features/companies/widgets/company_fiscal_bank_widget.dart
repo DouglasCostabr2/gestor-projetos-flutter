@@ -280,7 +280,6 @@ class CompanyFiscalBankWidgetState extends State<CompanyFiscalBankWidget> {
       await _save();
       return true;
     } catch (e) {
-      debugPrint('❌ Erro ao salvar dados fiscais/bancários: $e');
       return false;
     }
   }
@@ -391,7 +390,7 @@ class CompanyFiscalBankWidgetState extends State<CompanyFiscalBankWidget> {
         }
       }
     } catch (e) {
-      debugPrint('❌ Erro ao carregar dados fiscais/bancários: $e');
+      // Ignorar erro (operação não crítica)
     } finally {
       setState(() => _loading = false);
     }
@@ -527,7 +526,6 @@ class CompanyFiscalBankWidgetState extends State<CompanyFiscalBankWidget> {
         );
       }
     } catch (e) {
-      debugPrint('❌ Erro ao salvar dados fiscais/bancários: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('❌ Erro ao salvar: $e')),

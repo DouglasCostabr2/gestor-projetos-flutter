@@ -37,7 +37,9 @@ class MentionOverlay {
   });
 
   Future<void> loadUsers() async {
-    if (_isLoadingUsers) return;
+    if (_isLoadingUsers) {
+      return;
+    }
 
     _isLoadingUsers = true;
 
@@ -45,12 +47,12 @@ class MentionOverlay {
       _users = await _cacheService.getUsers();
       _isLoadingUsers = false;
     } catch (e) {
-      debugPrint('Erro ao carregar usuários: $e');
       _isLoadingUsers = false;
     }
   }
 
   void show(String query) {
+
     // Cancelar timer anterior
     _debounceTimer?.cancel();
 
@@ -91,6 +93,7 @@ class MentionOverlay {
   }
 
   void _filterUsers(String query) {
+
     if (query.isEmpty) {
       _filteredUsers = _users.take(_pageSize).toList();
       return;
@@ -99,6 +102,8 @@ class MentionOverlay {
     // Usar o cache service para filtrar
     final filtered = _cacheService.filterUsers(query);
     _filteredUsers = filtered.take(_pageSize).toList();
+    if (_filteredUsers.isNotEmpty) {
+    }
   }
 
   Widget _buildUsersList() {
@@ -137,7 +142,7 @@ class MentionOverlay {
     final name = user['full_name'] ?? 'Sem nome';
     final email = user['email'] ?? '';
     final avatarUrl = user['avatar_url'];
-    
+
     return InkWell(
       onTap: () {
         onUserSelected(user);
@@ -221,14 +226,15 @@ class MentionTextFieldHelper {
   void _onTextChanged() {
     final text = controller.text;
     final selection = controller.selection;
-    
+
+
     if (!selection.isValid || selection.baseOffset < 0) {
       overlay.hide();
       return;
     }
-    
+
     final cursorPosition = selection.baseOffset;
-    
+
     // Procurar por @ antes do cursor
     int atPosition = -1;
     for (int i = cursorPosition - 1; i >= 0; i--) {
@@ -242,7 +248,7 @@ class MentionTextFieldHelper {
         break;
       }
     }
-    
+
     if (atPosition >= 0) {
       // Extrair query após o @
       final query = text.substring(atPosition + 1, cursorPosition);
@@ -252,7 +258,9 @@ class MentionTextFieldHelper {
         _mentionStartPosition = atPosition;
         overlay.show(query);
         return;
+      } else {
       }
+    } else {
     }
 
     overlay.hide();
@@ -281,10 +289,20 @@ class MentionTextFieldHelper {
     // Posicionar o cursor APÓS o espaço que vem depois da menção
     final cursorPosition = beforeMention.length + mention.length + 1;
 
+    // IMPORTANTE: Usar WidgetsBinding para garantir que o cursor seja posicionado
+    // após o Flutter processar a mudança de texto e o buildTextSpan do controller
     controller.value = TextEditingValue(
       text: newText,
       selection: TextSelection.collapsed(offset: cursorPosition),
     );
+
+    // Forçar uma segunda atualização do cursor após o frame para garantir
+    // que ele fique na posição correta mesmo com o MentionTextEditingController
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (controller.text == newText) {
+        controller.selection = TextSelection.collapsed(offset: cursorPosition);
+      }
+    });
 
     overlay.hide();
   }

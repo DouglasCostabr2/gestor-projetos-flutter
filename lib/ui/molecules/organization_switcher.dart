@@ -23,24 +23,19 @@ class OrganizationSwitcher extends StatelessWidget {
     final orgs = appState.myOrganizations;
     final isAdmin = appState.isAdmin;
 
-    debugPrint('🏢 [OrganizationSwitcher] Build - currentOrg: ${currentOrg?['name']}, orgs.length: ${orgs.length}, isAdmin: $isAdmin');
-
     // IMPORTANTE: Apenas admins podem ver e gerenciar organizações
     // Usuários comuns não precisam saber sobre organizações - é transparente para eles
     if (!isAdmin) {
-      debugPrint('🔒 [OrganizationSwitcher] Usuário não é admin, ocultando widget');
       return const SizedBox.shrink();
     }
 
     // Se não há organizações, não exibir nada
     if (orgs.isEmpty) {
-      debugPrint('⚠️ [OrganizationSwitcher] Nenhuma organização encontrada, ocultando widget');
       return const SizedBox.shrink();
     }
 
     // Se há apenas uma organização, exibir sem dropdown
     if (orgs.length == 1) {
-      debugPrint('📌 [OrganizationSwitcher] Exibindo organização única: ${orgs.first['name']}');
       return _SingleOrganizationDisplay(
         organization: currentOrg ?? orgs.first,
         collapsed: collapsed,
@@ -48,7 +43,6 @@ class OrganizationSwitcher extends StatelessWidget {
     }
 
     // Se há múltiplas organizações, exibir com dropdown
-    debugPrint('📋 [OrganizationSwitcher] Exibindo dropdown com ${orgs.length} organizações');
     return _MultipleOrganizationsDropdown(
       appState: appState,
       collapsed: collapsed,
@@ -71,8 +65,6 @@ class _SingleOrganizationDisplay extends StatelessWidget {
     // Verificar se o usuário é admin (role global)
     final appState = AppStateScope.of(context);
     final isAdmin = appState.isAdmin;
-
-    debugPrint('🔐 [SingleOrgDisplay] isAdmin: $isAdmin, role: ${appState.role}');
 
     if (collapsed) {
       return Padding(
@@ -333,8 +325,6 @@ class _MultipleOrganizationsDropdown extends StatelessWidget {
     final currentOrg = appState.currentOrganization;
     final orgs = appState.myOrganizations;
     final isAdmin = appState.isAdmin;
-
-    debugPrint('🔐 [MultipleOrgsDropdown] isAdmin: $isAdmin, role: ${appState.role}');
 
     if (collapsed) {
       return Padding(

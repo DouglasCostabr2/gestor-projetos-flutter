@@ -59,7 +59,6 @@ class _AppShellState extends State<AppShell> {
       setState(() {
         _selectedIndex = currentTab.selectedMenuIndex;
       });
-      debugPrint('🔄 Aba mudou: atualizando selectedIndex para ${currentTab.selectedMenuIndex}');
     }
   }
 
@@ -70,36 +69,37 @@ class _AppShellState extends State<AppShell> {
     super.dispose();
   }
 
-  Widget _getPageForIndex(int index) {
-    debugPrint('📄 [AppShell] _getPageForIndex: $index');
+  Widget _getPageForIndex(int index, {String? uniqueKey}) {
+    // Use uniqueKey to ensure each tab has its own widget instance and state
+    final key = uniqueKey != null ? ValueKey(uniqueKey) : null;
+
     switch (index) {
       case 0:
-        return const HomePage();
+        return HomePage(key: key);
       case 1:
-        return const ClientsPage();
+        return ClientsPage(key: key);
       case 2:
-        return const ProjectsPage();
+        return ProjectsPage(key: key);
       case 3:
-        return const CatalogPage();
+        return CatalogPage(key: key);
       case 4:
-        return const TasksPage();
+        return TasksPage(key: key);
       case 5:
-        return const FinancePage();
+        return FinancePage(key: key);
       case 6:
-        return const AdminPage();
+        return AdminPage(key: key);
       case 7:
-        return const UserMonitoringPage();
+        return UserMonitoringPage(key: key);
       case 8:
-        return const NotificationsPage();
+        return NotificationsPage(key: key);
       case 9:
-        return const ConfiguracoesPage();
+        return ConfiguracoesPage(key: key);
       case 10:
-        return const SettingsPage();
+        return SettingsPage(key: key);
       case 11:
-        debugPrint('🏢 [AppShell] Carregando OrganizationPage');
-        return const OrganizationPage();
+        return OrganizationPage(key: key);
       default:
-        return const HomePage();
+        return HomePage(key: key);
     }
   }
 
@@ -174,7 +174,7 @@ class _AppShellState extends State<AppShell> {
       id: id,
       title: _getTitleForIndex(pageIndex),
       icon: _getIconForIndex(pageIndex),
-      page: _getPageForIndex(pageIndex),
+      page: _getPageForIndex(pageIndex, uniqueKey: id),
       canClose: true,
       selectedMenuIndex: pageIndex, // Armazena qual item do menu está selecionado
     );
@@ -233,43 +233,32 @@ class _AppShellState extends State<AppShell> {
                         valueListenable: widget.appState.sideMenuCollapsedNotifier,
                         builder: (context, collapsed, _) {
                           return SideMenu(
+                            key: const ValueKey('side_menu_stateful'),
                             collapsed: collapsed,
                             selectedIndex: _selectedIndex,
                             onSelect: (i) {
-                              debugPrint('🎯 [AppShell] onSelect chamado com índice: $i');
                               setState(() => _selectedIndex = i);
-
-                              debugPrint('🖱️ [AppShell] SideMenu.onSelect: índice $i');
 
                               final pageId = 'page_$i';
                               final currentTab = _tabManager.currentTab;
 
-                              debugPrint('   [AppShell] Aba atual: ${currentTab?.id}');
-                              debugPrint('   [AppShell] Página desejada: $pageId');
-
                               // Se a aba atual já é a página desejada, não faz nada
                               if (currentTab?.id == pageId) {
-                                debugPrint('   ✅ [AppShell] Já está na página correta!');
                                 return;
                               }
 
                               // Sempre atualizar a aba atual em vez de criar uma nova
                               if (currentTab != null) {
-                                debugPrint('   🔄 [AppShell] Atualizando aba de "${currentTab.id}" para "$pageId"');
-                                debugPrint('   🔄 [AppShell] Chamando _getPageForIndex($i)...');
                                 final updatedTab = currentTab.copyWith(
                                   id: pageId,
-                                  page: _getPageForIndex(i),
+                                  page: _getPageForIndex(i, uniqueKey: pageId),
                                   title: _getTitleForIndex(i),
                                   icon: _getIconForIndex(i),
                                   selectedMenuIndex: i, // Atualiza o índice do menu selecionado
                                 );
-                                debugPrint('   🔄 [AppShell] Chamando updateTab...');
                                 _tabManager.updateTab(_tabManager.currentIndex, updatedTab);
-                                debugPrint('   ✅ [AppShell] Tab atualizada!');
                               } else {
                                 // Se não há aba atual, criar uma nova
-                                debugPrint('   ➕ [AppShell] Criando nova aba "$pageId"');
                                 _addTabForPage(i);
                               }
                             },
@@ -295,16 +284,20 @@ class _AppShellState extends State<AppShell> {
                         child: AnimatedBuilder(
                           animation: _tabManager,
                           builder: (context, _) {
-                            final currentTab = _tabManager.currentTab;
-                            debugPrint('📄 AppShell renderizando aba: ${currentTab?.id} - ${currentTab?.title}');
+                            final tabs = _tabManager.tabs;
+                            final currentIndex = _tabManager.currentIndex;
 
-                            if (currentTab == null) {
-                              debugPrint('   ⚠️ Nenhuma aba atual, renderizando página do índice $_selectedIndex');
+                            if (tabs.isEmpty) {
                               return _getPageForIndex(_selectedIndex);
                             }
 
-                            debugPrint('   ✅ Renderizando página da aba: ${currentTab.id}');
-                            return currentTab.page;
+                            // Use IndexedStack to keep all tab pages alive in memory
+                            // This preserves scroll position, form data, and all other state
+                            return IndexedStack(
+                              index: currentIndex,
+                              sizing: StackFit.expand,
+                              children: tabs.map((tab) => tab.page).toList(),
+                            );
                           },
                         ),
                       ),

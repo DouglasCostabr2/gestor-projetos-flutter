@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import '../../services/google_drive_oauth_service.dart';
@@ -20,14 +19,12 @@ class TasksRepository implements TasksContract {
       // Obter usuário autenticado
       final currentUser = authModule.currentUser;
       if (currentUser == null) {
-        debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
         return [];
       }
 
       // Obter organização ativa
       final orgId = OrganizationContext.currentOrganizationId;
       if (orgId == null) {
-        debugPrint('⚠️ Nenhuma organização ativa - retornando lista vazia');
         return [];
       }
 
@@ -35,7 +32,6 @@ class TasksRepository implements TasksContract {
 
       // OTIMIZAÇÃO: Suporte a paginação
       if (offset != null && limit != null) {
-        debugPrint('🔍 Carregando tarefas com paginação: offset=$offset, limit=$limit');
       }
 
       // SEGURANÇA: Buscar apenas tarefas que o usuário tem acesso
@@ -106,7 +102,6 @@ class TasksRepository implements TasksContract {
         queryBuilder = queryBuilder.or(filters.join(','));
       } else {
         // Se não tem nenhum filtro, retornar vazio
-        debugPrint('⚠️ Usuário não tem acesso a nenhuma tarefa');
         return [];
       }
 
@@ -117,7 +112,6 @@ class TasksRepository implements TasksContract {
           ? await orderedQuery.range(offset, offset + limit - 1)
           : await orderedQuery;
 
-      debugPrint('✅ Tarefas filtradas por usuário: ${response.length} encontradas');
 
       return response.map<Map<String, dynamic>>((task) {
         return {
@@ -146,7 +140,6 @@ class TasksRepository implements TasksContract {
         };
       }).toList();
     } catch (e) {
-      debugPrint('❌ Erro ao buscar tarefas: $e');
       return [];
     }
   }
@@ -161,7 +154,6 @@ class TasksRepository implements TasksContract {
           .maybeSingle();
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar tarefa por ID: $e');
       return null;
     }
   }
@@ -184,7 +176,6 @@ class TasksRepository implements TasksContract {
           .maybeSingle();
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar tarefa com detalhes: $e');
       return null;
     }
   }
@@ -194,7 +185,6 @@ class TasksRepository implements TasksContract {
     // Obter usuário autenticado
     final currentUser = authModule.currentUser;
     if (currentUser == null) {
-      debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
       return [];
     }
 
@@ -203,7 +193,6 @@ class TasksRepository implements TasksContract {
     // Verificar se o usuário tem acesso ao projeto
     final hasAccess = await _checkProjectAccess(projectId, userId);
     if (!hasAccess) {
-      debugPrint('⚠️ Usuário não tem acesso ao projeto $projectId');
       return [];
     }
 
@@ -233,7 +222,6 @@ class TasksRepository implements TasksContract {
     // Obter usuário autenticado
     final currentUser = authModule.currentUser;
     if (currentUser == null) {
-      debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
       return [];
     }
 
@@ -242,7 +230,6 @@ class TasksRepository implements TasksContract {
     // Verificar se o usuário tem acesso ao projeto
     final hasAccess = await _checkProjectAccess(projectId, userId);
     if (!hasAccess) {
-      debugPrint('⚠️ Usuário não tem acesso ao projeto $projectId');
       return [];
     }
 
@@ -274,7 +261,6 @@ class TasksRepository implements TasksContract {
     // Obter usuário autenticado
     final currentUser = authModule.currentUser;
     if (currentUser == null) {
-      debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
       return [];
     }
 
@@ -283,7 +269,6 @@ class TasksRepository implements TasksContract {
     // Verificar se o usuário tem acesso ao projeto
     final hasAccess = await _checkProjectAccess(projectId, userId);
     if (!hasAccess) {
-      debugPrint('⚠️ Usuário não tem acesso ao projeto $projectId');
       return [];
     }
 
@@ -315,7 +300,6 @@ class TasksRepository implements TasksContract {
     // Obter usuário autenticado
     final currentUser = authModule.currentUser;
     if (currentUser == null) {
-      debugPrint('⚠️ Usuário não autenticado - retornando lista vazia');
       return [];
     }
 
@@ -324,7 +308,6 @@ class TasksRepository implements TasksContract {
     // Verificar se o usuário tem acesso à tarefa pai
     final hasAccess = await _checkTaskAccess(taskId, userId);
     if (!hasAccess) {
-      debugPrint('⚠️ Usuário não tem acesso à tarefa $taskId');
       return [];
     }
 
@@ -354,7 +337,6 @@ class TasksRepository implements TasksContract {
       final role = (profileResponse['role'] as String?)?.toLowerCase();
       return role == 'admin' || role == 'gestor';
     } catch (e) {
-      debugPrint('❌ Erro ao verificar role do usuário: $e');
       return false;
     }
   }
@@ -397,7 +379,6 @@ class TasksRepository implements TasksContract {
 
       return taskResponse != null;
     } catch (e) {
-      debugPrint('❌ Erro ao verificar acesso ao projeto: $e');
       return false;
     }
   }
@@ -438,13 +419,13 @@ class TasksRepository implements TasksContract {
 
       return false;
     } catch (e) {
-      debugPrint('❌ Erro ao verificar acesso à tarefa: $e');
       return false;
     }
   }
 
   @override
   Future<Map<String, dynamic>> createTask({
+    String? id, // UUID customizado (opcional)
     required String title,
     String? description,
     required String projectId,
@@ -474,6 +455,11 @@ class TasksRepository implements TasksContract {
       'status': status,
       'priority': priority,
     };
+
+    // Adicionar ID customizado se fornecido
+    if (id != null) {
+      taskData['id'] = id;
+    }
 
     // Adicionar múltiplos responsáveis se fornecido
     if (assigneeUserIds != null && assigneeUserIds.isNotEmpty) {
@@ -532,18 +518,15 @@ class TasksRepository implements TasksContract {
                 companyName: companyName,
               );
 
-              debugPrint('✅ Pasta da subtarefa criada no Google Drive: $title');
             }
           }
         } catch (e) {
-          debugPrint('⚠️ Erro ao criar pasta da subtarefa no Google Drive (ignorado): $e');
+          // Ignorar erro (operação não crítica)
         }
       }
 
       return response;
     } catch (e) {
-      debugPrint('Erro ao criar tarefa: $e');
-      debugPrint('Dados enviados: $taskData');
       rethrow;
     }
   }
@@ -597,11 +580,11 @@ class TasksRepository implements TasksContract {
                 .single();
             parentTaskTitle = parentTask['title'] as String?;
           } catch (e) {
-            debugPrint('Erro ao buscar título da tarefa principal: $e');
+            // Ignorar erro (operação não crítica)
           }
         }
       } catch (e) {
-        debugPrint('Erro ao buscar dados antigos da tarefa: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
 
@@ -643,9 +626,6 @@ class TasksRepository implements TasksContract {
     }
     updateData['updated_at'] = DateTime.now().toIso8601String();
 
-    debugPrint('🔍 [TASK UPDATE] TaskId: $taskId');
-    debugPrint('🔍 [TASK UPDATE] assignedTo parameter: $assignedTo');
-    debugPrint('🔍 [TASK UPDATE] updateData: $updateData');
 
     try {
       final response = await _client
@@ -687,14 +667,13 @@ class TasksRepository implements TasksContract {
               );
             }
           } catch (e) {
-            debugPrint('⚠️ Erro ao renomear pasta da tarefa no Google Drive (ignorado): $e');
+            // Ignorar erro (operação não crítica)
           }
         }
       }
 
       return response;
     } catch (e) {
-      debugPrint('Erro ao atualizar tarefa: $e');
       rethrow;
     }
   }
@@ -736,11 +715,11 @@ class TasksRepository implements TasksContract {
                 .single();
             parentTaskTitle = parentTask['title'] as String?;
           } catch (e) {
-            debugPrint('Erro ao buscar título da tarefa principal: $e');
+            // Ignorar erro (operação não crítica)
           }
         }
       } catch (e) {
-        debugPrint('Erro ao buscar dados da tarefa para deletar: $e');
+        // Ignorar erro (operação não crítica)
       }
 
       // Deletar a tarefa do banco de dados
@@ -778,11 +757,10 @@ class TasksRepository implements TasksContract {
             );
           }
         } catch (e) {
-          debugPrint('⚠️ Erro ao deletar pasta da tarefa no Google Drive (ignorado): $e');
+          // Ignorar erro (operação não crítica)
         }
       }
     } catch (e) {
-      debugPrint('Erro ao deletar tarefa: $e');
       rethrow;
     }
   }
@@ -802,9 +780,8 @@ class TasksRepository implements TasksContract {
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('id', taskId);
-      debugPrint('✅ Task $taskId atualizada (touch)');
     } catch (e) {
-      debugPrint('⚠️ Erro ao atualizar task (touch): $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -846,7 +823,7 @@ class TasksRepository implements TasksContract {
         }
       }
     } catch (e) {
-      debugPrint('Erro ao atualizar prioridades: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -900,10 +877,9 @@ class TasksRepository implements TasksContract {
             .update({'priority': newPriority})
             .eq('id', taskId);
 
-        debugPrint('✅ Task $taskId: $currentPriority → $newPriority (prazo: $dueDateStr)');
       }
     } catch (e) {
-      debugPrint('❌ Erro ao atualizar prioridade da task $taskId: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -944,7 +920,6 @@ class TasksRepository implements TasksContract {
           .update({'status': isWaiting ? 'waiting' : 'todo'})
           .eq('id', taskId);
     } catch (e) {
-      debugPrint('Erro ao atualizar status de espera: $e');
       rethrow;
     }
   }
@@ -960,7 +935,6 @@ class TasksRepository implements TasksContract {
           .maybeSingle();
 
       if (task == null) {
-        debugPrint('⚠️ Task não encontrada: $taskId');
         return;
       }
 
@@ -1012,7 +986,7 @@ class TasksRepository implements TasksContract {
             .eq('id', taskId);
       }
     } catch (e) {
-      debugPrint('❌ Erro ao atualizar status da task: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1035,7 +1009,6 @@ class TasksRepository implements TasksContract {
 
       return allCompleted;
     } catch (e) {
-      debugPrint('❌ Erro ao verificar se pode concluir task: $e');
       return true; // Em caso de erro, permitir conclusão
     }
   }

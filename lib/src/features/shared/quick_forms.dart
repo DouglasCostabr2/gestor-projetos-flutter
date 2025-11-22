@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'package:uuid/uuid.dart';
 import 'package:my_business/ui/atoms/buttons/buttons.dart';
 import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
 import 'package:my_business/services/briefing_upload_helpers.dart';
@@ -102,6 +103,7 @@ class _QuickProjectFormState extends State<QuickProjectForm> {
         }
       });
     } catch (_) {}
+    // Ignorar erro (operação não crítica)
   }
 
   Future<void> _loadAdditionalCosts(String projectId) async {
@@ -122,6 +124,7 @@ class _QuickProjectFormState extends State<QuickProjectForm> {
         }
       });
     } catch (_) {}
+    // Ignorar erro (operação não crítica)
   }
 
   Future<void> _loadCatalogItems(String projectId) async {
@@ -146,6 +149,7 @@ class _QuickProjectFormState extends State<QuickProjectForm> {
         }
       });
     } catch (_) {}
+    // Ignorar erro (operação não crítica)
   }
 
   @override
@@ -795,6 +799,13 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
   String? _projectName;
   String? _clientName;
   String? _companyName;
+  String? _companyId; // Para Design Materials
+
+  // UUID provisório para tasks novas (permite adicionar Design Materials antes de salvar)
+  late final String _provisionalTaskId;
+
+  // Referências de Design Materials (armazenadas em memória até salvar)
+  List<Map<String, dynamic>> _designMaterialsRefs = [];
 
   // Drive service
   final _drive = GoogleDriveOAuthService();
@@ -806,17 +817,16 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
   @override
   void initState() {
     super.initState();
-    debugPrint('🚀 QuickTaskForm - initState chamado');
-    debugPrint('   widget.projectId: ${widget.projectId}');
-    debugPrint('   widget.initial: ${widget.initial != null ? "SIM" : "NÃO"}');
+
+    // Gerar UUID provisório para tasks novas
+    _provisionalTaskId = const Uuid().v4();
+
 
     final i = widget.initial;
     if (i != null) {
-      debugPrint('   Modo: EDIÇÃO');
       _title.text = i['title'] ?? '';
       _priority = (i['priority'] as String?) ?? 'medium';
       _projectId = i['project_id'] as String? ?? widget.projectId;
-      debugPrint('   _projectId definido: $_projectId');
 
       // Carregar responsáveis (suporta assigned_to antigo e assignee_user_ids novo)
       final assigneeUserIds = i['assignee_user_ids'] as List?;
@@ -832,6 +842,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         try {
           _dueDate = DateTime.parse(due);
         } catch (_) {}
+        // Ignorar erro (operação não crítica)
       }
       final d = (i['description'] as String?) ?? '';
       // Try to parse as JSON first (AppFlowy format)
@@ -847,17 +858,13 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         _briefingText = d;
       }
     } else {
-      debugPrint('   Modo: CRIAÇÃO');
       _projectId = widget.projectId;
-      debugPrint('   _projectId definido: $_projectId');
     }
 
     if (_projectId != null) {
-      debugPrint('   ✅ Chamando _loadMembers($_projectId)');
       _loadMembers(_projectId!);
       _loadProjectAndClientInfo(_projectId!);
     } else {
-      debugPrint('   ⚠️ _projectId é NULL - NÃO vai carregar membros!');
     }
 
     // Load linked products if editing existing task
@@ -933,10 +940,11 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           _projectName = project['name'] as String?;
           _clientName = (project['clients'] as Map?)?['name'] as String?;
           _companyName = (project['companies'] as Map?)?['name'] as String?;
+          _companyId = project['company_id'] as String?; // Para Design Materials
         });
       }
     } catch (e) {
-      debugPrint('Erro ao carregar informações do projeto: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -946,29 +954,23 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
       final list = await TaskProductsService.loadLinkedProducts(taskId, projectId: _projectId!);
       if (mounted) setState(() => _linkedProducts = list);
     } catch (e) {
-      debugPrint('Erro ao carregar produtos vinculados: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
   Future<void> _save() async {
-    debugPrint('🔵 [QUICK TASK FORM] _save() CHAMADO!');
     if (_saving) {
-      debugPrint('🔵 [QUICK TASK FORM] JÁ ESTÁ SALVANDO, RETORNANDO...');
       return; // reentrancy guard
     }
     if (!_formKey.currentState!.validate()) {
-      debugPrint('🔵 [QUICK TASK FORM] VALIDAÇÃO FALHOU!');
       return;
     }
-    debugPrint('🔵 [QUICK TASK FORM] VALIDAÇÃO OK, INICIANDO SALVAMENTO...');
     setState(() => _saving = true);
     final messenger = ScaffoldMessenger.of(context);
     // use local context directly with mounted checks; avoid caching across async gaps
     try {
       final client = Supabase.instance.client;
       final userId = client.auth.currentUser?.id;
-      debugPrint('🔵 [QUICK TASK FORM] userId: $userId');
-      debugPrint('🔵 [QUICK TASK FORM] widget.initial: ${widget.initial != null ? "EDITAR" : "CRIAR"}');
 
       if (widget.initial == null) {
         // Criar
@@ -978,7 +980,9 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
 
         // Criar tarefa IMEDIATAMENTE com JSON local (URLs file://)
         // Upload de imagens será feito em background depois
+        // Usar UUID provisório para permitir referências de Design Materials
         final taskRow = await tasksModule.createTask(
+          id: _provisionalTaskId, // UUID provisório gerado no initState
           title: _title.text.trim(),
           description: _briefingJson.isNotEmpty ? _briefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
           projectId: _projectId ?? widget.projectId!,
@@ -989,11 +993,31 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           dueDate: _dueDate,
         );
 
-        debugPrint('📋 QuickTaskForm - Task created: ${taskRow['id']}');
 
         // Atualizar prioridade baseada no prazo
         final taskId = taskRow['id'] as String;
         await tasksModule.updateSingleTaskPriority(taskId);
+
+        // Salvar referências de Design Materials (se houver)
+        if (_designMaterialsRefs.isNotEmpty) {
+          for (final ref in _designMaterialsRefs) {
+            try {
+
+              await client.from('task_files').insert({
+                'task_id': taskId,
+                'filename': ref['filename'],
+                'drive_file_id': ref['drive_file_id'],
+                'drive_file_url': ref['drive_file_url'],
+                'mime_type': ref['mime_type'],
+                'size_bytes': ref['file_size_bytes'], // Coluna é 'size_bytes', não 'file_size_bytes'
+                'category': 'assets',
+                'created_by': userId,
+              });
+            } catch (e) {
+              // Ignorar erro (operação não crítica)
+            }
+          }
+        }
 
         // Salvar menções do título
         final mentionsService = MentionsService();
@@ -1004,7 +1028,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
             content: _title.text,
           );
         } catch (e) {
-          debugPrint('Erro ao salvar menções do título: $e');
+          // Ignorar erro (operação não crítica)
         }
 
         // Upload de imagens do briefing em BACKGROUND (não bloqueia o salvamento)
@@ -1026,9 +1050,8 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
               'updated_by': userId,
               'updated_at': DateTime.now().toIso8601String(),
             }).eq('id', widget.projectId!);
-            debugPrint('✅ Projeto atualizado com updated_by: $userId');
           } catch (e) {
-            debugPrint('⚠️ Erro ao atualizar projeto: $e');
+            // Ignorar erro (operação não crítica)
           }
         }
 
@@ -1052,10 +1075,6 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         try {
           final taskId = taskRow['id'] as String;
 
-          debugPrint('=== QUICK CREATE: SAVING LINKED PRODUCTS ===');
-          debugPrint('Task ID: $taskId');
-          debugPrint('Products to link: ${_linkedProducts.length}');
-          debugPrint('User ID: $userId');
 
           // Delete existing links for this task
           await client.from('task_products').delete().eq('task_id', taskId);
@@ -1069,14 +1088,11 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
               'created_by': userId,
             }).toList();
 
-            debugPrint('Inserting ${inserts.length} products...');
-            debugPrint('Inserts: $inserts');
 
             await client.from('task_products').insert(inserts);
-            debugPrint('Products linked successfully!');
           }
         } catch (e) {
-          debugPrint('Falha ao salvar produtos vinculados (quick create): $e');
+          // Ignorar erro (operação não crítica)
         }
       } else {
         // Editar
@@ -1085,22 +1101,6 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         // Validar prioridade
         final validPriorities = ['low', 'medium', 'high', 'urgent'];
         final safePriority = validPriorities.contains(_priority) ? _priority : 'medium';
-
-        final payload = {
-          'title': _title.text.trim(),
-          'description': _briefingJson.isNotEmpty ? _briefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
-          'priority': safePriority,
-          'assigned_to': _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
-          'assignee_user_ids': _assigneeUserIds,
-          'due_date': _dueDate == null ? null : DateUtils.dateOnly(_dueDate!).toIso8601String(),
-          if (userId != null) 'updated_by': userId,
-          'updated_at': DateTime.now().toIso8601String(),
-        };
-
-        debugPrint('📋 QuickTaskForm UPDATE - Payload: $payload');
-        debugPrint('📋 QuickTaskForm UPDATE - Priority: "$safePriority" (original: "$_priority")');
-        debugPrint('📋 QuickTaskForm UPDATE - _assigneeUserIds: $_assigneeUserIds');
-        debugPrint('📋 QuickTaskForm UPDATE - assignedTo will be: ${_assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null}');
 
         try {
           // Atualizar tarefa IMEDIATAMENTE com JSON local (URLs file://)
@@ -1114,10 +1114,30 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
             priority: safePriority,
             dueDate: _dueDate,
           );
-          debugPrint('✅ QuickTaskForm UPDATE - Success!');
 
           // Atualizar prioridade baseada no prazo
           await tasksModule.updateSingleTaskPriority(widget.initial!['id']);
+
+          // Salvar referências de Design Materials (se houver)
+          if (_designMaterialsRefs.isNotEmpty) {
+            for (final ref in _designMaterialsRefs) {
+              try {
+
+                await client.from('task_files').insert({
+                  'task_id': widget.initial!['id'],
+                  'filename': ref['filename'],
+                  'drive_file_id': ref['drive_file_id'],
+                  'drive_file_url': ref['drive_file_url'],
+                  'mime_type': ref['mime_type'],
+                  'size_bytes': ref['file_size_bytes'], // Coluna é 'size_bytes', não 'file_size_bytes'
+                  'category': 'assets',
+                  'created_by': userId,
+                });
+              } catch (e) {
+                // Ignorar erro (operação não crítica)
+              }
+            }
+          }
 
           // Salvar menções do título
           final mentionsService = MentionsService();
@@ -1128,7 +1148,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
               content: _title.text,
             );
           } catch (e) {
-            debugPrint('Erro ao salvar menções do título: $e');
+            // Ignorar erro (operação não crítica)
           }
 
           // Upload de imagens do briefing em BACKGROUND (não bloqueia o salvamento)
@@ -1150,13 +1170,11 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
                 'updated_by': userId,
                 'updated_at': DateTime.now().toIso8601String(),
               }).eq('id', widget.projectId!);
-              debugPrint('✅ Projeto atualizado com updated_by: $userId');
             } catch (e) {
-              debugPrint('⚠️ Erro ao atualizar projeto: $e');
+              // Ignorar erro (operação não crítica)
             }
           }
         } catch (e) {
-          debugPrint('❌ QuickTaskForm UPDATE - Error: $e');
           rethrow;
         }
 
@@ -1205,7 +1223,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
               );
             }
           } catch (e) {
-            debugPrint('Falha ao atualizar ✅ na pasta da tarefa (QuickForm): $e');
+            // Ignorar erro (operação não crítica)
           }
         }
 
@@ -1319,10 +1337,6 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         try {
           final taskId = widget.initial!['id'] as String;
 
-          debugPrint('=== QUICK EDIT: SAVING LINKED PRODUCTS ===');
-          debugPrint('Task ID: $taskId');
-          debugPrint('Products to link: ${_linkedProducts.length}');
-          debugPrint('User ID: $userId');
 
           // Delete existing links for this task
           await client.from('task_products').delete().eq('task_id', taskId);
@@ -1336,21 +1350,17 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
               'created_by': userId,
             }).toList();
 
-            debugPrint('Inserting ${inserts.length} products...');
-            debugPrint('Inserts: $inserts');
 
             await client.from('task_products').insert(inserts);
-            debugPrint('Products linked successfully!');
           }
         } catch (e) {
-          debugPrint('Falha ao salvar produtos vinculados (quick edit): $e');
+          // Ignorar erro (operação não crítica)
         }
       }
 
 
       if (mounted) Navigator.pop(context, true);
-    } catch (e, st) {
-      debugPrint('Erro ao salvar tarefa (quick): $e\n$st');
+    } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Erro ao salvar: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -1373,7 +1383,6 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         ),
         PrimaryButton(
           onPressed: _saving ? null : () {
-            debugPrint('🟢 [BOTÃO SALVAR] CLICADO!');
             _save();
           },
           label: 'Salvar',
@@ -1478,7 +1487,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
 
                 // 6. Assets (largura fill)
                 TaskAssetsSection(
-                  taskId: widget.initial?['id'] as String?,
+                  taskId: widget.initial?['id'] as String? ?? _provisionalTaskId, // UUID provisório para tasks novas
                   assetsImages: _assetsImages,
                   assetsFiles: _assetsFiles,
                   assetsVideos: _assetsVideos,
@@ -1490,6 +1499,12 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
                     });
                   },
                   enabled: !_saving,
+                  companyId: _companyId, // Habilita Design Materials se disponível
+                  companyName: _companyName, // Nome para exibir no dialog
+                  designMaterialsRefs: _designMaterialsRefs, // Referências em memória
+                  onDesignMaterialsRefsChanged: (refs) {
+                    setState(() => _designMaterialsRefs = refs);
+                  },
                 ),
                 const SizedBox(height: 16),
 
@@ -1561,15 +1576,23 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
   String? _projectName;
   String? _clientName;
   String? _companyName;
+  String? _companyId; // Para Design Materials
+
+  // UUID provisório para subtasks novas (permite adicionar Design Materials antes de salvar)
+  late final String _provisionalTaskId;
+
+  // Referências de Design Materials (armazenadas em memória até salvar)
+  List<Map<String, dynamic>> _designMaterialsRefs = [];
+
+  final _drive = GoogleDriveOAuthService();
 
   @override
   void initState() {
     super.initState();
-    debugPrint('🚀 SubTaskForm - initState chamado');
-    debugPrint('   widget.projectId: ${widget.projectId}');
-    debugPrint('   widget.parentTaskId: ${widget.parentTaskId}');
-    debugPrint('   widget.initial: ${widget.initial != null ? "SIM" : "NÃO"}');
-    debugPrint('   OrganizationContext.currentOrganizationId: ${OrganizationContext.currentOrganizationId}');
+
+    // Gerar UUID provisório para subtasks novas
+    _provisionalTaskId = const Uuid().v4();
+
     _loadMembers();
     _loadProjectAndClientInfo();
 
@@ -1633,8 +1656,6 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
   Future<void> _loadMembers() async {
     setState(() => _loadingMembers = true);
     try {
-      debugPrint('🔍 SubTaskForm._loadMembers - Iniciando...');
-      debugPrint('   widget.projectId: ${widget.projectId}');
 
       // Buscar membros do projeto primeiro
       final res = await Supabase.instance.client
@@ -1643,18 +1664,14 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
           .eq('project_id', widget.projectId);
       final all = List<Map<String, dynamic>>.from(res);
 
-      debugPrint('📡 SubTaskForm._loadMembers - Membros do projeto: ${all.length}');
 
       // Não filtrar por roles - mostrar todos os membros do projeto
       var filtered = all;
 
-      debugPrint('   Membros do projeto (sem filtro): ${filtered.length}');
 
       // Fallback: buscar membros da organização se o projeto não tem membros
       if (filtered.isEmpty) {
-        debugPrint('   ⚠️ Nenhum membro no projeto, buscando da organização...');
         final orgId = OrganizationContext.currentOrganizationId;
-        debugPrint('   orgId: $orgId');
 
         if (orgId != null) {
           try {
@@ -1663,11 +1680,9 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
               params: {'org_id': orgId},
             ) as List;
 
-            debugPrint('   Membros da organização: ${orgMembers.length}');
 
             filtered = orgMembers.map((m) {
               final member = m as Map<String, dynamic>;
-              debugPrint('      - ${member['full_name']} (${member['email']})');
               return {
                 'user_id': member['user_id'],
                 'profiles': {
@@ -1680,22 +1695,18 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
               };
             }).toList();
           } catch (e) {
-            debugPrint('   ❌ Erro ao buscar membros da organização: $e');
             // Silently fail - filtered will remain empty
           }
         }
       }
 
-      debugPrint('✅ SubTaskForm._loadMembers - Total de membros: ${filtered.length}');
       if (mounted) {
         setState(() {
           _members = filtered;
           _loadingMembers = false;
         });
       }
-    } catch (e, stackTrace) {
-      debugPrint('❌ SubTaskForm._loadMembers - Erro: $e');
-      debugPrint('❌ SubTaskForm._loadMembers - StackTrace: $stackTrace');
+    } catch (e) {
       if (mounted) {
         setState(() {
           _members = [];
@@ -1718,10 +1729,11 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
           _projectName = project['name'] as String?;
           _clientName = (project['clients'] as Map?)?['name'] as String?;
           _companyName = (project['companies'] as Map?)?['name'] as String?;
+          _companyId = project['company_id'] as String?; // Para Design Materials
         });
       }
     } catch (e) {
-      debugPrint('Erro ao carregar informações do projeto (SubTask): $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -1754,11 +1766,12 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
         'updated_at': DateTime.now().toIso8601String(),
       };
 
-      debugPrint('📋 SubTaskForm - Data: $data');
 
       if (widget.initial == null) {
         // Criar nova sub task usando o módulo (isso vai criar a pasta no Google Drive)
+        // Usar UUID provisório para permitir referências de Design Materials
         final createdTask = await tasksModule.createTask(
+          id: _provisionalTaskId, // UUID provisório gerado no initState
           title: data['title'] as String,
           description: data['description'] as String?,
           projectId: widget.projectId,
@@ -1770,10 +1783,32 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
           parentTaskId: widget.parentTaskId,
         );
 
+        final taskId = createdTask['id'] as String;
+
+        // Salvar referências de Design Materials (se houver)
+        if (_designMaterialsRefs.isNotEmpty) {
+          for (final ref in _designMaterialsRefs) {
+            try {
+              await client.from('task_files').insert({
+                'task_id': taskId,
+                'filename': ref['filename'],
+                'drive_file_id': ref['drive_file_id'],
+                'drive_file_url': ref['drive_file_url'],
+                'mime_type': ref['mime_type'],
+                'size_bytes': ref['file_size_bytes'], // Coluna é 'size_bytes', não 'file_size_bytes'
+                'category': 'assets',
+                'created_by': userId,
+              });
+            } catch (e) {
+              // Ignorar erro (operação não crítica)
+            }
+          }
+        }
+
         // Upload de imagens do briefing em BACKGROUND (não bloqueia o salvamento)
         if (_clientName != null && _projectName != null && widget.parentTaskTitle != null) {
           startBriefingImagesBackgroundUpload(
-            taskId: createdTask['id'],
+            taskId: taskId,
             briefingJson: _briefingJson,
             clientName: _clientName!,
             projectName: _projectName!,
@@ -1786,9 +1821,27 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
 
         // Salvar vnculos de produtos da Subtarefa (criafo)
         await TaskProductsService.saveLinkedProducts(
-          taskId: createdTask['id'] as String,
+          taskId: taskId,
           linkedProducts: _linkedProducts,
         );
+
+        // Upload Assets em segundo plano (se houver) - SUBTASK
+        if (_clientName != null && _projectName != null && widget.parentTaskTitle != null) {
+          await startAssetsBackgroundUpload(
+            taskId: taskId,
+            clientName: _clientName!,
+            projectName: _projectName!,
+            taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Sub Tarefa',
+            assetsImages: _assetsImages,
+            assetsFiles: _assetsFiles,
+            assetsVideos: _assetsVideos,
+            companyName: _companyName,
+            isSubTask: true,
+            parentTaskTitle: widget.parentTaskTitle,
+            context: mounted ? context : null,
+            driveService: _drive,
+          );
+        }
 
       } else {
         // Atualizar sub task existente usando o módulo (isso vai renomear a pasta no Google Drive se necessário)
@@ -1808,6 +1861,24 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
           taskId: widget.initial!['id'] as String,
           linkedProducts: _linkedProducts,
         );
+
+        // Upload Assets em segundo plano (se houver) - SUBTASK EDIT
+        if (_clientName != null && _projectName != null && widget.parentTaskTitle != null) {
+          await startAssetsBackgroundUpload(
+            taskId: widget.initial!['id'] as String,
+            clientName: _clientName!,
+            projectName: _projectName!,
+            taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Sub Tarefa',
+            assetsImages: _assetsImages,
+            assetsFiles: _assetsFiles,
+            assetsVideos: _assetsVideos,
+            companyName: _companyName,
+            isSubTask: true,
+            parentTaskTitle: widget.parentTaskTitle,
+            context: mounted ? context : null,
+            driveService: _drive,
+          );
+        }
       }
 
       // Atualizar o projeto também (updated_by e updated_at)
@@ -1816,16 +1887,15 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
           'updated_by': userId,
           'updated_at': DateTime.now().toIso8601String(),
         }).eq('id', widget.projectId);
-        debugPrint('✅ Projeto atualizado com updated_by: $userId (SubTask)');
       } catch (e) {
-        debugPrint('⚠️ Erro ao atualizar projeto: $e');
+        // Ignorar erro (operação não crítica)
       }
 
       // Atualizar o status da task principal (aguardando/concluída)
       try {
         await tasksModule.updateTaskStatus(widget.parentTaskId);
       } catch (e) {
-        debugPrint('Erro ao atualizar status da task principal: $e');
+        // Ignorar erro (operação não crítica)
       }
 
       if (mounted) {
@@ -1979,7 +2049,7 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
 
                       // 6. Assets (largura fill)
                       TaskAssetsSection(
-                        taskId: widget.initial?['id'] as String?,
+                        taskId: widget.initial?['id'] as String? ?? _provisionalTaskId, // UUID provisório para subtasks novas
                         assetsImages: _assetsImages,
                         assetsFiles: _assetsFiles,
                         assetsVideos: _assetsVideos,
@@ -1991,6 +2061,12 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
                           });
                         },
                         enabled: !_saving,
+                        companyId: _companyId, // Habilita Design Materials se disponível
+                        companyName: _companyName, // Nome para exibir no dialog
+                        designMaterialsRefs: _designMaterialsRefs, // Referências em memória
+                        onDesignMaterialsRefsChanged: (refs) {
+                          setState(() => _designMaterialsRefs = refs);
+                        },
                       ),
                       const SizedBox(height: 16),
 

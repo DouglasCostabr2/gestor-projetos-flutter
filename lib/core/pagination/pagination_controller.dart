@@ -102,7 +102,6 @@ class PaginationController<T> extends ChangeNotifier {
       _error = e.toString();
       _isLoading = false;
       notifyListeners();
-      debugPrint('Erro ao carregar página: $e');
     }
   }
   

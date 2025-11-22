@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../config/supabase_config.dart';
 import 'contract.dart';
@@ -17,7 +16,6 @@ class FinanceRepository implements FinanceContract {
           .maybeSingle();
       return response;
     } catch (e) {
-      debugPrint('Erro ao buscar dados financeiros: $e');
       return null;
     }
   }
@@ -47,7 +45,6 @@ class FinanceRepository implements FinanceContract {
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar custos adicionais: $e');
       return [];
     }
   }
@@ -90,7 +87,6 @@ class FinanceRepository implements FinanceContract {
           .order('position', ascending: true);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar itens do catálogo: $e');
       return [];
     }
   }
@@ -107,7 +103,6 @@ class FinanceRepository implements FinanceContract {
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar pagamentos: $e');
       return [];
     }
   }
@@ -122,7 +117,6 @@ class FinanceRepository implements FinanceContract {
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar pagamentos de funcionário: $e');
       return [];
     }
   }
@@ -136,7 +130,6 @@ class FinanceRepository implements FinanceContract {
           .eq('project_id', projectId);
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      debugPrint('Erro ao buscar pagamentos do projeto: $e');
       return [];
     }
   }

@@ -1,9 +1,9 @@
 // New Flutter desktop app entrypoint with Supabase initialization and routing
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show debugPrintThrottled, kDebugMode;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:world_countries/world_countries.dart';
+import 'package:flutter_mentions/flutter_mentions.dart';
 import 'config/supabase_config.dart';
 import 'core/di/service_registration.dart';
 import 'src/app_shell.dart';
@@ -21,19 +21,7 @@ import 'widgets/update_dialog.dart';
 // Global navigator key para acessar o contexto de qualquer lugar
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-// Limitador de logs para erros de Tooltip/Ticker (evita spam no console)
-DateTime? _lastTooltipTickerErrorPrintedAt;
-
 Future<void> main() async {
-  // Silencia logs de debug globais; habilite definindo kVerboseLogs = true
-  bool kVerboseLogs = false;
-  debugPrint = (String? message, {int? wrapWidth}) {
-    // ignore: dead_code
-    if (kDebugMode && kVerboseLogs) {
-      debugPrintThrottled(message, wrapWidth: wrapWidth);
-    }
-  };
-
   WidgetsFlutterBinding.ensureInitialized();
 
   // Inicializar window_manager
@@ -57,23 +45,8 @@ Future<void> main() async {
   // Inicializar TaskTimerService para restaurar estado do timer
   await taskTimerService.initialize();
 
-  // Capturar exceções e reduzir spam específico de Tooltip/Ticker
+  // Capturar exceções
   FlutterError.onError = (FlutterErrorDetails details) {
-    final msg = details.exception.toString();
-    if (msg.contains('TooltipState') || msg.contains('tickers were created')) {
-      final now = DateTime.now();
-      final shouldLog = _lastTooltipTickerErrorPrintedAt == null ||
-          now.difference(_lastTooltipTickerErrorPrintedAt!).inSeconds >= 5;
-      if (shouldLog) {
-        _lastTooltipTickerErrorPrintedAt = now;
-        debugPrint('\n🔎 Capturado erro relacionado a Tooltip/Ticker (mostrando detalhes, limitado)');
-        // Mostra os detalhes completos apenas de tempos em tempos
-        FlutterError.presentError(details);
-      }
-      // Suprime repetições para evitar travamentos/lag por excesso de logs
-      return;
-    }
-    // Outros erros são apresentados normalmente
     FlutterError.presentError(details);
   };
 
@@ -119,7 +92,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
         );
       }
     } catch (e) {
-      debugPrint('❌ Erro ao verificar atualizações: $e');
+      // Erro ao verificar atualizações
     }
   }
 
@@ -136,30 +109,32 @@ class _MyAppState extends State<MyApp> with WindowListener {
       builder: (context, _) {
         return AppStateScope(
           appState: _appState,
-          child: MaterialApp(
-            navigatorKey: navigatorKey,
-            title: 'My Business',
-            theme: AppTheme.light(),
-            darkTheme: AppTheme.dark(),
-            themeMode: ThemeMode.dark,
-            navigatorObservers: [routeObserver],
-            debugShowCheckedModeBanner: false,
-            // Localização para português brasileiro
-            localizationsDelegates: const [
-              GlobalMaterialLocalizations.delegate,
-              GlobalCupertinoLocalizations.delegate,
-              GlobalWidgetsLocalizations.delegate,
-              TypedLocaleDelegate(), // Para traduções do world_countries
-            ],
-            supportedLocales: const [
-              Locale('pt', 'BR'), // Português do Brasil
-              Locale('en', 'US'), // Inglês (fallback)
-            ],
-            locale: const Locale('pt', 'BR'),
-            home: _buildHome(),
-            routes: {
-              '/reset-password': (context) => const ResetPasswordPage(),
-            },
+          child: Portal(
+            child: MaterialApp(
+              navigatorKey: navigatorKey,
+              title: 'My Business',
+              theme: AppTheme.light(),
+              darkTheme: AppTheme.dark(),
+              themeMode: ThemeMode.dark,
+              navigatorObservers: [routeObserver],
+              debugShowCheckedModeBanner: false,
+              // Localização para português brasileiro
+              localizationsDelegates: const [
+                GlobalMaterialLocalizations.delegate,
+                GlobalCupertinoLocalizations.delegate,
+                GlobalWidgetsLocalizations.delegate,
+                TypedLocaleDelegate(), // Para traduções do world_countries
+              ],
+              supportedLocales: const [
+                Locale('pt', 'BR'), // Português do Brasil
+                Locale('en', 'US'), // Inglês (fallback)
+              ],
+              locale: const Locale('pt', 'BR'),
+              home: _buildHome(),
+              routes: {
+                '/reset-password': (context) => const ResetPasswordPage(),
+              },
+            ),
           ),
         );
       },

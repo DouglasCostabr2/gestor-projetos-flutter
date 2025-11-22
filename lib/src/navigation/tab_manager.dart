@@ -38,9 +38,6 @@ class TabManager extends ChangeNotifier implements ITabManager {
     final history = _tabHistory[_currentIndex]!;
     final previousTab = history.removeLast();
 
-    debugPrint('⬅️ TabManager.goBack:');
-    debugPrint('   Voltando de "${_tabs[_currentIndex].id}" para "${previousTab.id}"');
-    debugPrint('   Histórico restante: ${history.map((t) => t.id).toList()}');
 
     _tabs[_currentIndex] = previousTab;
     notifyListeners();
@@ -49,20 +46,12 @@ class TabManager extends ChangeNotifier implements ITabManager {
   /// Adiciona uma nova aba
   @override
   void addTab(TabItem tab, {bool allowDuplicates = false}) {
-    debugPrint('🔍 TabManager.addTab chamado:');
-    debugPrint('   ID da nova aba: "${tab.id}"');
-    debugPrint('   allowDuplicates: $allowDuplicates');
-    debugPrint('   Abas existentes (${_tabs.length}): ${_tabs.map((t) => t.id).toList()}');
-
     if (!allowDuplicates) {
       // Verifica se já existe uma aba com o mesmo ID
       final existingIndex = _tabs.indexWhere((t) => t.id == tab.id);
-      debugPrint('   Procurando aba com ID "${tab.id}"...');
-      debugPrint('   Índice encontrado: $existingIndex');
 
       if (existingIndex != -1) {
         // Se já existe, apenas seleciona ela
-        debugPrint('   ✅ ABA JÁ EXISTE! Selecionando aba no índice $existingIndex');
         _currentIndex = existingIndex;
         notifyListeners();
         return;
@@ -70,11 +59,8 @@ class TabManager extends ChangeNotifier implements ITabManager {
     }
 
     // Adiciona nova aba e seleciona
-    debugPrint('   ➕ CRIANDO NOVA ABA');
     _tabs.add(tab);
     _currentIndex = _tabs.length - 1;
-    debugPrint('   Total de abas agora: ${_tabs.length}');
-    debugPrint('   Abas: ${_tabs.map((t) => t.id).toList()}');
 
     notifyListeners();
   }
@@ -82,9 +68,6 @@ class TabManager extends ChangeNotifier implements ITabManager {
   /// Remove uma aba pelo índice
   @override
   void removeTab(int index) {
-    debugPrint('🗑️ TabManager.removeTab chamado:');
-    debugPrint('   Índice a remover: $index');
-    debugPrint('   Abas antes: ${_tabs.map((t) => t.id).toList()}');
 
     if (index < 0 || index >= _tabs.length) return;
 
@@ -108,8 +91,6 @@ class TabManager extends ChangeNotifier implements ITabManager {
     _tabHistory.clear();
     _tabHistory.addAll(newHistory);
 
-    debugPrint('   Aba "${tab.id}" removida');
-    debugPrint('   Abas depois: ${_tabs.map((t) => t.id).toList()}');
 
     // Ajusta o índice atual
     if (_tabs.isEmpty) {
@@ -180,11 +161,6 @@ class TabManager extends ChangeNotifier implements ITabManager {
         final currentTab = _tabs[index];
         _tabHistory[index] ??= [];
         _tabHistory[index]!.add(currentTab);
-
-        debugPrint('📚 TabManager.updateTab: Salvando no histórico');
-        debugPrint('   Aba anterior: "${currentTab.id}"');
-        debugPrint('   Nova aba: "${newTab.id}"');
-        debugPrint('   Histórico da aba $index: ${_tabHistory[index]!.map((t) => t.id).toList()}');
       }
 
       _tabs[index] = newTab;
@@ -222,7 +198,6 @@ class TabManager extends ChangeNotifier implements ITabManager {
   /// Limpa todas as abas e histórico
   @override
   void clearAllTabs() {
-    debugPrint('🧹 TabManager.clearAllTabs: Limpando todas as abas e histórico');
     _tabs.clear();
     _tabHistory.clear();
     _currentIndex = 0;

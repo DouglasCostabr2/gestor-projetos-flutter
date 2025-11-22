@@ -458,7 +458,7 @@ class _ClientDetailPageState extends State<ClientDetailPage> {
           usersMap[user['id']] = user;
         }
       } catch (e) {
-        debugPrint('Erro ao buscar perfis de usuários: $e');
+        // Ignorar erro (operação não crítica)
       }
     }
 

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'models.dart';
 
@@ -21,10 +20,6 @@ class FiscalBankAuditRepository {
     Map<String, dynamic>? newValues,
   }) async {
     try {
-      debugPrint('🔍 [REPO] createAuditLog chamado');
-      debugPrint('🔍 [REPO] changedFields tipo: ${changedFields?.runtimeType}');
-      debugPrint('🔍 [REPO] previousValues tipo: ${previousValues?.runtimeType}');
-      debugPrint('🔍 [REPO] newValues tipo: ${newValues?.runtimeType}');
 
       final insertData = {
         'organization_id': organizationId,
@@ -39,23 +34,15 @@ class FiscalBankAuditRepository {
         'new_values': newValues ?? {},
       };
 
-      debugPrint('🔍 [REPO] insertData criado, tipo: ${insertData.runtimeType}');
-      debugPrint('🔍 [REPO] insertData[changed_fields] tipo: ${insertData['changed_fields'].runtimeType}');
-      debugPrint('🔍 [REPO] insertData[previous_values] tipo: ${insertData['previous_values'].runtimeType}');
-      debugPrint('🔍 [REPO] insertData[new_values] tipo: ${insertData['new_values'].runtimeType}');
 
-      debugPrint('🔍 [REPO] Chamando .insert()...');
       final response = await _client
           .from('fiscal_bank_audit_log')
           .insert(insertData)
           .select()
           .single();
 
-      debugPrint('🔍 [REPO] Insert bem-sucedido!');
       return FiscalBankAuditLog.fromJson(response);
-    } catch (e, stackTrace) {
-      debugPrint('❌ [REPO] Erro ao criar registro de auditoria: $e');
-      debugPrint('❌ [REPO] Stack trace: $stackTrace');
+    } catch (e) {
       return null;
     }
   }
@@ -73,7 +60,6 @@ class FiscalBankAuditRepository {
 
       return LatestAuditInfo.fromJson(response);
     } catch (e) {
-      debugPrint('❌ Erro ao buscar última auditoria: $e');
       return null;
     }
   }
@@ -96,7 +82,6 @@ class FiscalBankAuditRepository {
           .map((item) => FiscalBankAuditLog.fromJson(item as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      debugPrint('❌ Erro ao buscar histórico de auditoria: $e');
       return [];
     }
   }
@@ -147,7 +132,6 @@ class FiscalBankAuditRepository {
           .map((item) => FiscalBankAuditLog.fromJson(item as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      debugPrint('❌ Erro ao buscar registros de auditoria: $e');
       return [];
     }
   }

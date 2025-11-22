@@ -155,13 +155,11 @@ class AutoScrollHelper {
     String? debugLabel,
     required bool alignToBottom,
   }) {
-    final label = debugLabel ?? 'Widget';
 
     // Obter o contexto do widget alvo
     final context = key.currentContext;
     if (context == null) {
       if (enableDebugLogs) {
-        debugPrint('🔴 Auto-scroll ($label): context é null');
       }
       return;
     }
@@ -170,7 +168,6 @@ class AutoScrollHelper {
     final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
     if (renderBox == null) {
       if (enableDebugLogs) {
-        debugPrint('🔴 Auto-scroll ($label): renderBox é null');
       }
       return;
     }
@@ -179,7 +176,6 @@ class AutoScrollHelper {
     final scrollable = Scrollable.maybeOf(context);
     if (scrollable == null) {
       if (enableDebugLogs) {
-        debugPrint('🔴 Auto-scroll ($label): scrollable é null');
       }
       return;
     }
@@ -191,7 +187,6 @@ class AutoScrollHelper {
     final RenderBox? scrollableBox = scrollable.context.findRenderObject() as RenderBox?;
     if (scrollableBox == null) {
       if (enableDebugLogs) {
-        debugPrint('🔴 Auto-scroll ($label): scrollableBox é null');
       }
       return;
     }
@@ -202,22 +197,11 @@ class AutoScrollHelper {
 
     // Calcular o scroll necessário
     final currentScroll = scrollable.position.pixels;
-    final widgetTop = widgetPosition.dy;
     final widgetBottom = widgetPosition.dy + widgetHeight;
     final visibleBottom = scrollableHeight;
 
     // Logs de debug
     if (enableDebugLogs) {
-      debugPrint('📊 Auto-scroll Debug ($label):');
-      debugPrint('   widgetHeight: $widgetHeight');
-      debugPrint('   scrollableHeight: $scrollableHeight');
-      debugPrint('   extraMargin: $extraMargin');
-      debugPrint('   widgetTop: $widgetTop');
-      debugPrint('   widgetBottom: $widgetBottom');
-      debugPrint('   visibleBottom: $visibleBottom');
-      debugPrint('   currentScroll: $currentScroll');
-      debugPrint('   alwaysScroll: $alwaysScroll');
-      debugPrint('   alignToBottom: $alignToBottom');
     }
 
     // Calcular o scroll necessário
@@ -235,8 +219,6 @@ class AutoScrollHelper {
       scrollNeeded = widgetBottom - idealWidgetBottom;
 
       if (enableDebugLogs) {
-        debugPrint('   idealWidgetBottom: $idealWidgetBottom (visibleBottom - extraMargin)');
-        debugPrint('   Cálculo: widgetBottom($widgetBottom) - idealWidgetBottom($idealWidgetBottom) = $scrollNeeded');
       }
     } else {
       // Alinhar ao topo: só faz scroll se necessário
@@ -250,9 +232,6 @@ class AutoScrollHelper {
       final targetScroll = currentScroll + scrollNeeded;
 
       if (enableDebugLogs) {
-        debugPrint('   scrollNeeded: $scrollNeeded');
-        debugPrint('   targetScroll: $targetScroll');
-        debugPrint('   ✅ Fazendo scroll...');
       }
 
       // Fazer scroll com animação
@@ -266,7 +245,6 @@ class AutoScrollHelper {
       );
     } else {
       if (enableDebugLogs) {
-        debugPrint('   ⏭️ Scroll não necessário (widget já visível)');
       }
     }
   }
@@ -372,7 +350,6 @@ class AutoScrollHelper {
   }) {
     final context = key.currentContext;
     if (context == null) {
-      if (enableDebugLogs) debugPrint('🔴 Auto-scroll (Bottom): context é null');
       return;
     }
 
@@ -389,7 +366,6 @@ class AutoScrollHelper {
     }
 
     if (position == null) {
-      if (enableDebugLogs) debugPrint('🔴 Auto-scroll (Bottom): nenhum ScrollPosition anexado');
       return;
     }
 
@@ -397,12 +373,8 @@ class AutoScrollHelper {
 
 
     if (enableDebugLogs) {
-      final src = primaryController != null && primaryController.hasClients ? 'primary' : 'nearest';
-      debugPrint('📊 Auto-scroll (Bottom) [$src]: current=${position.pixels} max=$target');
       if ((position.pixels - target).abs() < 0.5) {
-        debugPrint('   ↔️ Já está no final, mantendo posição');
       } else {
-        debugPrint('   ✅ Fazendo scroll para o final...');
       }
     }
 
@@ -420,7 +392,6 @@ class AutoScrollHelper {
       try {
         final secondTarget = position!.maxScrollExtent;
         if ((position.pixels - secondTarget).abs() >= 0.5) {
-          if (enableDebugLogs) debugPrint('   🔁 Segundo passe: current=${position.pixels} max=$secondTarget');
           position.animateTo(
             secondTarget,
             duration: Duration(milliseconds: (durationMs * 0.75).round()),
@@ -447,23 +418,19 @@ class AutoScrollHelper {
       final scrollable = Scrollable.maybeOf(context);
 
       ScrollPosition? position;
-      String src = 'none';
       if (preferredController != null && preferredController.hasClients) {
         position = preferredController.position;
-        src = 'preferred';
       } else if (primary != null && primary.hasClients) {
         position = primary.position;
-        src = 'primary';
       } else if (scrollable != null) {
         position = scrollable.position;
-        src = 'nearest';
+      } else {
+        return;
       }
-      if (position == null) return;
 
       final target = position.maxScrollExtent;
       final delta = (target - position.pixels).abs();
       if (enableDebugLogs) {
-        debugPrint('📊 Auto-scroll (Simple) [$src]: current=${position.pixels} max=$target delta=$delta');
       }
 
       if (delta < 1.0) return; // já está no final
@@ -494,37 +461,30 @@ class AutoScrollHelper {
       final renderObject = context?.findRenderObject();
       if (context == null || renderObject == null) {
         if (enableDebugLogs) {
-          debugPrint('🔴 ensureVisibleOnPosition: context/renderObject null');
         }
         return;
       }
       final viewport = RenderAbstractViewport.of(renderObject);
       // Offset para alinhar o bottom do widget ao fundo do viewport
       final reveal = viewport.getOffsetToReveal(renderObject, 1.0);
-      final viewportDim = position.viewportDimension;
       double target = reveal.offset - extraBottomMargin;
       target = target.clamp(position.minScrollExtent, position.maxScrollExtent);
       final current = position.pixels;
       final delta = (target - current).abs();
       if (enableDebugLogs) {
-        debugPrint('🔎 EnsureVisible: reveal.offset=${reveal.offset.toStringAsFixed(1)} rect=${reveal.rect} viewport=${viewportDim.toStringAsFixed(1)} min=${position.minScrollExtent.toStringAsFixed(1)} max=${position.maxScrollExtent.toStringAsFixed(1)}');
-        debugPrint('📊 EnsureVisible [position]: current=$current target=$target delta=$delta (margin=$extraBottomMargin)');
       }
       // Nunca mover para cima... exceto quando explicitamente permitido (ex.: correção pós-shrink)
       if (!allowScrollUpIfNeeded && target <= current + 0.5) {
         if (enableDebugLogs) {
-          debugPrint('↩︎ EnsureVisible: skip (target<=current e allowUp=false)');
         }
         return;
       }
       if (delta < 24.0) {
         if (enableDebugLogs) {
-          debugPrint('⚡ EnsureVisible: jumpTo');
         }
         position.jumpTo(target);
       } else {
         if (enableDebugLogs) {
-          debugPrint('🎞 EnsureVisible: animateTo(${durationMs}ms)');
         }
         position.animateTo(
           target,
@@ -551,25 +511,21 @@ class AutoScrollHelper {
       final scrollable = Scrollable.maybeOf(context);
 
       ScrollPosition? position;
-      String src = 'none';
       if (preferredController != null && preferredController.hasClients) {
         position = preferredController.position;
-        src = 'preferred';
       } else if (primary != null && primary.hasClients) {
         position = primary.position;
-        src = 'primary';
       } else if (scrollable != null) {
         position = scrollable.position;
-        src = 'nearest';
+      } else {
+        return;
       }
-      if (position == null) return;
 
       final double current = position.pixels;
       final double target = position.maxScrollExtent;
       final double delta = (target - current).abs();
 
       if (enableDebugLogs) {
-        debugPrint('📊 Auto-scroll (BottomNeverUp) [$src]: current=$current max=$target delta=$delta');
       }
 
       // Não sobe

@@ -170,7 +170,6 @@ class _TaskProductsFieldState extends State<TaskProductsField> {
         });
       }
     } catch (e) {
-      debugPrint('Error loading products: $e');
       if (mounted) {
         setState(() {
           _allProducts = [];

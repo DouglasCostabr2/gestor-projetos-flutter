@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'contract.dart';
 import 'models.dart';
@@ -17,8 +16,6 @@ class OrganizationsRepository implements OrganizationsContract {
     try {
       final user = authModule.currentUser;
       if (user == null) throw Exception('Usuário não autenticado');
-
-      debugPrint('🔍 [Repository] Buscando organizações do usuário ${user.id}...');
 
       // Buscar organizações onde o usuário é membro ativo
       final response = await _client
@@ -41,8 +38,6 @@ class OrganizationsRepository implements OrganizationsContract {
           .eq('status', 'active')
           .order('created_at', ascending: false);
 
-      debugPrint('🔍 [Repository] Memberships encontrados: ${response.length}');
-
       // Extrair organizações dos memberships
       final organizations = response
           .where((membership) => membership['organizations'] != null)
@@ -52,15 +47,8 @@ class OrganizationsRepository implements OrganizationsContract {
           })
           .toList();
 
-      debugPrint('✅ [Repository] Organizações encontradas: ${organizations.length}');
-      if (organizations.isNotEmpty) {
-        debugPrint('✅ [Repository] IDs: ${organizations.map((o) => o['id']).join(', ')}');
-      }
-
       return organizations;
-    } catch (e, stackTrace) {
-      debugPrint('❌ [Repository] Erro ao buscar organizações: $e');
-      debugPrint('Stack trace: $stackTrace');
+    } catch (e) {
       rethrow;
     }
   }
@@ -68,8 +56,6 @@ class OrganizationsRepository implements OrganizationsContract {
   @override
   Future<Map<String, dynamic>?> getOrganization(String organizationId) async {
     try {
-      debugPrint('🔍 [Repository] Buscando organização $organizationId...');
-
       final response = await _client
           .from('organizations')
           .select('''
@@ -85,18 +71,12 @@ class OrganizationsRepository implements OrganizationsContract {
           .eq('id', organizationId)
           .maybeSingle();
 
-      debugPrint('🔍 [Repository] Response: ${response != null ? "encontrada" : "null"}');
-
       if (response == null) {
-        debugPrint('❌ [Repository] Organização não encontrada');
         return null;
       }
 
-      debugPrint('✅ [Repository] Organização encontrada: ${response['name']}');
       return organizationFromJson(response);
-    } catch (e, stackTrace) {
-      debugPrint('❌ [Repository] Erro ao buscar organização: $e');
-      debugPrint('Stack trace: $stackTrace');
+    } catch (e) {
       return null;
     }
   }
@@ -141,9 +121,6 @@ class OrganizationsRepository implements OrganizationsContract {
     final user = authModule.currentUser;
     if (user == null) throw Exception('Usuário não autenticado');
 
-    debugPrint('🏢 Criando organização: $name');
-    debugPrint('   Slug: $slug');
-    debugPrint('   User ID: ${user.id}');
 
     try {
       // Usar função do Supabase para criar organização
@@ -156,8 +133,6 @@ class OrganizationsRepository implements OrganizationsContract {
         'p_phone': phone?.trim(),
       });
 
-      debugPrint('✅ Organização criada com sucesso via RPC');
-
       // Se temos campos adicionais, atualizar a organização
       if (tradeName != null ||
           taxId != null ||
@@ -167,7 +142,6 @@ class OrganizationsRepository implements OrganizationsContract {
           logoUrl != null ||
           primaryColor != null ||
           bankName != null) {
-        debugPrint('📝 Atualizando campos adicionais...');
         await _updateAdditionalFields(
           response['id'],
           tradeName: tradeName,
@@ -204,7 +178,6 @@ class OrganizationsRepository implements OrganizationsContract {
 
       return organizationFromJson(response as Map<String, dynamic>);
     } catch (e) {
-      debugPrint('❌ Erro ao criar organização: $e');
       rethrow;
     }
   }
@@ -279,8 +252,6 @@ class OrganizationsRepository implements OrganizationsContract {
           .from('organizations')
           .update(updateData)
           .eq('id', orgId);
-
-      debugPrint('✅ Campos adicionais atualizados');
     }
   }
 
@@ -386,7 +357,6 @@ class OrganizationsRepository implements OrganizationsContract {
 
   @override
   Future<void> deleteOrganization(String organizationId) async {
-    debugPrint('🗑️ Deletando organização $organizationId (com limpeza de dependências)');
 
     try {
       // 0) Buscar nome da organização antes de deletar (para limpar Google Drive)
@@ -420,7 +390,6 @@ class OrganizationsRepository implements OrganizationsContract {
       // 2) Limpar package_items que referenciam esses produtos/pacotes
       if (productIds.isNotEmpty) {
         final inList = productIds.map((e) => '"$e"').join(',');
-        debugPrint('➡️ Removendo package_items por product_id (count=${productIds.length})');
         await _client
             .from('package_items')
             .delete()
@@ -428,7 +397,6 @@ class OrganizationsRepository implements OrganizationsContract {
       }
       if (packageIds.isNotEmpty) {
         final inList = packageIds.map((e) => '"$e"').join(',');
-        debugPrint('➡️ Removendo package_items por package_id (count=${packageIds.length})');
         await _client
             .from('package_items')
             .delete()
@@ -436,12 +404,10 @@ class OrganizationsRepository implements OrganizationsContract {
       }
 
       // 3) Limpar arquivos do Supabase Storage
-      debugPrint('🗑️ Limpando arquivos do Supabase Storage...');
       await _deleteOrganizationStorageFiles(organizationId);
 
       // 4) Limpar pasta do Google Drive (best-effort)
       if (organizationName != null && organizationName.isNotEmpty) {
-        debugPrint('🗑️ Limpando pasta do Google Drive...');
         await _deleteOrganizationDriveFolder(organizationName);
       }
 
@@ -450,11 +416,7 @@ class OrganizationsRepository implements OrganizationsContract {
           .from('organizations')
           .delete()
           .eq('id', organizationId);
-
-      debugPrint('✅ Organização deletada com sucesso');
-    } catch (e, st) {
-      debugPrint('❌ Erro ao deletar organização: $e');
-      debugPrint('$st');
+    } catch (e) {
       rethrow;
     }
   }
@@ -465,7 +427,6 @@ class OrganizationsRepository implements OrganizationsContract {
 
     for (final bucket in buckets) {
       try {
-        debugPrint('🗑️ Limpando bucket: $bucket');
 
         // Listar todos os arquivos na pasta da organização
         final files = await _client.storage
@@ -473,7 +434,6 @@ class OrganizationsRepository implements OrganizationsContract {
             .list(path: organizationId);
 
         if (files.isEmpty) {
-          debugPrint('   ℹ️ Nenhum arquivo encontrado em $bucket/$organizationId');
           continue;
         }
 
@@ -482,17 +442,13 @@ class OrganizationsRepository implements OrganizationsContract {
             .map((file) => '$organizationId/${file.name}')
             .toList();
 
-        debugPrint('   🗑️ Deletando ${filePaths.length} arquivo(s) de $bucket');
 
         // Deletar todos os arquivos
         await _client.storage
             .from(bucket)
             .remove(filePaths);
-
-        debugPrint('   ✅ Arquivos deletados de $bucket');
       } catch (e) {
         // Não falhar a exclusão da organização se houver erro no storage
-        debugPrint('   ⚠️ Erro ao limpar bucket $bucket: $e');
       }
     }
   }
@@ -509,7 +465,6 @@ class OrganizationsRepository implements OrganizationsContract {
       );
     } catch (e) {
       // Não falhar a exclusão da organização se houver erro no Drive
-      debugPrint('⚠️ Erro ao deletar pasta do Google Drive (ignorado): $e');
     }
   }
 
@@ -548,7 +503,6 @@ class OrganizationsRepository implements OrganizationsContract {
         };
       }).toList();
     } catch (e) {
-      debugPrint('Erro ao buscar membros: $e');
       rethrow;
     }
   }
@@ -559,7 +513,6 @@ class OrganizationsRepository implements OrganizationsContract {
     required String userId,
   }) async {
     try {
-      debugPrint('Buscando membro $userId da organização $organizationId...');
 
       // Buscar o membro sem join
       final response = await _client
@@ -570,7 +523,6 @@ class OrganizationsRepository implements OrganizationsContract {
           .maybeSingle();
 
       if (response == null) {
-        debugPrint('Membro não encontrado');
         return null;
       }
 
@@ -588,7 +540,6 @@ class OrganizationsRepository implements OrganizationsContract {
 
       return organizationMemberFromJson(response);
     } catch (e) {
-      debugPrint('Erro ao buscar membro: $e');
       return null;
     }
   }
@@ -611,7 +562,6 @@ class OrganizationsRepository implements OrganizationsContract {
       'joined_at': DateTime.now().toIso8601String(),
     };
 
-    debugPrint('Adicionando membro $userId à organização $organizationId');
 
     final response = await _client
         .from('organization_members')
@@ -631,7 +581,6 @@ class OrganizationsRepository implements OrganizationsContract {
       response['profiles'] = profile;
     }
 
-    debugPrint('Membro adicionado com sucesso');
 
     return organizationMemberFromJson(response);
   }
@@ -642,7 +591,6 @@ class OrganizationsRepository implements OrganizationsContract {
     required String userId,
     required String role,
   }) async {
-    debugPrint('Atualizando role do membro $userId para $role');
 
     final response = await _client
         .from('organization_members')
@@ -656,7 +604,6 @@ class OrganizationsRepository implements OrganizationsContract {
         ''')
         .single();
 
-    debugPrint('Role atualizada com sucesso');
 
     return organizationMemberFromJson(response);
   }
@@ -667,7 +614,6 @@ class OrganizationsRepository implements OrganizationsContract {
     required String userId,
     required String status,
   }) async {
-    debugPrint('Atualizando status do membro $userId para $status');
 
     final response = await _client
         .from('organization_members')
@@ -681,7 +627,6 @@ class OrganizationsRepository implements OrganizationsContract {
         ''')
         .single();
 
-    debugPrint('Status atualizado com sucesso');
 
     return organizationMemberFromJson(response);
   }
@@ -691,7 +636,6 @@ class OrganizationsRepository implements OrganizationsContract {
     required String organizationId,
     required String userId,
   }) async {
-    debugPrint('Removendo membro $userId da organização $organizationId');
 
     await _client
         .from('organization_members')
@@ -699,7 +643,6 @@ class OrganizationsRepository implements OrganizationsContract {
         .eq('organization_id', organizationId)
         .eq('user_id', userId);
 
-    debugPrint('Membro removido com sucesso');
   }
 
   @override
@@ -707,7 +650,6 @@ class OrganizationsRepository implements OrganizationsContract {
     final user = authModule.currentUser;
     if (user == null) throw Exception('Usuário não autenticado');
 
-    debugPrint('Usuário ${user.id} saindo da organização $organizationId');
 
     await _client
         .from('organization_members')
@@ -715,7 +657,6 @@ class OrganizationsRepository implements OrganizationsContract {
         .eq('organization_id', organizationId)
         .eq('user_id', user.id);
 
-    debugPrint('Usuário saiu da organização com sucesso');
   }
 
   // ============================================================================
@@ -725,7 +666,6 @@ class OrganizationsRepository implements OrganizationsContract {
   @override
   Future<List<Map<String, dynamic>>> getOrganizationInvites(String organizationId) async {
     try {
-      debugPrint('Buscando convites da organização $organizationId...');
 
       final response = await _client
           .from('organization_invites')
@@ -737,13 +677,11 @@ class OrganizationsRepository implements OrganizationsContract {
           .eq('organization_id', organizationId)
           .order('created_at', ascending: false);
 
-      debugPrint('Convites encontrados: ${response.length}');
 
       return response.map<Map<String, dynamic>>((invite) {
         return organizationInviteFromJson(invite);
       }).toList();
     } catch (e) {
-      debugPrint('Erro ao buscar convites: $e');
       rethrow;
     }
   }
@@ -757,7 +695,6 @@ class OrganizationsRepository implements OrganizationsContract {
       final userEmail = user.email;
       if (userEmail == null) throw Exception('Email do usuário não encontrado');
 
-      debugPrint('Buscando convites para $userEmail...');
 
       final response = await _client
           .from('organization_invites')
@@ -770,13 +707,11 @@ class OrganizationsRepository implements OrganizationsContract {
           .eq('status', 'pending')
           .order('created_at', ascending: false);
 
-      debugPrint('Convites encontrados: ${response.length}');
 
       return response.map<Map<String, dynamic>>((invite) {
         return organizationInviteFromJson(invite);
       }).toList();
     } catch (e) {
-      debugPrint('Erro ao buscar convites: $e');
       rethrow;
     }
   }
@@ -807,11 +742,6 @@ class OrganizationsRepository implements OrganizationsContract {
       'expires_at': expiresAt.toIso8601String(),
     };
 
-    debugPrint('📧 [INVITE] Criando convite para $email');
-    debugPrint('📧 [INVITE] Organization ID: $organizationId');
-    debugPrint('📧 [INVITE] Role: $role');
-    debugPrint('📧 [INVITE] Invited by: ${user.id}');
-
     final response = await _client
         .from('organization_invites')
         .insert(inviteData)
@@ -822,9 +752,6 @@ class OrganizationsRepository implements OrganizationsContract {
         ''')
         .single();
 
-    debugPrint('📧 [INVITE] ✅ Convite criado com sucesso! ID: ${response['id']}');
-    debugPrint('📧 [INVITE] Trigger do Supabase deve criar notificação agora...');
-
     return organizationInviteFromJson(response);
   }
 
@@ -833,17 +760,13 @@ class OrganizationsRepository implements OrganizationsContract {
     final user = authModule.currentUser;
     if (user == null) throw Exception('Usuário não autenticado');
 
-    debugPrint('🎯 [ACCEPT_INVITE] Chamando RPC accept_organization_invite para $inviteId');
 
     try {
       // Chamar função RPC que bypassa RLS
-      final response = await _client.rpc(
+      await _client.rpc(
         'accept_organization_invite',
         params: {'p_invite_id': inviteId},
       );
-
-      debugPrint('✅ [ACCEPT_INVITE] Convite aceito com sucesso via RPC!');
-      debugPrint('Response: $response');
 
       // Buscar dados completos do convite atualizado
       final invite = await _client
@@ -858,43 +781,35 @@ class OrganizationsRepository implements OrganizationsContract {
 
       return organizationInviteFromJson(invite);
     } catch (e) {
-      debugPrint('❌ [ACCEPT_INVITE] Erro ao aceitar convite: $e');
       rethrow;
     }
   }
 
   @override
   Future<void> rejectInvite(String inviteId) async {
-    debugPrint('🎯 [REJECT_INVITE] Chamando RPC reject_organization_invite para $inviteId');
 
     try {
       await _client.rpc(
         'reject_organization_invite',
         params: {'p_invite_id': inviteId},
       );
-
-      debugPrint('✅ [REJECT_INVITE] Convite rejeitado com sucesso via RPC!');
     } catch (e) {
-      debugPrint('❌ [REJECT_INVITE] Erro ao rejeitar convite: $e');
       rethrow;
     }
   }
 
   @override
   Future<void> cancelInvite(String inviteId) async {
-    debugPrint('Cancelando convite $inviteId');
 
     await _client
         .from('organization_invites')
         .delete()
         .eq('id', inviteId);
 
-    debugPrint('Convite cancelado com sucesso');
   }
 
   @override
   Future<Map<String, dynamic>> resendInvite(String inviteId) async {
-    debugPrint('Reenviando convite $inviteId');
 
     // Atualizar data de expiração
     final expiresAt = DateTime.now().add(const Duration(days: 7));
@@ -910,7 +825,6 @@ class OrganizationsRepository implements OrganizationsContract {
         ''')
         .single();
 
-    debugPrint('Convite reenviado com sucesso');
 
     return organizationInviteFromJson(response);
   }
@@ -935,7 +849,6 @@ class OrganizationsRepository implements OrganizationsContract {
 
       return response != null;
     } catch (e) {
-      debugPrint('Erro ao verificar membership: $e');
       return false;
     }
   }
@@ -961,7 +874,6 @@ class OrganizationsRepository implements OrganizationsContract {
 
       return response['role'] == role;
     } catch (e) {
-      debugPrint('Erro ao verificar role: $e');
       return false;
     }
   }
@@ -990,7 +902,6 @@ class OrganizationsRepository implements OrganizationsContract {
       final role = response['role'] as String;
       return OrganizationRole.canManageMembers(role);
     } catch (e) {
-      debugPrint('Erro ao verificar permissão de gerenciar membros: $e');
       return false;
     }
   }
@@ -1014,7 +925,6 @@ class OrganizationsRepository implements OrganizationsContract {
       final role = response['role'] as String;
       return OrganizationRole.canManageOrganization(role);
     } catch (e) {
-      debugPrint('Erro ao verificar permissão de gerenciar organização: $e');
       return false;
     }
   }
@@ -1037,7 +947,6 @@ class OrganizationsRepository implements OrganizationsContract {
 
       return response['role'] as String;
     } catch (e) {
-      debugPrint('Erro ao buscar role do usuário: $e');
       return null;
     }
   }

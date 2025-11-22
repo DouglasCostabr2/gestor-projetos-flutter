@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'google_drive_oauth_service.dart';
 import 'interfaces/briefing_image_service_interface.dart';
@@ -44,12 +43,7 @@ class BriefingImageService implements IBriefingImageService {
     String? subfolderName,
     String? filePrefix,
   }) async {
-    final isSubTask = subTaskTitle != null;
-    final taskType = isSubTask ? 'SubTask' : 'Task';
-
-    debugPrint('🔄🔄🔄 BriefingImageService.uploadCachedImages ($taskType) - INICIANDO');
     if (companyName != null && companyName.isNotEmpty) {
-      debugPrint('🏢 Empresa: $companyName');
     }
 
     try {
@@ -57,21 +51,17 @@ class BriefingImageService implements IBriefingImageService {
       final blocks = data['blocks'] as List?;
 
       if (blocks == null) {
-        debugPrint('⚠️⚠️⚠️ Nenhum bloco encontrado');
         return briefingJson;
       }
 
-      debugPrint('📋📋📋 Total de blocos: ${blocks.length}');
 
       // Contador para numeração sequencial das imagens
       int imageCounter = 1;
 
       for (var i = 0; i < blocks.length; i++) {
         final block = blocks[i];
-        debugPrint('🔍🔍🔍 Processando bloco $i, type=${block is Map ? block['type'] : 'NOT MAP'}');
 
         if (block is Map && block['type'] == 'image') {
-          debugPrint('🖼️🖼️🖼️ Bloco $i é uma imagem!');
           dynamic rawContent = block['content'];
           String? url;
           Map<String, dynamic>? contentObj; // quando o editor salva {url, caption}
@@ -98,11 +88,9 @@ class BriefingImageService implements IBriefingImageService {
             }
           }
 
-          debugPrint('🖼️🖼️🖼️ Bloco $i: imagem com URL: $url');
 
           // Verificar se é uma URL local (cache)
           if (url != null && url.startsWith('file://')) {
-            debugPrint('💾💾💾 É uma URL local! Iniciando upload...');
 
             final uploadedUrl = await _uploadSingleImage(
               localUrl: url,
@@ -130,18 +118,15 @@ class BriefingImageService implements IBriefingImageService {
         }
       }
 
-      debugPrint('✅✅✅ BriefingImageService.uploadCachedImages ($taskType) - CONCLUÍDO');
       return jsonEncode(data);
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'BriefingImageService.uploadCachedImages',
       );
       throw StorageException(
         'Erro ao processar imagens do briefing',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -159,28 +144,21 @@ class BriefingImageService implements IBriefingImageService {
     required String filePrefix,
   }) async {
     try {
-      debugPrint('🔍🔍🔍 [_uploadSingleImage] INICIANDO - localUrl: $localUrl');
 
       final localPath = localUrl.substring(7); // Remove 'file://'
-      debugPrint('🔍🔍🔍 [_uploadSingleImage] localPath extraído: $localPath');
 
       final file = File(localPath);
 
       if (!await file.exists()) {
-        debugPrint('⚠️⚠️⚠️ Arquivo não existe: $localPath');
         return null;
       }
 
       final isSubTask = subTaskTitle != null;
-      final taskType = isSubTask ? 'SubTask' : 'Task';
 
       // Fazer upload para o Google Drive
-      debugPrint('🚀🚀🚀 Iniciando upload para Google Drive ($taskType)...');
-      debugPrint('🔍🔍🔍 [_uploadSingleImage] Tentando obter cliente autenticado...');
 
       // Tentar obter cliente autenticado
       final driveClient = await _driveService.getAuthedClient();
-      debugPrint('🔍🔍🔍 [_uploadSingleImage] Cliente autenticado obtido com sucesso!');
 
       final bytes = await file.readAsBytes();
       final extension = path.extension(localPath);
@@ -190,7 +168,6 @@ class BriefingImageService implements IBriefingImageService {
       final titleForFilename = isSubTask ? subTaskTitle : taskTitle;
       final newFileName = '$filePrefix-${titleForFilename}_$clientName-$projectName-$sequenceStr$extension';
 
-      debugPrint('📤 Fazendo upload ($taskType) para "$subfolderName": $newFileName (${bytes.length} bytes)');
 
       // Upload para pasta correta (task ou subtask)
       final uploadedFile = isSubTask
@@ -219,28 +196,24 @@ class BriefingImageService implements IBriefingImageService {
             );
 
       final publicUrl = uploadedFile.publicViewUrl;
-      debugPrint('✅ Imagem enviada para Google Drive: $publicUrl');
 
       // Remover apenas arquivos que estejam no cache dedicado da aplicação
       await CacheFileService.deleteIfInAppCache(localPath);
       return publicUrl;
     } on ConsentRequired catch (e) {
       // Erro específico quando não há conta do Google Drive conectada
-      debugPrint('⚠️ Google Drive não conectado: $e');
       throw DriveException(
         'Consentimento necessário',
         originalError: e,
       );
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'BriefingImageService._uploadSingleImage',
       );
       throw DriveException(
         'Erro ao fazer upload da imagem para o Google Drive',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -251,7 +224,6 @@ class BriefingImageService implements IBriefingImageService {
   /// - [url]: URL da imagem no Google Drive
   Future<void> deleteImage(String url) async {
     if (!url.contains('drive.google.com')) {
-      debugPrint('⚠️ URL não é do Google Drive: $url');
       return;
     }
 
@@ -262,11 +234,9 @@ class BriefingImageService implements IBriefingImageService {
       final fileId = uri.queryParameters['id'];
 
       if (fileId == null || fileId.isEmpty) {
-        debugPrint('⚠️ ID do arquivo não encontrado na URL: $url');
         return;
       }
 
-      debugPrint('🔥 Deletando imagem do Google Drive: $fileId');
 
       final driveClient = await _driveService.getAuthedClient();
       await _driveService.deleteFile(
@@ -274,17 +244,14 @@ class BriefingImageService implements IBriefingImageService {
         driveFileId: fileId,
       );
 
-      debugPrint('✅ Imagem deletada do Google Drive: $fileId');
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'BriefingImageService.deleteImage',
       );
       throw DriveException(
         'Erro ao deletar imagem do Google Drive',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }

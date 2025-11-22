@@ -1,5 +1,4 @@
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 import '../../core/exceptions/app_exceptions.dart';
@@ -61,7 +60,6 @@ class GoogleDriveUploadService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('📤 Fazendo upload: $filename (${bytes.length} bytes) para pasta $folderId');
 
       // Criar metadados do arquivo
       final driveFile = drive.File()
@@ -82,7 +80,6 @@ class GoogleDriveUploadService {
       );
 
       final fileId = uploadedFile.id!;
-      debugPrint('✅ Upload concluído: $fileId');
 
       // Tornar arquivo público se solicitado
       String? publicUrl;
@@ -98,17 +95,15 @@ class GoogleDriveUploadService {
         name: filename,
         publicViewUrl: publicUrl,
       );
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveUploadService.uploadFile',
       );
       
       throw DriveException(
         'Erro ao fazer upload do arquivo: $filename',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -129,7 +124,6 @@ class GoogleDriveUploadService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('🔓 Tornando arquivo público: $fileId');
 
       // Criar permissão pública
       final permission = drive.Permission()
@@ -144,19 +138,16 @@ class GoogleDriveUploadService {
       // Gerar URL pública
       final publicUrl = 'https://drive.google.com/uc?export=view&id=$fileId';
       
-      debugPrint('✅ Arquivo público: $publicUrl');
       return publicUrl;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveUploadService._makeFilePublic',
       );
       
       throw DriveException(
         'Erro ao tornar arquivo público',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -192,7 +183,6 @@ class GoogleDriveUploadService {
     bool makePublic = true,
   }) async {
     try {
-      debugPrint('📤 Fazendo upload de ${files.length} arquivos');
 
       final uploadedFiles = <UploadedFile>[];
 
@@ -209,19 +199,16 @@ class GoogleDriveUploadService {
         uploadedFiles.add(uploaded);
       }
 
-      debugPrint('✅ Upload de ${uploadedFiles.length} arquivos concluído');
       return uploadedFiles;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveUploadService.uploadMultipleFiles',
       );
       
       throw DriveException(
         'Erro ao fazer upload de múltiplos arquivos',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -254,7 +241,6 @@ class GoogleDriveUploadService {
     try {
       final driveApi = drive.DriveApi(client);
 
-      debugPrint('🔄 Substituindo arquivo: $fileId (${bytes.length} bytes)');
 
       // Criar media para upload
       final media = drive.Media(
@@ -269,18 +255,15 @@ class GoogleDriveUploadService {
         uploadMedia: media,
       );
 
-      debugPrint('✅ Arquivo substituído com sucesso');
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveUploadService.replaceFile',
       );
       
       throw DriveException(
         'Erro ao substituir arquivo',
         originalError: e,
-        stackTrace: stackTrace,
       );
     }
   }
@@ -316,10 +299,9 @@ class GoogleDriveUploadService {
       }
 
       return null;
-    } catch (e, stackTrace) {
+    } catch (e) {
       ErrorHandler.logError(
         e,
-        stackTrace: stackTrace,
         context: 'GoogleDriveUploadService.checkFileExists',
       );
       return null;

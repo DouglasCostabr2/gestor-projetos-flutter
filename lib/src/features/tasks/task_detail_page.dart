@@ -65,7 +65,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         setState(() => _isFavorite = isFav);
       }
     } catch (e) {
-      debugPrint('Erro ao carregar status de favorito: $e');
+      // Ignorar erro (operação não crítica)
     }
   }
 
@@ -118,7 +118,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         try {
           await tasksModule.updateTaskStatus(parentTaskId);
         } catch (e) {
-          debugPrint('Erro ao atualizar status da task pai: $e');
+          // Ignorar erro (operação não crítica)
         }
       }
 
@@ -486,7 +486,6 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
 
       return products;
     } catch (e) {
-      debugPrint('Erro ao carregar produtos vinculados: $e');
       return [];
     }
   }
@@ -608,10 +607,6 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                       icon: Icons.edit,
                                       tooltip: 'Editar',
                                       onPressed: () async {
-                                        debugPrint('🔘 TaskDetailPage - Botão EDITAR clicado!');
-                                        debugPrint('   projectId: ${task['project_id']}');
-                                        debugPrint('   taskId: ${task['id']}');
-                                        debugPrint('   Abrindo QuickTaskForm...');
 
                                         final changed = await DialogHelper.show<bool>(
                                           context: context,
@@ -621,7 +616,6 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                           ),
                                         );
 
-                                        debugPrint('🔘 TaskDetailPage - QuickTaskForm fechado. Changed: $changed');
 
                                         if (changed == true) {
                                           setState(() {
@@ -692,6 +686,12 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                 const SizedBox(height: 12),
                               ],
 
+                              // Projeto Final
+                              FinalProjectSection(
+                                task: task,
+                              ),
+                              const SizedBox(height: 12),
+
                               // Briefing
                               _buildBriefingSection(context, task),
                               const SizedBox(height: 12),
@@ -701,12 +701,6 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                 task: task,
                                 canUpload: appState.isAdmin || appState.isDesigner,
                                 canDeleteOwn: appState.isAdmin || (Supabase.instance.client.auth.currentUser?.id == task['created_by']),
-                              ),
-                              const SizedBox(height: 12),
-
-                              // Projeto Final
-                              FinalProjectSection(
-                                task: task,
                               ),
                               const SizedBox(height: 12),
 
@@ -721,16 +715,13 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                   });
                                 },
                                 onSubTaskTap: (subTaskId, subTaskTitle) {
-                                  debugPrint('🔍 TaskDetailPage: onSubTaskTap chamado com ID=$subTaskId, Title=$subTaskTitle');
 
                                   // Navegar para a subtask usando TabManager com o contexto correto
                                   final tabManager = TabManagerScope.maybeOf(widgetContext);
-                                  debugPrint('🔍 TaskDetailPage: TabManager = $tabManager');
 
                                   if (tabManager != null) {
                                     final tabId = 'task_$subTaskId';
                                     final currentIndex = tabManager.currentIndex;
-                                    debugPrint('🔍 TaskDetailPage: Atualizando aba $currentIndex para $tabId');
 
                                     final updatedTab = TabItem(
                                       id: tabId,
@@ -743,9 +734,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                                       canClose: true,
                                     );
                                     tabManager.updateTab(currentIndex, updatedTab);
-                                    debugPrint('🔍 TaskDetailPage: Aba atualizada!');
                                   } else {
-                                    debugPrint('⚠️ TaskDetailPage: TabManager é null!');
                                   }
                                 },
                               ),
