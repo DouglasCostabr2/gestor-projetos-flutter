@@ -108,18 +108,34 @@ class ReorderableDragList<T> extends StatelessWidget {
     if (items.isEmpty && emptyWidget != null) return emptyWidget!;
     if (items.isEmpty) return const SizedBox.shrink();
 
+    if (!enabled) {
+      return ListView.builder(
+        shrinkWrap: shrinkWrap,
+        physics: physics,
+        padding: padding,
+        itemCount: items.length,
+        itemBuilder: (context, index) {
+          final item = items[index];
+          // Quando desabilitado, não precisamos de keys especiais ou drag handles
+          return itemBuilder(context, item, index);
+        },
+      );
+    }
+
     return ReorderableListView.builder(
       shrinkWrap: shrinkWrap,
       physics: physics,
       padding: padding,
       buildDefaultDragHandles: false,
       itemCount: items.length,
-      onReorder: enabled ? onReorder : (oldIndex, newIndex) {},
+      onReorder: onReorder,
       itemBuilder: (context, index) {
         final item = items[index];
         final key = getKey(item);
-        final showExternalHandle = !(useInternalHandle?.call(index, item) ?? false);
-        final perItemPadding = dragHandlePaddingBuilder?.call(index, item) ?? dragHandlePadding;
+        final showExternalHandle =
+            !(useInternalHandle?.call(index, item) ?? false);
+        final perItemPadding =
+            dragHandlePaddingBuilder?.call(index, item) ?? dragHandlePadding;
 
         return _DragListItem<T>(
           key: ValueKey(key),
@@ -128,7 +144,8 @@ class ReorderableDragList<T> extends StatelessWidget {
           enabled: enabled,
           dragHandleIcon: dragHandleIcon,
           dragHandleSize: dragHandleSize,
-          dragHandleColor: dragHandleColor ?? const Color(0xFF9AA0A6).withValues(alpha: 0.5),
+          dragHandleColor:
+              dragHandleColor ?? const Color(0xFF9AA0A6).withValues(alpha: 0.5),
           dragHandlePadding: perItemPadding,
           itemBuilder: itemBuilder,
           showExternalHandle: showExternalHandle,
@@ -244,13 +261,30 @@ class ReorderableDragListFullItem<T> extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    if (!enabled) {
+      return ListView.builder(
+        shrinkWrap: shrinkWrap,
+        physics: physics,
+        padding: padding,
+        itemCount: items.length,
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final key = getKey(item);
+          return Container(
+            key: ValueKey(key),
+            child: itemBuilder(context, item, index),
+          );
+        },
+      );
+    }
+
     return ReorderableListView.builder(
       shrinkWrap: shrinkWrap,
       physics: physics,
       padding: padding,
       buildDefaultDragHandles: enabled, // Usa handles padrão do Flutter
       itemCount: items.length,
-      onReorder: enabled ? onReorder : (oldIndex, newIndex) {},
+      onReorder: onReorder,
       itemBuilder: (context, index) {
         final item = items[index];
         final key = getKey(item);
@@ -263,4 +297,3 @@ class ReorderableDragListFullItem<T> extends StatelessWidget {
     );
   }
 }
-

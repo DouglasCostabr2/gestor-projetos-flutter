@@ -7,6 +7,8 @@ import 'package:desktop_drop/desktop_drop.dart';
 import '../editors/generic_block_editor.dart';
 import '../../atoms/buttons/buttons.dart';
 
+import '../../molecules/containers/containers.dart';
+
 import '../../../src/state/app_state_scope.dart';
 
 import '../../../modules/comments/module.dart';
@@ -16,10 +18,11 @@ import '../../../services/mentions_service.dart';
 import '../../../utils/auto_scroll_helper.dart';
 
 class CommentsSection extends StatefulWidget {
-  final Map<String, dynamic> task; // must include id, title, projects: { name, clients: { name } }
+  final Map<String, dynamic>
+      task; // must include id, title, projects: { name, clients: { name } }
   final ScrollController? pageScrollController;
-  const CommentsSection({super.key, required this.task, this.pageScrollController});
-
+  const CommentsSection(
+      {super.key, required this.task, this.pageScrollController});
 
   @override
   State<CommentsSection> createState() => _CommentsSectionState();
@@ -29,14 +32,17 @@ class _CommentsSectionState extends State<CommentsSection> {
   final _filesRepo = TaskFilesRepository();
   final _drive = GoogleDriveOAuthService();
 
-  final GenericBlockEditorController _composeEditorCtl = GenericBlockEditorController();
+  final GenericBlockEditorController _composeEditorCtl =
+      GenericBlockEditorController();
   final GlobalKey _composeFieldKey = GlobalKey();
 
   final GlobalKey _emojiPickerKey = GlobalKey();
 
-  final GlobalKey<SliverAnimatedListState> _listKey = GlobalKey<SliverAnimatedListState>();
+  final GlobalKey<SliverAnimatedListState> _listKey =
+      GlobalKey<SliverAnimatedListState>();
 
-  List<Map<String, dynamic>> get _combinedItems => [..._comments, ..._pendingComments];
+  List<Map<String, dynamic>> get _combinedItems =>
+      [..._comments, ..._pendingComments];
 
   bool _sending = false;
   String? _error;
@@ -55,7 +61,6 @@ class _CommentsSectionState extends State<CommentsSection> {
   bool _shrinkFixPending = false;
   bool _growFixPending = false;
 
-
   Future<String?> _fetchCompanyNameForTask(String taskId) async {
     try {
       final row = await Supabase.instance.client
@@ -70,6 +75,7 @@ class _CommentsSectionState extends State<CommentsSection> {
       return null;
     }
   }
+
   Future<String?> _fetchParentTaskTitle(String taskId) async {
     try {
       final row = await Supabase.instance.client
@@ -85,9 +91,6 @@ class _CommentsSectionState extends State<CommentsSection> {
     }
   }
 
-
-
-
   void _attachPageScrollLogger() {
     final next = widget.pageScrollController;
     if (_observedPageCtrl == next) return;
@@ -98,13 +101,19 @@ class _CommentsSectionState extends State<CommentsSection> {
     _observedPageCtrl = next;
     if (_observedPageCtrl == null) return;
     _pageScrollLogListener = () {
-      if (!mounted || _observedPageCtrl == null || !_observedPageCtrl!.hasClients) return;
+      if (!mounted ||
+          _observedPageCtrl == null ||
+          !_observedPageCtrl!.hasClients) {
+        return;
+      }
       final pos = _observedPageCtrl!.position;
       try {
         final prevMax = _lastMaxExtent;
         final currMax = pos.maxScrollExtent;
         // Detecta encolhimento significativo do conteúdo quando estamos no fim
-        if (prevMax != null && currMax + 1.0 < prevMax && pos.pixels + 8.0 >= currMax) {
+        if (prevMax != null &&
+            currMax + 1.0 < prevMax &&
+            pos.pixels + 8.0 >= currMax) {
           if (!_shrinkFixPending) {
             _shrinkFixPending = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -115,7 +124,9 @@ class _CommentsSectionState extends State<CommentsSection> {
           }
         }
         // Detecta crescimento do conteúdo quando estamos no fim (realinha para baixo)
-        if (prevMax != null && currMax > prevMax + 1.0 && pos.pixels + 24.0 >= prevMax - 16.0) {
+        if (prevMax != null &&
+            currMax > prevMax + 1.0 &&
+            pos.pixels + 24.0 >= prevMax - 16.0) {
           if (!_growFixPending) {
             _growFixPending = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -138,8 +149,7 @@ class _CommentsSectionState extends State<CommentsSection> {
         if (_observedPageCtrl != null && _observedPageCtrl!.hasClients) {
           final pos = _observedPageCtrl!.position;
           _lastMaxExtent = pos.maxScrollExtent; // baseline inicial
-        } else {
-        }
+        } else {}
       } catch (e) {
         // Ignorar erro (operação não crítica)
       }
@@ -195,23 +205,42 @@ class _CommentsSectionState extends State<CommentsSection> {
       final content = (comment['content'] ?? '').toString();
       final pairs = _extractDriveFilesFromContent(content);
       if (pairs.isEmpty) return;
-      final existing = await _filesRepo.listByComment(comment['id'] as String);
-      final existingIds = existing.map((e) => (e['drive_file_id'] ?? '').toString()).toSet();
+
+      final commentId = comment['id'] as String;
+      final existing = await _filesRepo.listByComment(commentId);
+      final existingIds =
+          existing.map((e) => (e['drive_file_id'] ?? '').toString()).toSet();
+
       var idx = 1;
       for (final p in pairs) {
         final id = p['id']!;
         if (existingIds.contains(id)) continue;
-        final url = p['url'];
-        await _filesRepo.saveFile(
-          taskId: widget.task['id'] as String,
-          filename: 'Comentario-${comment['id']}-$idx',
-          sizeBytes: 0,
-          mimeType: null,
-          driveFileId: id,
-          driveFileUrl: url,
-          category: 'comment',
-          commentId: comment['id'] as String,
-        );
+
+        // Tenta encontrar registro temporário (comment_image)
+        final tempFile = await Supabase.instance.client
+            .from('task_files')
+            .select()
+            .eq('drive_file_id', id)
+            .eq('category', 'comment_image')
+            .maybeSingle();
+
+        if (tempFile != null) {
+          // Atualiza registro existente
+          await _filesRepo.updateCommentId(tempFile['id'] as String, commentId);
+        } else {
+          // Cria novo registro (legado/fallback)
+          final url = p['url'];
+          await _filesRepo.saveFile(
+            taskId: widget.task['id'] as String,
+            filename: 'Comentario-$commentId-$idx',
+            sizeBytes: 0,
+            mimeType: null,
+            driveFileId: id,
+            driveFileUrl: url,
+            category: 'comment',
+            commentId: commentId,
+          );
+        }
         idx++;
       }
     } catch (e) {
@@ -232,12 +261,14 @@ class _CommentsSectionState extends State<CommentsSection> {
     try {
       final data = jsonDecode(json) as Map<String, dynamic>;
       final blocks = (data['blocks'] as List?) ?? [];
-      final empty = blocks.every((b) => (b['content'] ?? '').toString().trim().isEmpty);
-
+      final empty =
+          blocks.every((b) => (b['content'] ?? '').toString().trim().isEmpty);
 
       if (empty != _composeEmpty) {
         if (!mounted) return;
-        setState(() { _composeEmpty = empty; });
+        setState(() {
+          _composeEmpty = empty;
+        });
       }
 
       // Sempre fazer scroll após mudanças para acompanhar o conteúdo
@@ -263,13 +294,16 @@ class _CommentsSectionState extends State<CommentsSection> {
     // Garantir compositor visível, respeitando overlays (ex.: emoji picker)
     final pos = _findScrollPosition();
     if (pos != null) {
- // altura aproximada do picker
- // margem mínima quando não há overlay
+      // altura aproximada do picker
+      // margem mínima quando não há overlay
       // Se detectarmos encolhimento recente e estamos colados no fim, permitir subir para recolocar o compositor
       final prevMax = _lastMaxExtent;
       final currMax = pos.maxScrollExtent;
       bool finalAllowUp = allowUpIfShrink;
-      if (!finalAllowUp && prevMax != null && currMax + 1.0 < prevMax && pos.pixels + 8.0 >= currMax) {
+      if (!finalAllowUp &&
+          prevMax != null &&
+          currMax + 1.0 < prevMax &&
+          pos.pixels + 8.0 >= currMax) {
         finalAllowUp = true;
       }
 
@@ -278,7 +312,6 @@ class _CommentsSectionState extends State<CommentsSection> {
       final target = currMax;
       final current = pos.pixels;
       final delta = (target - current).abs();
-
 
       // Só rola se necessário (não está já no final ou se allowUp está ativo)
       if (finalAllowUp || delta >= 1.0) {
@@ -291,8 +324,7 @@ class _CommentsSectionState extends State<CommentsSection> {
             curve: Curves.easeOutCubic,
           );
         }
-      } else {
-      }
+      } else {}
 
       // Passo de estabilização: após permitir subida por encolhimento, faz um segundo ensure sem subir
       if (finalAllowUp) {
@@ -318,8 +350,7 @@ class _CommentsSectionState extends State<CommentsSection> {
         });
       }
       _lastMaxExtent = currMax; // mantenha baseline atualizada
-    } else {
-    }
+    } else {}
   }
 
   @override
@@ -337,8 +368,7 @@ class _CommentsSectionState extends State<CommentsSection> {
   @override
   void didUpdateWidget(covariant CommentsSection oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.pageScrollController != widget.pageScrollController) {
-    }
+    if (oldWidget.pageScrollController != widget.pageScrollController) {}
     _attachPageScrollLogger();
   }
 
@@ -374,7 +404,6 @@ class _CommentsSectionState extends State<CommentsSection> {
 
   // Métodos de emoji e imagem removidos - agora gerenciados pelo CommentEditor
 
-
   // Métodos auxiliares removidos - agora gerenciados pelo CommentEditor
 
   String _formatDate(dynamic v) {
@@ -398,8 +427,12 @@ class _CommentsSectionState extends State<CommentsSection> {
     // Verificar se foi editado comparando as datas
     if (updatedAt == null) return createdStr;
 
-    final createdDt = createdAt is DateTime ? createdAt : (createdAt is String ? DateTime.tryParse(createdAt) : null);
-    final updatedDt = updatedAt is DateTime ? updatedAt : (updatedAt is String ? DateTime.tryParse(updatedAt) : null);
+    final createdDt = createdAt is DateTime
+        ? createdAt
+        : (createdAt is String ? DateTime.tryParse(createdAt) : null);
+    final updatedDt = updatedAt is DateTime
+        ? updatedAt
+        : (updatedAt is String ? DateTime.tryParse(updatedAt) : null);
 
     if (createdDt == null || updatedDt == null) return createdStr;
 
@@ -413,19 +446,25 @@ class _CommentsSectionState extends State<CommentsSection> {
     return createdStr;
   }
 
-
   Future<void> _send() async {
-    setState(() { _sending = true; _error = null; });
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
     // Guardar conteúdo atual para possível restauração em caso de erro
     final originalJson = _composeJson;
     try {
       // Verificar se há conteúdo
       final data = jsonDecode(_composeJson) as Map<String, dynamic>;
       final blocks = (data['blocks'] as List?) ?? [];
-      final isEmpty = blocks.every((b) => (b['content'] ?? '').toString().trim().isEmpty);
+      final isEmpty =
+          blocks.every((b) => (b['content'] ?? '').toString().trim().isEmpty);
 
       if (isEmpty) {
-        setState(() { _sending = false; _error = 'Comentário vazio'; });
+        setState(() {
+          _sending = false;
+          _error = 'Comentário vazio';
+        });
         return;
       }
 
@@ -446,7 +485,10 @@ class _CommentsSectionState extends State<CommentsSection> {
         final uid = Supabase.instance.client.auth.currentUser?.id;
         final app = AppStateScope.of(context);
         final profile = app.profile;
-        final email = (profile?['email'] ?? Supabase.instance.client.auth.currentUser?.email ?? 'Você').toString();
+        final email = (profile?['email'] ??
+                Supabase.instance.client.auth.currentUser?.email ??
+                'Você')
+            .toString();
         final fullName = (profile?['full_name'] ?? 'Você').toString();
         final avatarUrl = profile?['avatar_url'] as String?;
 
@@ -458,7 +500,8 @@ class _CommentsSectionState extends State<CommentsSection> {
           'user_profile': {
             'full_name': fullName,
             'email': email,
-            if (avatarUrl != null && avatarUrl.isNotEmpty) 'avatar_url': avatarUrl,
+            if (avatarUrl != null && avatarUrl.isNotEmpty)
+              'avatar_url': avatarUrl,
           },
           'created_at': DateTime.now().toIso8601String(),
           'updated_at': null,
@@ -477,17 +520,23 @@ class _CommentsSectionState extends State<CommentsSection> {
           _autoScrollToBottomSoon();
         }
         // Processa este envio em background
-        final clientName = (widget.task['projects']?['clients']?['name'] ?? 'Cliente').toString();
-        final projectName = (widget.task['projects']?['name'] ?? 'Projeto').toString();
+        final clientName =
+            (widget.task['projects']?['clients']?['name'] ?? 'Cliente')
+                .toString();
+        final projectName =
+            (widget.task['projects']?['name'] ?? 'Projeto').toString();
         final taskTitle = (widget.task['title'] ?? 'Tarefa').toString();
         Future(() async {
           try {
-            final companyName = await _fetchCompanyNameForTask(widget.task['id'] as String);
-            final bool isSubTask = (widget.task['parent_task_id'] as String?) != null;
+            final companyName =
+                await _fetchCompanyNameForTask(widget.task['id'] as String);
+            final bool isSubTask =
+                (widget.task['parent_task_id'] as String?) != null;
             String effectiveTaskTitle = taskTitle;
             String? subTaskTitle;
             if (isSubTask) {
-              final parentTitle = await _fetchParentTaskTitle(widget.task['id'] as String);
+              final parentTitle =
+                  await _fetchParentTaskTitle(widget.task['id'] as String);
               if (parentTitle != null && parentTitle.trim().isNotEmpty) {
                 effectiveTaskTitle = parentTitle;
               }
@@ -544,7 +593,8 @@ class _CommentsSectionState extends State<CommentsSection> {
             created['user_profile'] ??= {
               'full_name': fullName,
               'email': email,
-              if (avatarUrl != null && avatarUrl.isNotEmpty) 'avatar_url': avatarUrl,
+              if (avatarUrl != null && avatarUrl.isNotEmpty)
+                'avatar_url': avatarUrl,
             };
             final insertAt = 1 + _combinedItems.length;
             _comments.add(created);
@@ -588,7 +638,8 @@ class _CommentsSectionState extends State<CommentsSection> {
             String errorMessage = 'Falha ao enviar: $e';
             if (e.toString().contains('Consentimento necessário') ||
                 e.toString().contains('ConsentRequired')) {
-              errorMessage = 'Google Drive não conectado. Peça ao administrador para conectar uma conta do Google Drive nas configurações.';
+              errorMessage =
+                  'Google Drive não conectado. Peça ao administrador para conectar uma conta do Google Drive nas configurações.';
             }
 
             setState(() {
@@ -611,18 +662,24 @@ class _CommentsSectionState extends State<CommentsSection> {
       if (mounted) setState(() {});
 
       // Upload de imagens em cache para Google Drive
-      final clientName = (widget.task['projects']?['clients']?['name'] ?? 'Cliente').toString();
-      final projectName = (widget.task['projects']?['name'] ?? 'Projeto').toString();
+      final clientName =
+          (widget.task['projects']?['clients']?['name'] ?? 'Cliente')
+              .toString();
+      final projectName =
+          (widget.task['projects']?['name'] ?? 'Projeto').toString();
       final taskTitle = (widget.task['title'] ?? 'Tarefa').toString();
 
       if (_editingCommentId != null) {
         // Fluxo de edição: mantém comportamento síncrono para evitar conflitos
-        final companyName = await _fetchCompanyNameForTask(widget.task['id'] as String);
-        final bool isSubTask = (widget.task['parent_task_id'] as String?) != null;
+        final companyName =
+            await _fetchCompanyNameForTask(widget.task['id'] as String);
+        final bool isSubTask =
+            (widget.task['parent_task_id'] as String?) != null;
         String effectiveTaskTitle = taskTitle;
         String? subTaskTitle;
         if (isSubTask) {
-          final parentTitle = await _fetchParentTaskTitle(widget.task['id'] as String);
+          final parentTitle =
+              await _fetchParentTaskTitle(widget.task['id'] as String);
           if (parentTitle != null && parentTitle.trim().isNotEmpty) {
             effectiveTaskTitle = parentTitle;
           }
@@ -644,7 +701,8 @@ class _CommentsSectionState extends State<CommentsSection> {
         );
         if (mounted) {
           setState(() {
-            final idx = _comments.indexWhere((c) => c['id'] == _editingCommentId);
+            final idx =
+                _comments.indexWhere((c) => c['id'] == _editingCommentId);
             if (idx >= 0) {
               final keepProfile = _comments[idx]['user_profile'];
               updated['user_profile'] = keepProfile;
@@ -665,10 +723,13 @@ class _CommentsSectionState extends State<CommentsSection> {
       // Mensagem mais amigável para erro de Google Drive não conectado
       if (e.toString().contains('Consentimento necessário') ||
           e.toString().contains('ConsentRequired')) {
-        errorMessage = 'Google Drive não conectado. Peça ao administrador para conectar uma conta do Google Drive nas configurações.';
+        errorMessage =
+            'Google Drive não conectado. Peça ao administrador para conectar uma conta do Google Drive nas configurações.';
       }
 
-      setState(() { _error = errorMessage; });
+      setState(() {
+        _error = errorMessage;
+      });
       if (_composeEmpty) {
         _composeEditorCtl.setJson(originalJson);
         _composeJson = originalJson;
@@ -679,7 +740,6 @@ class _CommentsSectionState extends State<CommentsSection> {
     }
   }
 
-
   Future<void> _deleteComment(Map<String, dynamic> c) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -687,14 +747,17 @@ class _CommentsSectionState extends State<CommentsSection> {
         title: const Text('Excluir comentário?'),
         content: const Text('Esta ação não pode ser desfeita.'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancelar')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Excluir')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Excluir')),
         ],
       ),
     );
     if (ok == true) {
       try {
-
         // 1. Buscar anexos do comentário
         final files = await _filesRepo.listByComment(c['id'] as String);
 
@@ -708,7 +771,8 @@ class _CommentsSectionState extends State<CommentsSection> {
               if (driveFileId != null && driveFileId.isNotEmpty) {
                 removedIds.add(driveFileId);
                 try {
-                  await _drive.deleteFile(client: client, driveFileId: driveFileId);
+                  await _drive.deleteFile(
+                      client: client, driveFileId: driveFileId);
                 } catch (e) {
                   // Continua mesmo se falhar no Drive
                 }
@@ -731,7 +795,9 @@ class _CommentsSectionState extends State<CommentsSection> {
             for (final p in pairs) {
               final id = p['id'];
               if (id == null || id.isEmpty) continue;
-              if (removedIds.contains(id)) continue; // já removido via registros
+              if (removedIds.contains(id)) {
+                continue; // já removido via registros
+              }
               try {
                 await _drive.deleteFile(client: client, driveFileId: id);
               } catch (e) {
@@ -797,7 +863,8 @@ class _CommentsSectionState extends State<CommentsSection> {
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
       final blocks = (data['blocks'] as List?) ?? [];
-      _composeEmpty = blocks.every((b) => (b['content'] ?? '').toString().trim().isEmpty);
+      _composeEmpty =
+          blocks.every((b) => (b['content'] ?? '').toString().trim().isEmpty);
     } catch (_) {
       _composeEmpty = false;
     }
@@ -819,14 +886,20 @@ class _CommentsSectionState extends State<CommentsSection> {
                 final avatarUrl = c['user_profile']?['avatar_url'] as String?;
                 return CircleAvatar(
                   radius: 10,
-                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                  child: avatarUrl == null || avatarUrl.isEmpty ? const Icon(Icons.person, size: 12) : null,
+                  backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                      ? NetworkImage(avatarUrl)
+                      : null,
+                  child: avatarUrl == null || avatarUrl.isEmpty
+                      ? const Icon(Icons.person, size: 12)
+                      : null,
                 );
               },
             ),
             const SizedBox(width: 8),
             Text(
-              c['user_profile']?['full_name'] ?? c['user_profile']?['email'] ?? 'Usuário',
+              c['user_profile']?['full_name'] ??
+                  c['user_profile']?['email'] ??
+                  'Usuário',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const Spacer(),
@@ -836,10 +909,18 @@ class _CommentsSectionState extends State<CommentsSection> {
               final uid = Supabase.instance.client.auth.currentUser?.id;
               final isOwner = uid != null && c['user_id'] == uid;
               final canManage = isAdmin || isOwner;
-              if (!canManage || (c['pending'] == true)) return const SizedBox.shrink();
+              if (!canManage || (c['pending'] == true)) {
+                return const SizedBox.shrink();
+              }
               return Row(mainAxisSize: MainAxisSize.min, children: [
-                IconOnlyButton(icon: Icons.edit, tooltip: 'Editar', onPressed: () => _startEditComment(c)),
-                IconOnlyButton(icon: Icons.delete, tooltip: 'Excluir', onPressed: () => _deleteComment(c)),
+                IconOnlyButton(
+                    icon: Icons.edit,
+                    tooltip: 'Editar',
+                    onPressed: () => _startEditComment(c)),
+                IconOnlyButton(
+                    icon: Icons.delete,
+                    tooltip: 'Excluir',
+                    onPressed: () => _deleteComment(c)),
               ]);
             }),
           ],
@@ -847,27 +928,32 @@ class _CommentsSectionState extends State<CommentsSection> {
         const SizedBox(height: 8),
         Opacity(
           opacity: c['pending'] == true ? 0.7 : 1.0,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              GenericBlockEditor(
-                initialJson: (c['content'] ?? '').toString(),
-                enabled: false,
-                showToolbar: false,
-                isUploading: c['pending'] == true,
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _buildDateText(c['created_at'], c['updated_at']),
-                      style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
+          child: SelectableContainer(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GenericBlockEditor(
+                  initialJson: (c['content'] ?? '').toString(),
+                  enabled: false,
+                  showToolbar: false,
+                  isUploading: c['pending'] == true,
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _buildDateText(c['created_at'], c['updated_at']),
+                        style: TextStyle(
+                            fontSize: 12,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant),
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -891,7 +977,8 @@ class _CommentsSectionState extends State<CommentsSection> {
           final extension = path.toLowerCase().split('.').last;
 
           // Verificar se é imagem
-          if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].contains(extension)) {
+          if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp']
+              .contains(extension)) {
             await _composeEditorCtl.addImageFromPath(path);
           }
         }
@@ -900,7 +987,10 @@ class _CommentsSectionState extends State<CommentsSection> {
         key: _composeFieldKey,
         decoration: BoxDecoration(
           color: _isDragging
-              ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.3)
+              ? Theme.of(context)
+                  .colorScheme
+                  .primaryContainer
+                  .withValues(alpha: 0.3)
               : Theme.of(context).colorScheme.surfaceContainerHigh,
           border: Border.all(
             color: _isDragging
@@ -914,93 +1004,101 @@ class _CommentsSectionState extends State<CommentsSection> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-          if (_editingCommentId != null) ...[
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.edit, size: 16, color: Color(0xFF9AA0A6)),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Editando comentário...',
-                      style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant, fontSize: 12),
-                    ),
-                  ],
+            if (_editingCommentId != null) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.edit,
+                          size: 16, color: Color(0xFF9AA0A6)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Editando comentário...',
+                        style: TextStyle(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                            fontSize: 12),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+            ],
+            GenericBlockEditor(
+              initialJson: _composeJson.isNotEmpty ? _composeJson : null,
+              controller: _composeEditorCtl,
+              enabled: true,
+              onChanged: _onEditorChanged,
+              showToolbar: false,
             ),
-          ],
-          GenericBlockEditor(
-            controller: _composeEditorCtl,
-            enabled: true,
-            onChanged: _onEditorChanged,
-            showToolbar: false,
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              IconOnlyButton(
-                icon: Icons.text_fields,
-                tooltip: 'Adicionar texto',
-                onPressed: () => _composeEditorCtl.addTextBlock(),
-              ),
-              const SizedBox(width: 8),
-              IconOnlyButton(
-                icon: Icons.check_box_outlined,
-                tooltip: 'Adicionar checkbox',
-                onPressed: () => _composeEditorCtl.addCheckboxBlock(),
-              ),
-              const SizedBox(width: 8),
-              IconOnlyButton(
-                icon: Icons.image_outlined,
-                tooltip: 'Inserir imagem',
-                onPressed: () {
-                  setState(() { _imageInsertionInProgress = true; });
-                  _composeEditorCtl.pickImage();
-                },
-              ),
-              const SizedBox(width: 8),
-              IconOnlyButton(
-                icon: Icons.table_chart_outlined,
-                tooltip: 'Adicionar tabela',
-                onPressed: () => _composeEditorCtl.addTableBlock(),
-              ),
-              const SizedBox(width: 8),
-              IconOnlyButton(
-                icon: Icons.emoji_emotions_outlined,
-                tooltip: 'Inserir emoji',
-                onPressed: _showEmojiPicker,
-              ),
-              const Spacer(),
-              if (_editingCommentId != null) ...[
-                TextButton(
-                  onPressed: _sending ? null : _cancelEditComment,
-                  child: const Text('Cancelar'),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                IconOnlyButton(
+                  icon: Icons.text_fields,
+                  tooltip: 'Adicionar texto',
+                  onPressed: () => _composeEditorCtl.addTextBlock(),
                 ),
                 const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _sending || _composeEmpty ? null : _send,
-                  child: _sending
-                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Text('Salvar'),
+                IconOnlyButton(
+                  icon: Icons.check_box_outlined,
+                  tooltip: 'Adicionar checkbox',
+                  onPressed: () => _composeEditorCtl.addCheckboxBlock(),
                 ),
-              ] else ...[
-                Builder(
-                  builder: (context) {
+                const SizedBox(width: 8),
+                IconOnlyButton(
+                  icon: Icons.image_outlined,
+                  tooltip: 'Inserir imagem',
+                  onPressed: () {
+                    setState(() {
+                      _imageInsertionInProgress = true;
+                    });
+                    _composeEditorCtl.pickImage();
+                  },
+                ),
+                const SizedBox(width: 8),
+                IconOnlyButton(
+                  icon: Icons.table_chart_outlined,
+                  tooltip: 'Adicionar tabela',
+                  onPressed: () => _composeEditorCtl.addTableBlock(),
+                ),
+                const SizedBox(width: 8),
+                IconOnlyButton(
+                  icon: Icons.emoji_emotions_outlined,
+                  tooltip: 'Inserir emoji',
+                  onPressed: _showEmojiPicker,
+                ),
+                const Spacer(),
+                if (_editingCommentId != null) ...[
+                  TextButton(
+                    onPressed: _sending ? null : _cancelEditComment,
+                    child: const Text('Cancelar'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _sending || _composeEmpty ? null : _send,
+                    child: _sending
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Text('Salvar'),
+                  ),
+                ] else ...[
+                  Builder(builder: (context) {
                     return _SendButton(
                       onPressed: _composeEmpty ? null : _send,
                       enabled: !_composeEmpty,
                     );
-                  }
-                ),
+                  }),
+                ],
               ],
-            ],
-          ),
-        ],
-      ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1059,7 +1157,7 @@ class _CommentsSectionState extends State<CommentsSection> {
     if (p == null) return false;
     final remaining = p.maxScrollExtent - p.pixels;
     return remaining <= threshold;
-    }
+  }
 
   void _autoScrollToBottomSoon() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1072,7 +1170,6 @@ class _CommentsSectionState extends State<CommentsSection> {
       );
     });
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -1088,18 +1185,22 @@ class _CommentsSectionState extends State<CommentsSection> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(children: [
-                Text('Comentários', style: Theme.of(context).textTheme.titleSmall),
+                Text('Comentários',
+                    style: Theme.of(context).textTheme.titleSmall),
                 const Spacer(),
               ]),
               const SizedBox(height: 12),
               if (_error != null)
-                Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                Text(_error!,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error)),
               const SizedBox(height: 8),
             ],
           );
           return FadeTransition(
             opacity: animation,
-            child: SizeTransition(sizeFactor: animation, axisAlignment: -1.0, child: child),
+            child: SizeTransition(
+                sizeFactor: animation, axisAlignment: -1.0, child: child),
           );
         }
         if (index == composerIndex) {
@@ -1117,7 +1218,8 @@ class _CommentsSectionState extends State<CommentsSection> {
           );
           return FadeTransition(
             opacity: animation,
-            child: SizeTransition(sizeFactor: animation, axisAlignment: -1.0, child: child),
+            child: SizeTransition(
+                sizeFactor: animation, axisAlignment: -1.0, child: child),
           );
         }
         // Comentários
@@ -1128,7 +1230,8 @@ class _CommentsSectionState extends State<CommentsSection> {
         );
         return FadeTransition(
           opacity: animation,
-          child: SizeTransition(sizeFactor: animation, axisAlignment: -1.0, child: child),
+          child: SizeTransition(
+              sizeFactor: animation, axisAlignment: -1.0, child: child),
         );
       },
     );
@@ -1154,7 +1257,6 @@ class _SendButtonState extends State<_SendButton> {
 
   @override
   Widget build(BuildContext context) {
-
     // Usa a mesma cor do hover do botão ghost/tab bar (0xFF2A2A2A)
     final backgroundColor = widget.enabled
         ? (_isHovered ? Colors.white : const Color(0xFF2A2A2A))
@@ -1167,7 +1269,8 @@ class _SendButtonState extends State<_SendButton> {
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
-      cursor: widget.enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      cursor:
+          widget.enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       child: IconButton(
         onPressed: widget.enabled
             ? () {
@@ -1208,21 +1311,1079 @@ class _CustomEmojiPickerState extends State<_CustomEmojiPicker> {
 
   // Categorias de emojis
   static const List<Map<String, dynamic>> _categories = [
-    {'icon': Icons.access_time, 'label': 'Recentes', 'emojis': ['😀', '😂', '❤️', '👍', '🎉', '🔥', '✨', '💯']},
-    {'icon': Icons.emoji_emotions_outlined, 'label': 'Smileys', 'emojis': ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '🥲', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶', '😶‍🌫️', '🥴', '😵', '🤯', '🤠', '🥳', '🥸', '😎', '🤓', '🧐']},
-    {'icon': Icons.favorite_outline, 'label': 'Gestos', 'emojis': ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🦾', '🦿', '🦵', '🦶', '👂', '🦻', '👃', '🧠', '🫀', '🫁', '🦷', '🦴', '👀', '👁️', '👅', '👄', '💋']},
-    {'icon': Icons.pets, 'label': 'Animais', 'emojis': ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐽', '🐸', '🐵', '🙈', '🙉', '🙊', '🐒', '🐔', '🐧', '🐦', '🐤', '🐣', '🐥', '🦆', '🦅', '🦉', '🦇', '🐺', '🐗', '🐴', '🦄', '🐝', '🐛', '🦋', '🐌', '🐞', '🐜', '🦟', '🦗', '🕷️', '🦂', '🐢', '🐍', '🦎', '🦖', '🦕', '🐙', '🦑', '🦐', '🦞', '🦀', '🐡', '🐠', '🐟', '🐬', '🐳', '🐋', '🦈', '🐊', '🐅', '🐆', '🦓', '🦍', '🦧', '🐘', '🦛', '🦏', '🐪', '🐫', '🦒', '🦘', '🐃', '🐂', '🐄', '🐎', '🐖', '🐏', '🐑', '🦙', '🐐', '🦌', '🐕', '🐩', '🦮', '🐕‍🦺', '🐈', '🐈‍⬛', '🐓', '🦃', '🦚', '🦜', '🦢', '🦩', '🕊️', '🐇', '🦝', '🦨', '🦡', '🦦', '🦥', '🐁', '🐀', '🐿️', '🦔']},
-    {'icon': Icons.fastfood, 'label': 'Comida', 'emojis': ['🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑', '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽', '🥕', '🫒', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🥚', '🍳', '🧈', '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🦴', '🌭', '🍔', '🍟', '🍕', '🫓', '🥪', '🥙', '🧆', '🌮', '🌯', '🫔', '🥗', '🥘', '🫕', '🥫', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🦪', '🍤', '🍙', '🍚', '🍘', '🍥', '🥠', '🥮', '🍢', '🍡', '🍧', '🍨', '🍦', '🥧', '🧁', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩', '🍪', '🌰', '🥜', '🍯']},
-    {'icon': Icons.sports_soccer, 'label': 'Atividades', 'emojis': ['⚽', '🏀', '🏈', '⚾', '🥎', '🎾', '🏐', '🏉', '🥏', '🎱', '🪀', '🏓', '🏸', '🏒', '🏑', '🥍', '🏏', '🪃', '🥅', '⛳', '🪁', '🏹', '🎣', '🤿', '🥊', '🥋', '🎽', '🛹', '🛼', '🛷', '⛸️', '🥌', '🎿', '⛷️', '🏂', '🪂', '🏋️', '🤼', '🤸', '🤺', '⛹️', '🤾', '🏌️', '🏇', '🧘', '🏊', '🤽', '🚣', '🧗', '🚴', '🚵', '🎪', '🎭', '🎨', '🎬', '🎤', '🎧', '🎼', '🎹', '🥁', '🪘', '🎷', '🎺', '🪗', '🎸', '🪕', '🎻', '🎲', '♟️', '🎯', '🎳', '🎮', '🎰', '🧩']},
-    {'icon': Icons.flight, 'label': 'Viagens', 'emojis': ['🚗', '🚕', '🚙', '🚌', '🚎', '🏎️', '🚓', '🚑', '🚒', '🚐', '🛻', '🚚', '🚛', '🚜', '🦯', '🦽', '🦼', '🛴', '🚲', '🛵', '🏍️', '🛺', '🚨', '🚔', '🚍', '🚘', '🚖', '🚡', '🚠', '🚟', '🚃', '🚋', '🚞', '🚝', '🚄', '🚅', '🚈', '🚂', '🚆', '🚇', '🚊', '🚉', '✈️', '🛫', '🛬', '🛩️', '💺', '🛰️', '🚀', '🛸', '🚁', '🛶', '⛵', '🚤', '🛥️', '🛳️', '⛴️', '🚢', '⚓', '⛽', '🚧', '🚦', '🚥', '🚏', '🗺️', '🗿', '🗽', '🗼', '🏰', '🏯', '🏟️', '🎡', '🎢', '🎠', '⛲', '⛱️', '🏖️', '🏝️', '🏜️', '🌋', '⛰️', '🏔️', '🗻', '🏕️', '⛺', '🛖', '🏠', '🏡', '🏘️', '🏚️', '🏗️', '🏭', '🏢', '🏬', '🏣', '🏤', '🏥', '🏦', '🏨', '🏪', '🏫', '🏩', '💒', '🏛️', '⛪', '🕌', '🕍', '🛕', '🕋']},
-    {'icon': Icons.lightbulb_outline, 'label': 'Objetos', 'emojis': ['⌚', '📱', '📲', '💻', '⌨️', '🖥️', '🖨️', '🖱️', '🖲️', '🕹️', '🗜️', '💽', '💾', '💿', '📀', '📼', '📷', '📸', '📹', '🎥', '📽️', '🎞️', '📞', '☎️', '📟', '📠', '📺', '📻', '🎙️', '🎚️', '🎛️', '🧭', '⏱️', '⏲️', '⏰', '🕰️', '⌛', '⏳', '📡', '🔋', '🔌', '💡', '🔦', '🕯️', '🪔', '🧯', '🛢️', '💸', '💵', '💴', '💶', '💷', '🪙', '💰', '💳', '💎', '⚖️', '🪜', '🧰', '🪛', '🔧', '🔨', '⚒️', '🛠️', '⛏️', '🪚', '🔩', '⚙️', '🪤', '🧱', '⛓️', '🧲', '🔫', '💣', '🧨', '🪓', '🔪', '🗡️', '⚔️', '🛡️', '🚬', '⚰️', '🪦', '⚱️', '🏺', '🔮', '📿', '🧿', '💈', '⚗️', '🔭', '🔬', '🕳️', '🩹', '🩺', '💊', '💉', '🩸', '🧬', '🦠', '🧫', '🧪', '🌡️', '🧹', '🪠', '🧺', '🧻', '🚽', '🚰', '🚿', '🛁', '🛀', '🧼', '🪥', '🪒', '🧽', '🪣', '🧴', '🛎️', '🔑', '🗝️', '🚪', '🪑', '🛋️', '🛏️', '🛌', '🧸', '🪆', '🖼️', '🪞', '🪟', '🛍️', '🛒', '🎁', '🎈', '🎏', '🎀', '🪄', '🪅', '🎊', '🎉', '🎎', '🏮', '🎐', '🧧', '✉️', '📩', '📨', '📧', '💌', '📥', '📤', '📦', '🏷️', '🪧', '📪', '📫', '📬', '📭', '📮', '📯', '📜', '📃', '📄', '📑', '🧾', '📊', '📈', '📉', '🗒️', '🗓️', '📆', '📅', '🗑️', '📇', '🗃️', '🗳️', '🗄️', '📋', '📁', '📂', '🗂️', '🗞️', '📰', '📓', '📔', '📒', '📕', '📗', '📘', '📙', '📚', '📖', '🔖', '🧷', '🔗', '📎', '🖇️', '📐', '📏', '🧮', '📌', '📍', '✂️', '🖊️', '🖋️', '✒️', '🖌️', '🖍️', '📝', '✏️', '🔍', '🔎', '🔏', '🔐', '🔒', '🔓']},
-    {'icon': Icons.tag, 'label': 'Símbolos', 'emojis': ['❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❤️‍🔥', '❤️‍🩹', '❣️', '💕', '💞', '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯', '🕎', '☯️', '☦️', '🛐', '⛎', '♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐', '♑', '♒', '♓', '🆔', '⚛️', '🉑', '☢️', '☣️', '📴', '📳', '🈶', '🈚', '🈸', '🈺', '🈷️', '✴️', '🆚', '💮', '🉐', '㊙️', '㊗️', '🈴', '🈵', '🈹', '🈲', '🅰️', '🅱️', '🆎', '🆑', '🅾️', '🆘', '❌', '⭕', '🛑', '⛔', '📛', '🚫', '💯', '💢', '♨️', '🚷', '🚯', '🚳', '🚱', '🔞', '📵', '🚭', '❗', '❕', '❓', '❔', '‼️', '⁉️', '🔅', '🔆', '〽️', '⚠️', '🚸', '🔱', '⚜️', '🔰', '♻️', '✅', '🈯', '💹', '❇️', '✳️', '❎', '🌐', '💠', 'Ⓜ️', '🌀', '💤', '🏧', '🚾', '♿', '🅿️', '🛗', '🈳', '🈂️', '🛂', '🛃', '🛄', '🛅', '🚹', '🚺', '🚼', '⚧️', '🚻', '🚮', '🎦', '📶', '🈁', '🔣', 'ℹ️', '🔤', '🔡', '🔠', '🆖', '🆗', '🆙', '🆒', '🆕', '🆓', '0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟', '🔢', '#️⃣', '*️⃣', '⏏️', '▶️', '⏸️', '⏯️', '⏹️', '⏺️', '⏭️', '⏮️', '⏩', '⏪', '⏫', '⏬', '◀️', '🔼', '🔽', '➡️', '⬅️', '⬆️', '⬇️', '↗️', '↘️', '↙️', '↖️', '↕️', '↔️', '↪️', '↩️', '⤴️', '⤵️', '🔀', '🔁', '🔂', '🔄', '🔃', '🎵', '🎶', '➕', '➖', '➗', '✖️', '🟰', '♾️', '💲', '💱', '™️', '©️', '®️', '〰️', '➰', '➿', '🔚', '🔙', '🔛', '🔝', '🔜', '✔️', '☑️', '🔘', '🔴', '🟠', '🟡', '🟢', '🔵', '🟣', '⚫', '⚪', '🟤', '🔺', '🔻', '🔸', '🔹', '🔶', '🔷', '🔳', '🔲', '▪️', '▫️', '◾', '◽', '◼️', '◻️', '🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '⬛', '⬜', '🟫', '🔈', '🔇', '🔉', '🔊', '🔔', '🔕', '📣', '📢', '👁️‍🗨️', '💬', '💭', '🗯️', '♠️', '♣️', '♥️', '♦️', '🃏', '🎴', '🀄', '🕐', '🕑', '🕒', '🕓', '🕔', '🕕', '🕖', '🕗', '🕘', '🕙', '🕚', '🕛', '🕜', '🕝', '🕞', '🕟', '🕠', '🕡', '🕢', '🕣', '🕤', '🕥', '🕦', '🕧']},
+    {
+      'icon': Icons.access_time,
+      'label': 'Recentes',
+      'emojis': ['😀', '😂', '❤️', '👍', '🎉', '🔥', '✨', '💯']
+    },
+    {
+      'icon': Icons.emoji_emotions_outlined,
+      'label': 'Smileys',
+      'emojis': [
+        '😀',
+        '😃',
+        '😄',
+        '😁',
+        '😆',
+        '😅',
+        '🤣',
+        '😂',
+        '🙂',
+        '🙃',
+        '😉',
+        '😊',
+        '😇',
+        '🥰',
+        '😍',
+        '🤩',
+        '😘',
+        '😗',
+        '😚',
+        '😙',
+        '🥲',
+        '😋',
+        '😛',
+        '😜',
+        '🤪',
+        '😝',
+        '🤑',
+        '🤗',
+        '🤭',
+        '🤫',
+        '🤔',
+        '🤐',
+        '🤨',
+        '😐',
+        '😑',
+        '😶',
+        '😏',
+        '😒',
+        '🙄',
+        '😬',
+        '🤥',
+        '😌',
+        '😔',
+        '😪',
+        '🤤',
+        '😴',
+        '😷',
+        '🤒',
+        '🤕',
+        '🤢',
+        '🤮',
+        '🤧',
+        '🥵',
+        '🥶',
+        '😶‍🌫️',
+        '🥴',
+        '😵',
+        '🤯',
+        '🤠',
+        '🥳',
+        '🥸',
+        '😎',
+        '🤓',
+        '🧐'
+      ]
+    },
+    {
+      'icon': Icons.favorite_outline,
+      'label': 'Gestos',
+      'emojis': [
+        '👋',
+        '🤚',
+        '🖐️',
+        '✋',
+        '🖖',
+        '👌',
+        '🤌',
+        '🤏',
+        '✌️',
+        '🤞',
+        '🤟',
+        '🤘',
+        '🤙',
+        '👈',
+        '👉',
+        '👆',
+        '🖕',
+        '👇',
+        '☝️',
+        '👍',
+        '👎',
+        '✊',
+        '👊',
+        '🤛',
+        '🤜',
+        '👏',
+        '🙌',
+        '👐',
+        '🤲',
+        '🤝',
+        '🙏',
+        '✍️',
+        '💅',
+        '🤳',
+        '💪',
+        '🦾',
+        '🦿',
+        '🦵',
+        '🦶',
+        '👂',
+        '🦻',
+        '👃',
+        '🧠',
+        '🫀',
+        '🫁',
+        '🦷',
+        '🦴',
+        '👀',
+        '👁️',
+        '👅',
+        '👄',
+        '💋'
+      ]
+    },
+    {
+      'icon': Icons.pets,
+      'label': 'Animais',
+      'emojis': [
+        '🐶',
+        '🐱',
+        '🐭',
+        '🐹',
+        '🐰',
+        '🦊',
+        '🐻',
+        '🐼',
+        '🐨',
+        '🐯',
+        '🦁',
+        '🐮',
+        '🐷',
+        '🐽',
+        '🐸',
+        '🐵',
+        '🙈',
+        '🙉',
+        '🙊',
+        '🐒',
+        '🐔',
+        '🐧',
+        '🐦',
+        '🐤',
+        '🐣',
+        '🐥',
+        '🦆',
+        '🦅',
+        '🦉',
+        '🦇',
+        '🐺',
+        '🐗',
+        '🐴',
+        '🦄',
+        '🐝',
+        '🐛',
+        '🦋',
+        '🐌',
+        '🐞',
+        '🐜',
+        '🦟',
+        '🦗',
+        '🕷️',
+        '🦂',
+        '🐢',
+        '🐍',
+        '🦎',
+        '🦖',
+        '🦕',
+        '🐙',
+        '🦑',
+        '🦐',
+        '🦞',
+        '🦀',
+        '🐡',
+        '🐠',
+        '🐟',
+        '🐬',
+        '🐳',
+        '🐋',
+        '🦈',
+        '🐊',
+        '🐅',
+        '🐆',
+        '🦓',
+        '🦍',
+        '🦧',
+        '🐘',
+        '🦛',
+        '🦏',
+        '🐪',
+        '🐫',
+        '🦒',
+        '🦘',
+        '🐃',
+        '🐂',
+        '🐄',
+        '🐎',
+        '🐖',
+        '🐏',
+        '🐑',
+        '🦙',
+        '🐐',
+        '🦌',
+        '🐕',
+        '🐩',
+        '🦮',
+        '🐕‍🦺',
+        '🐈',
+        '🐈‍⬛',
+        '🐓',
+        '🦃',
+        '🦚',
+        '🦜',
+        '🦢',
+        '🦩',
+        '🕊️',
+        '🐇',
+        '🦝',
+        '🦨',
+        '🦡',
+        '🦦',
+        '🦥',
+        '🐁',
+        '🐀',
+        '🐿️',
+        '🦔'
+      ]
+    },
+    {
+      'icon': Icons.fastfood,
+      'label': 'Comida',
+      'emojis': [
+        '🍏',
+        '🍎',
+        '🍐',
+        '🍊',
+        '🍋',
+        '🍌',
+        '🍉',
+        '🍇',
+        '🍓',
+        '🫐',
+        '🍈',
+        '🍒',
+        '🍑',
+        '🥭',
+        '🍍',
+        '🥥',
+        '🥝',
+        '🍅',
+        '🍆',
+        '🥑',
+        '🥦',
+        '🥬',
+        '🥒',
+        '🌶️',
+        '🫑',
+        '🌽',
+        '🥕',
+        '🫒',
+        '🧄',
+        '🧅',
+        '🥔',
+        '🍠',
+        '🥐',
+        '🥯',
+        '🍞',
+        '🥖',
+        '🥨',
+        '🧀',
+        '🥚',
+        '🍳',
+        '🧈',
+        '🥞',
+        '🧇',
+        '🥓',
+        '🥩',
+        '🍗',
+        '🍖',
+        '🦴',
+        '🌭',
+        '🍔',
+        '🍟',
+        '🍕',
+        '🫓',
+        '🥪',
+        '🥙',
+        '🧆',
+        '🌮',
+        '🌯',
+        '🫔',
+        '🥗',
+        '🥘',
+        '🫕',
+        '🥫',
+        '🍝',
+        '🍜',
+        '🍲',
+        '🍛',
+        '🍣',
+        '🍱',
+        '🥟',
+        '🦪',
+        '🍤',
+        '🍙',
+        '🍚',
+        '🍘',
+        '🍥',
+        '🥠',
+        '🥮',
+        '🍢',
+        '🍡',
+        '🍧',
+        '🍨',
+        '🍦',
+        '🥧',
+        '🧁',
+        '🍰',
+        '🎂',
+        '🍮',
+        '🍭',
+        '🍬',
+        '🍫',
+        '🍿',
+        '🍩',
+        '🍪',
+        '🌰',
+        '🥜',
+        '🍯'
+      ]
+    },
+    {
+      'icon': Icons.sports_soccer,
+      'label': 'Atividades',
+      'emojis': [
+        '⚽',
+        '🏀',
+        '🏈',
+        '⚾',
+        '🥎',
+        '🎾',
+        '🏐',
+        '🏉',
+        '🥏',
+        '🎱',
+        '🪀',
+        '🏓',
+        '🏸',
+        '🏒',
+        '🏑',
+        '🥍',
+        '🏏',
+        '🪃',
+        '🥅',
+        '⛳',
+        '🪁',
+        '🏹',
+        '🎣',
+        '🤿',
+        '🥊',
+        '🥋',
+        '🎽',
+        '🛹',
+        '🛼',
+        '🛷',
+        '⛸️',
+        '🥌',
+        '🎿',
+        '⛷️',
+        '🏂',
+        '🪂',
+        '🏋️',
+        '🤼',
+        '🤸',
+        '🤺',
+        '⛹️',
+        '🤾',
+        '🏌️',
+        '🏇',
+        '🧘',
+        '🏊',
+        '🤽',
+        '🚣',
+        '🧗',
+        '🚴',
+        '🚵',
+        '🎪',
+        '🎭',
+        '🎨',
+        '🎬',
+        '🎤',
+        '🎧',
+        '🎼',
+        '🎹',
+        '🥁',
+        '🪘',
+        '🎷',
+        '🎺',
+        '🪗',
+        '🎸',
+        '🪕',
+        '🎻',
+        '🎲',
+        '♟️',
+        '🎯',
+        '🎳',
+        '🎮',
+        '🎰',
+        '🧩'
+      ]
+    },
+    {
+      'icon': Icons.flight,
+      'label': 'Viagens',
+      'emojis': [
+        '🚗',
+        '🚕',
+        '🚙',
+        '🚌',
+        '🚎',
+        '🏎️',
+        '🚓',
+        '🚑',
+        '🚒',
+        '🚐',
+        '🛻',
+        '🚚',
+        '🚛',
+        '🚜',
+        '🦯',
+        '🦽',
+        '🦼',
+        '🛴',
+        '🚲',
+        '🛵',
+        '🏍️',
+        '🛺',
+        '🚨',
+        '🚔',
+        '🚍',
+        '🚘',
+        '🚖',
+        '🚡',
+        '🚠',
+        '🚟',
+        '🚃',
+        '🚋',
+        '🚞',
+        '🚝',
+        '🚄',
+        '🚅',
+        '🚈',
+        '🚂',
+        '🚆',
+        '🚇',
+        '🚊',
+        '🚉',
+        '✈️',
+        '🛫',
+        '🛬',
+        '🛩️',
+        '💺',
+        '🛰️',
+        '🚀',
+        '🛸',
+        '🚁',
+        '🛶',
+        '⛵',
+        '🚤',
+        '🛥️',
+        '🛳️',
+        '⛴️',
+        '🚢',
+        '⚓',
+        '⛽',
+        '🚧',
+        '🚦',
+        '🚥',
+        '🚏',
+        '🗺️',
+        '🗿',
+        '🗽',
+        '🗼',
+        '🏰',
+        '🏯',
+        '🏟️',
+        '🎡',
+        '🎢',
+        '🎠',
+        '⛲',
+        '⛱️',
+        '🏖️',
+        '🏝️',
+        '🏜️',
+        '🌋',
+        '⛰️',
+        '🏔️',
+        '🗻',
+        '🏕️',
+        '⛺',
+        '🛖',
+        '🏠',
+        '🏡',
+        '🏘️',
+        '🏚️',
+        '🏗️',
+        '🏭',
+        '🏢',
+        '🏬',
+        '🏣',
+        '🏤',
+        '🏥',
+        '🏦',
+        '🏨',
+        '🏪',
+        '🏫',
+        '🏩',
+        '💒',
+        '🏛️',
+        '⛪',
+        '🕌',
+        '🕍',
+        '🛕',
+        '🕋'
+      ]
+    },
+    {
+      'icon': Icons.lightbulb_outline,
+      'label': 'Objetos',
+      'emojis': [
+        '⌚',
+        '📱',
+        '📲',
+        '💻',
+        '⌨️',
+        '🖥️',
+        '🖨️',
+        '🖱️',
+        '🖲️',
+        '🕹️',
+        '🗜️',
+        '💽',
+        '💾',
+        '💿',
+        '📀',
+        '📼',
+        '📷',
+        '📸',
+        '📹',
+        '🎥',
+        '📽️',
+        '🎞️',
+        '📞',
+        '☎️',
+        '📟',
+        '📠',
+        '📺',
+        '📻',
+        '🎙️',
+        '🎚️',
+        '🎛️',
+        '🧭',
+        '⏱️',
+        '⏲️',
+        '⏰',
+        '🕰️',
+        '⌛',
+        '⏳',
+        '📡',
+        '🔋',
+        '🔌',
+        '💡',
+        '🔦',
+        '🕯️',
+        '🪔',
+        '🧯',
+        '🛢️',
+        '💸',
+        '💵',
+        '💴',
+        '💶',
+        '💷',
+        '🪙',
+        '💰',
+        '💳',
+        '💎',
+        '⚖️',
+        '🪜',
+        '🧰',
+        '🪛',
+        '🔧',
+        '🔨',
+        '⚒️',
+        '🛠️',
+        '⛏️',
+        '🪚',
+        '🔩',
+        '⚙️',
+        '🪤',
+        '🧱',
+        '⛓️',
+        '🧲',
+        '🔫',
+        '💣',
+        '🧨',
+        '🪓',
+        '🔪',
+        '🗡️',
+        '⚔️',
+        '🛡️',
+        '🚬',
+        '⚰️',
+        '🪦',
+        '⚱️',
+        '🏺',
+        '🔮',
+        '📿',
+        '🧿',
+        '💈',
+        '⚗️',
+        '🔭',
+        '🔬',
+        '🕳️',
+        '🩹',
+        '🩺',
+        '💊',
+        '💉',
+        '🩸',
+        '🧬',
+        '🦠',
+        '🧫',
+        '🧪',
+        '🌡️',
+        '🧹',
+        '🪠',
+        '🧺',
+        '🧻',
+        '🚽',
+        '🚰',
+        '🚿',
+        '🛁',
+        '🛀',
+        '🧼',
+        '🪥',
+        '🪒',
+        '🧽',
+        '🪣',
+        '🧴',
+        '🛎️',
+        '🔑',
+        '🗝️',
+        '🚪',
+        '🪑',
+        '🛋️',
+        '🛏️',
+        '🛌',
+        '🧸',
+        '🪆',
+        '🖼️',
+        '🪞',
+        '🪟',
+        '🛍️',
+        '🛒',
+        '🎁',
+        '🎈',
+        '🎏',
+        '🎀',
+        '🪄',
+        '🪅',
+        '🎊',
+        '🎉',
+        '🎎',
+        '🏮',
+        '🎐',
+        '🧧',
+        '✉️',
+        '📩',
+        '📨',
+        '📧',
+        '💌',
+        '📥',
+        '📤',
+        '📦',
+        '🏷️',
+        '🪧',
+        '📪',
+        '📫',
+        '📬',
+        '📭',
+        '📮',
+        '📯',
+        '📜',
+        '📃',
+        '📄',
+        '📑',
+        '🧾',
+        '📊',
+        '📈',
+        '📉',
+        '🗒️',
+        '🗓️',
+        '📆',
+        '📅',
+        '🗑️',
+        '📇',
+        '🗃️',
+        '🗳️',
+        '🗄️',
+        '📋',
+        '📁',
+        '📂',
+        '🗂️',
+        '🗞️',
+        '📰',
+        '📓',
+        '📔',
+        '📒',
+        '📕',
+        '📗',
+        '📘',
+        '📙',
+        '📚',
+        '📖',
+        '🔖',
+        '🧷',
+        '🔗',
+        '📎',
+        '🖇️',
+        '📐',
+        '📏',
+        '🧮',
+        '📌',
+        '📍',
+        '✂️',
+        '🖊️',
+        '🖋️',
+        '✒️',
+        '🖌️',
+        '🖍️',
+        '📝',
+        '✏️',
+        '🔍',
+        '🔎',
+        '🔏',
+        '🔐',
+        '🔒',
+        '🔓'
+      ]
+    },
+    {
+      'icon': Icons.tag,
+      'label': 'Símbolos',
+      'emojis': [
+        '❤️',
+        '🧡',
+        '💛',
+        '💚',
+        '💙',
+        '💜',
+        '🖤',
+        '🤍',
+        '🤎',
+        '💔',
+        '❤️‍🔥',
+        '❤️‍🩹',
+        '❣️',
+        '💕',
+        '💞',
+        '💓',
+        '💗',
+        '💖',
+        '💘',
+        '💝',
+        '💟',
+        '☮️',
+        '✝️',
+        '☪️',
+        '🕉️',
+        '☸️',
+        '✡️',
+        '🔯',
+        '🕎',
+        '☯️',
+        '☦️',
+        '🛐',
+        '⛎',
+        '♈',
+        '♉',
+        '♊',
+        '♋',
+        '♌',
+        '♍',
+        '♎',
+        '♏',
+        '♐',
+        '♑',
+        '♒',
+        '♓',
+        '🆔',
+        '⚛️',
+        '🉑',
+        '☢️',
+        '☣️',
+        '📴',
+        '📳',
+        '🈶',
+        '🈚',
+        '🈸',
+        '🈺',
+        '🈷️',
+        '✴️',
+        '🆚',
+        '💮',
+        '🉐',
+        '㊙️',
+        '㊗️',
+        '🈴',
+        '🈵',
+        '🈹',
+        '🈲',
+        '🅰️',
+        '🅱️',
+        '🆎',
+        '🆑',
+        '🅾️',
+        '🆘',
+        '❌',
+        '⭕',
+        '🛑',
+        '⛔',
+        '📛',
+        '🚫',
+        '💯',
+        '💢',
+        '♨️',
+        '🚷',
+        '🚯',
+        '🚳',
+        '🚱',
+        '🔞',
+        '📵',
+        '🚭',
+        '❗',
+        '❕',
+        '❓',
+        '❔',
+        '‼️',
+        '⁉️',
+        '🔅',
+        '🔆',
+        '〽️',
+        '⚠️',
+        '🚸',
+        '🔱',
+        '⚜️',
+        '🔰',
+        '♻️',
+        '✅',
+        '🈯',
+        '💹',
+        '❇️',
+        '✳️',
+        '❎',
+        '🌐',
+        '💠',
+        'Ⓜ️',
+        '🌀',
+        '💤',
+        '🏧',
+        '🚾',
+        '♿',
+        '🅿️',
+        '🛗',
+        '🈳',
+        '🈂️',
+        '🛂',
+        '🛃',
+        '🛄',
+        '🛅',
+        '🚹',
+        '🚺',
+        '🚼',
+        '⚧️',
+        '🚻',
+        '🚮',
+        '🎦',
+        '📶',
+        '🈁',
+        '🔣',
+        'ℹ️',
+        '🔤',
+        '🔡',
+        '🔠',
+        '🆖',
+        '🆗',
+        '🆙',
+        '🆒',
+        '🆕',
+        '🆓',
+        '0️⃣',
+        '1️⃣',
+        '2️⃣',
+        '3️⃣',
+        '4️⃣',
+        '5️⃣',
+        '6️⃣',
+        '7️⃣',
+        '8️⃣',
+        '9️⃣',
+        '🔟',
+        '🔢',
+        '#️⃣',
+        '*️⃣',
+        '⏏️',
+        '▶️',
+        '⏸️',
+        '⏯️',
+        '⏹️',
+        '⏺️',
+        '⏭️',
+        '⏮️',
+        '⏩',
+        '⏪',
+        '⏫',
+        '⏬',
+        '◀️',
+        '🔼',
+        '🔽',
+        '➡️',
+        '⬅️',
+        '⬆️',
+        '⬇️',
+        '↗️',
+        '↘️',
+        '↙️',
+        '↖️',
+        '↕️',
+        '↔️',
+        '↪️',
+        '↩️',
+        '⤴️',
+        '⤵️',
+        '🔀',
+        '🔁',
+        '🔂',
+        '🔄',
+        '🔃',
+        '🎵',
+        '🎶',
+        '➕',
+        '➖',
+        '➗',
+        '✖️',
+        '🟰',
+        '♾️',
+        '💲',
+        '💱',
+        '™️',
+        '©️',
+        '®️',
+        '〰️',
+        '➰',
+        '➿',
+        '🔚',
+        '🔙',
+        '🔛',
+        '🔝',
+        '🔜',
+        '✔️',
+        '☑️',
+        '🔘',
+        '🔴',
+        '🟠',
+        '🟡',
+        '🟢',
+        '🔵',
+        '🟣',
+        '⚫',
+        '⚪',
+        '🟤',
+        '🔺',
+        '🔻',
+        '🔸',
+        '🔹',
+        '🔶',
+        '🔷',
+        '🔳',
+        '🔲',
+        '▪️',
+        '▫️',
+        '◾',
+        '◽',
+        '◼️',
+        '◻️',
+        '🟥',
+        '🟧',
+        '🟨',
+        '🟩',
+        '🟦',
+        '🟪',
+        '⬛',
+        '⬜',
+        '🟫',
+        '🔈',
+        '🔇',
+        '🔉',
+        '🔊',
+        '🔔',
+        '🔕',
+        '📣',
+        '📢',
+        '👁️‍🗨️',
+        '💬',
+        '💭',
+        '🗯️',
+        '♠️',
+        '♣️',
+        '♥️',
+        '♦️',
+        '🃏',
+        '🎴',
+        '🀄',
+        '🕐',
+        '🕑',
+        '🕒',
+        '🕓',
+        '🕔',
+        '🕕',
+        '🕖',
+        '🕗',
+        '🕘',
+        '🕙',
+        '🕚',
+        '🕛',
+        '🕜',
+        '🕝',
+        '🕞',
+        '🕟',
+        '🕠',
+        '🕡',
+        '🕢',
+        '🕣',
+        '🕤',
+        '🕥',
+        '🕦',
+        '🕧'
+      ]
+    },
   ];
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final currentEmojis = _categories[_selectedCategory]['emojis'] as List<String>;
+    final currentEmojis =
+        _categories[_selectedCategory]['emojis'] as List<String>;
 
     return Container(
       height: 280,
@@ -1302,4 +2463,3 @@ class _CustomEmojiPickerState extends State<_CustomEmojiPicker> {
     );
   }
 }
-

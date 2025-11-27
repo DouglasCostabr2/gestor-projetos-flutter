@@ -565,8 +565,10 @@ class _CatalogItem {
   final String currency;
   int priceCents; // snapshot negociado (mutável)
   int quantity; // mutável
-  final TextEditingController priceController; // Controller para o campo de preço
-  final TextEditingController quantityController; // Controller para o campo de quantidade
+  final TextEditingController
+      priceController; // Controller para o campo de preço
+  final TextEditingController
+      quantityController; // Controller para o campo de quantidade
 
   _CatalogItem({
     required this.itemType,
@@ -575,12 +577,12 @@ class _CatalogItem {
     required this.currency,
     required this.priceCents,
     required this.quantity,
-  }) : priceController = TextEditingController(
-         text: (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ','),
-       ),
-       quantityController = TextEditingController(
-         text: quantity.toString(),
-       );
+  })  : priceController = TextEditingController(
+          text: (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ','),
+        ),
+        quantityController = TextEditingController(
+          text: quantity.toString(),
+        );
 
   // Métodos para atualizar valores sem recriar o objeto
   void updatePriceCents(int cents) {
@@ -609,7 +611,8 @@ class _CatalogItem {
     );
     // Se o preço mudou, atualiza o controller
     if (priceCents != null && priceCents != this.priceCents) {
-      newItem.priceController.text = (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ',');
+      newItem.priceController.text =
+          (priceCents / 100.0).toStringAsFixed(2).replaceAll('.', ',');
     } else {
       // Mantém o texto atual do controller (preserva o que o usuário está digitando)
       newItem.priceController.text = priceController.text;
@@ -629,14 +632,17 @@ class _CatalogItem {
     quantityController.dispose();
   }
 }
+
 class _SelectCatalogItemDialogQuick extends StatefulWidget {
   final String currency;
   const _SelectCatalogItemDialogQuick({required this.currency});
   @override
-  State<_SelectCatalogItemDialogQuick> createState() => _SelectCatalogItemDialogQuickState();
+  State<_SelectCatalogItemDialogQuick> createState() =>
+      _SelectCatalogItemDialogQuickState();
 }
 
-class _SelectCatalogItemDialogQuickState extends State<_SelectCatalogItemDialogQuick> {
+class _SelectCatalogItemDialogQuickState
+    extends State<_SelectCatalogItemDialogQuick> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _products = [];
@@ -649,7 +655,10 @@ class _SelectCatalogItemDialogQuickState extends State<_SelectCatalogItemDialogQ
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final supa = Supabase.instance.client;
 
@@ -679,11 +688,15 @@ class _SelectCatalogItemDialogQuickState extends State<_SelectCatalogItemDialogQ
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = e.toString(); _loading = false; });
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
     }
   }
 
-  String _fmt(int cents) => (cents/100.0).toStringAsFixed(2).replaceAll('.', ',');
+  String _fmt(int cents) =>
+      (cents / 100.0).toStringAsFixed(2).replaceAll('.', ',');
   String _sym(String? code) {
     if (code == 'USD') return '\$';
     if (code == 'EUR') return '€';
@@ -697,71 +710,78 @@ class _SelectCatalogItemDialogQuickState extends State<_SelectCatalogItemDialogQ
       width: StandardDialog.widthMedium,
       height: StandardDialog.heightMedium,
       child: _loading
-        ? const Center(child: CircularProgressIndicator())
-        : DefaultTabController(
-            length: 2,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text('Erro: $_error', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ? const Center(child: CircularProgressIndicator())
+          : DefaultTabController(
+              length: 2,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text('Erro: $_error',
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error)),
+                    ),
+                  const TabBar(
+                      tabs: [Tab(text: 'Produtos'), Tab(text: 'Pacotes')]),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: TabBarView(children: [
+                      ListView.separated(
+                        itemCount: _products.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final p = _products[i];
+                          return ListTile(
+                            title: Text(p['name'] ?? ''),
+                            subtitle: Text(
+                                '${_sym(p['currency_code'] as String?)} ${_fmt((p['price_cents'] ?? 0) as int)}'),
+                            onTap: () => Navigator.pop(
+                                context,
+                                _CatalogItem(
+                                  itemType: 'product',
+                                  itemId: p['id'] as String,
+                                  name: p['name'] as String? ?? '-',
+                                  currency:
+                                      p['currency_code'] as String? ?? 'BRL',
+                                  priceCents: p['price_cents'] as int? ?? 0,
+                                  quantity: 1,
+                                )),
+                          );
+                        },
+                      ),
+                      ListView.separated(
+                        itemCount: _packages.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final p = _packages[i];
+                          return ListTile(
+                            title: Text(p['name'] ?? ''),
+                            subtitle: Text(
+                                '${_sym(p['currency_code'] as String?)} ${_fmt((p['price_cents'] ?? 0) as int)}'),
+                            onTap: () => Navigator.pop(
+                                context,
+                                _CatalogItem(
+                                  itemType: 'package',
+                                  itemId: p['id'] as String,
+                                  name: p['name'] as String? ?? '-',
+                                  currency:
+                                      p['currency_code'] as String? ?? 'BRL',
+                                  priceCents: p['price_cents'] as int? ?? 0,
+                                  quantity: 1,
+                                )),
+                          );
+                        },
+                      ),
+                    ]),
                   ),
-                const TabBar(tabs: [Tab(text: 'Produtos'), Tab(text: 'Pacotes')]),
-                const Divider(height: 1),
-                Expanded(
-                  child: TabBarView(children: [
-                    ListView.separated(
-                      itemCount: _products.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, i) {
-                        final p = _products[i];
-                        return ListTile(
-                          title: Text(p['name'] ?? ''),
-                          subtitle: Text('${_sym(p['currency_code'] as String?)} ${_fmt((p['price_cents'] ?? 0) as int)}'),
-                          onTap: () => Navigator.pop(context, _CatalogItem(
-                            itemType: 'product',
-                            itemId: p['id'] as String,
-                            name: p['name'] as String? ?? '-',
-                            currency: p['currency_code'] as String? ?? 'BRL',
-                            priceCents: p['price_cents'] as int? ?? 0,
-                            quantity: 1,
-                          )),
-                        );
-                      },
-                    ),
-                    ListView.separated(
-                      itemCount: _packages.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
-                      itemBuilder: (context, i) {
-                        final p = _packages[i];
-                        return ListTile(
-                          title: Text(p['name'] ?? ''),
-                          subtitle: Text('${_sym(p['currency_code'] as String?)} ${_fmt((p['price_cents'] ?? 0) as int)}'),
-                          onTap: () => Navigator.pop(context, _CatalogItem(
-                            itemType: 'package',
-                            itemId: p['id'] as String,
-                            name: p['name'] as String? ?? '-',
-                            currency: p['currency_code'] as String? ?? 'BRL',
-                            priceCents: p['price_cents'] as int? ?? 0,
-                            quantity: 1,
-                          )),
-                        );
-                      },
-                    ),
-                  ]),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
     );
   }
 }
-
-
-
-
 
 class QuickTaskForm extends StatefulWidget {
   final String? projectId; // usado no create
@@ -813,14 +833,12 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
   // Métodos removidos: _loadExistingAssets, _openDownloadFromAsset, _buildExistingAssetThumb, _deleteExistingAsset
   // QuickTaskForm não gerencia assets existentes - apenas novos uploads
 
-
   @override
   void initState() {
     super.initState();
 
     // Gerar UUID provisório para tasks novas
     _provisionalTaskId = const Uuid().v4();
-
 
     final i = widget.initial;
     if (i != null) {
@@ -864,8 +882,7 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
     if (_projectId != null) {
       _loadMembers(_projectId!);
       _loadProjectAndClientInfo(_projectId!);
-    } else {
-    }
+    } else {}
 
     // Load linked products if editing existing task
     if (i != null && i['id'] != null) {
@@ -885,7 +902,8 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
       // Buscar membros do projeto
       final res = await Supabase.instance.client
           .from('project_members')
-          .select('user_id, profiles:user_id(full_name, email, role, avatar_url)')
+          .select(
+              'user_id, profiles:user_id(full_name, email, role, avatar_url)')
           .eq('project_id', projectId);
       final all = List<Map<String, dynamic>>.from(res);
 
@@ -931,7 +949,8 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
     try {
       final project = await Supabase.instance.client
           .from('projects')
-          .select('name, client_id, company_id, clients:client_id(name), companies:company_id(name)')
+          .select(
+              'name, client_id, company_id, clients:client_id(name), companies:company_id(name)')
           .eq('id', projectId)
           .maybeSingle();
 
@@ -940,7 +959,8 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           _projectName = project['name'] as String?;
           _clientName = (project['clients'] as Map?)?['name'] as String?;
           _companyName = (project['companies'] as Map?)?['name'] as String?;
-          _companyId = project['company_id'] as String?; // Para Design Materials
+          _companyId =
+              project['company_id'] as String?; // Para Design Materials
         });
       }
     } catch (e) {
@@ -951,7 +971,8 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
   Future<void> _loadLinkedProducts(String taskId) async {
     try {
       if (_projectId == null || _projectId!.isEmpty) return;
-      final list = await TaskProductsService.loadLinkedProducts(taskId, projectId: _projectId!);
+      final list = await TaskProductsService.loadLinkedProducts(taskId,
+          projectId: _projectId!);
       if (mounted) setState(() => _linkedProducts = list);
     } catch (e) {
       // Ignorar erro (operação não crítica)
@@ -976,7 +997,8 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         // Criar
         // Validar prioridade
         final validPriorities = ['low', 'medium', 'high', 'urgent'];
-        final safePriority = validPriorities.contains(_priority) ? _priority : 'medium';
+        final safePriority =
+            validPriorities.contains(_priority) ? _priority : 'medium';
 
         // Criar tarefa IMEDIATAMENTE com JSON local (URLs file://)
         // Upload de imagens será feito em background depois
@@ -984,15 +1006,18 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         final taskRow = await tasksModule.createTask(
           id: _provisionalTaskId, // UUID provisório gerado no initState
           title: _title.text.trim(),
-          description: _briefingJson.isNotEmpty ? _briefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
+          description: _briefingJson.isNotEmpty
+              ? _briefingJson
+              : (_briefingText.isNotEmpty ? _briefingText : null),
           projectId: _projectId ?? widget.projectId!,
-          assignedTo: _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
-          assigneeUserIds: _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
+          assignedTo:
+              _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+          assigneeUserIds:
+              _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
           status: 'todo',
           priority: safePriority,
           dueDate: _dueDate,
         );
-
 
         // Atualizar prioridade baseada no prazo
         final taskId = taskRow['id'] as String;
@@ -1002,14 +1027,14 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         if (_designMaterialsRefs.isNotEmpty) {
           for (final ref in _designMaterialsRefs) {
             try {
-
               await client.from('task_files').insert({
                 'task_id': taskId,
                 'filename': ref['filename'],
                 'drive_file_id': ref['drive_file_id'],
                 'drive_file_url': ref['drive_file_url'],
                 'mime_type': ref['mime_type'],
-                'size_bytes': ref['file_size_bytes'], // Coluna é 'size_bytes', não 'file_size_bytes'
+                'size_bytes': ref[
+                    'file_size_bytes'], // Coluna é 'size_bytes', não 'file_size_bytes'
                 'category': 'assets',
                 'created_by': userId,
               });
@@ -1038,7 +1063,9 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
             briefingJson: _briefingJson,
             clientName: _clientName!,
             projectName: _projectName!,
-            taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Nova Tarefa',
+            taskTitle: _title.text.trim().isNotEmpty
+                ? _title.text.trim()
+                : 'Nova Tarefa',
             companyName: _companyName,
           );
         }
@@ -1060,7 +1087,8 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           taskId: taskRow['id'] as String,
           clientName: _clientName ?? 'Cliente',
           projectName: _projectName ?? 'Projeto',
-          taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Tarefa',
+          taskTitle:
+              _title.text.trim().isNotEmpty ? _title.text.trim() : 'Tarefa',
           assetsImages: _assetsImages,
           assetsFiles: _assetsFiles,
           assetsVideos: _assetsVideos,
@@ -1069,38 +1097,26 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           driveService: _drive,
         );
 
-
-
+        // Save linked products to task_products table
         // Save linked products to task_products table
         try {
           final taskId = taskRow['id'] as String;
-
-
-          // Delete existing links for this task
-          await client.from('task_products').delete().eq('task_id', taskId);
-
-          // Insert new links
-          if (_linkedProducts.isNotEmpty) {
-            final inserts = _linkedProducts.map((p) => {
-              'task_id': taskId,
-              'product_id': p['productId'],
-              'package_id': p['packageId'],
-              'created_by': userId,
-            }).toList();
-
-
-            await client.from('task_products').insert(inserts);
-          }
+          await TaskProductsService.saveLinkedProducts(
+            taskId: taskId,
+            linkedProducts: _linkedProducts,
+          );
         } catch (e) {
           // Ignorar erro (operação não crítica)
         }
       } else {
         // Editar
-        final beforeStatus = (widget.initial!['status'] as String?)?.toLowerCase();
+        final beforeStatus =
+            (widget.initial!['status'] as String?)?.toLowerCase();
 
         // Validar prioridade
         final validPriorities = ['low', 'medium', 'high', 'urgent'];
-        final safePriority = validPriorities.contains(_priority) ? _priority : 'medium';
+        final safePriority =
+            validPriorities.contains(_priority) ? _priority : 'medium';
 
         try {
           // Atualizar tarefa IMEDIATAMENTE com JSON local (URLs file://)
@@ -1108,9 +1124,13 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           await tasksModule.updateTask(
             taskId: widget.initial!['id'],
             title: _title.text.trim(),
-            description: _briefingJson.isNotEmpty ? _briefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
-            assignedTo: _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
-            assigneeUserIds: _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
+            description: _briefingJson.isNotEmpty
+                ? _briefingJson
+                : (_briefingText.isNotEmpty ? _briefingText : null),
+            assignedTo:
+                _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+            assigneeUserIds:
+                _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
             priority: safePriority,
             dueDate: _dueDate,
           );
@@ -1122,14 +1142,14 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           if (_designMaterialsRefs.isNotEmpty) {
             for (final ref in _designMaterialsRefs) {
               try {
-
                 await client.from('task_files').insert({
                   'task_id': widget.initial!['id'],
                   'filename': ref['filename'],
                   'drive_file_id': ref['drive_file_id'],
                   'drive_file_url': ref['drive_file_url'],
                   'mime_type': ref['mime_type'],
-                  'size_bytes': ref['file_size_bytes'], // Coluna é 'size_bytes', não 'file_size_bytes'
+                  'size_bytes': ref[
+                      'file_size_bytes'], // Coluna é 'size_bytes', não 'file_size_bytes'
                   'category': 'assets',
                   'created_by': userId,
                 });
@@ -1158,7 +1178,9 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
               briefingJson: _briefingJson,
               clientName: _clientName!,
               projectName: _projectName!,
-              taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : widget.initial!['title'] ?? 'Tarefa',
+              taskTitle: _title.text.trim().isNotEmpty
+                  ? _title.text.trim()
+                  : widget.initial!['title'] ?? 'Tarefa',
               companyName: _companyName,
             );
           }
@@ -1180,14 +1202,16 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
 
         final afterTask = await client
             .from('tasks')
-            .select('status, title, projects:project_id(name, clients:client_id(name))')
+            .select(
+                'status, title, projects:project_id(name, clients:client_id(name))')
             .eq('id', widget.initial!['id'])
             .single();
 
         // Upload Assets em segundo plano (se houver)
         await startAssetsBackgroundUpload(
           taskId: widget.initial!['id'] as String,
-          clientName: (afterTask['projects']?['clients']?['name'] ?? 'Cliente').toString(),
+          clientName: (afterTask['projects']?['clients']?['name'] ?? 'Cliente')
+              .toString(),
           projectName: (afterTask['projects']?['name'] ?? 'Projeto').toString(),
           taskTitle: (afterTask['title'] ?? 'Tarefa').toString(),
           assetsImages: _assetsImages,
@@ -1198,12 +1222,17 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           driveService: _drive,
         );
         final afterStatus = (afterTask['status'] as String?)?.toLowerCase();
-        final turnedCompleted = beforeStatus != 'completed' && afterStatus == 'completed';
-        final leftCompleted = beforeStatus == 'completed' && afterStatus != 'completed';
+        final turnedCompleted =
+            beforeStatus != 'completed' && afterStatus == 'completed';
+        final leftCompleted =
+            beforeStatus == 'completed' && afterStatus != 'completed';
         if (turnedCompleted || leftCompleted) {
           try {
-            final clientName = (afterTask['projects']?['clients']?['name'] ?? 'Cliente').toString();
-            final projectName = (afterTask['projects']?['name'] ?? 'Projeto').toString();
+            final clientName =
+                (afterTask['projects']?['clients']?['name'] ?? 'Cliente')
+                    .toString();
+            final projectName =
+                (afterTask['projects']?['name'] ?? 'Projeto').toString();
             final taskTitle = (afterTask['title'] ?? 'Tarefa').toString();
             final drive = GoogleDriveOAuthService();
             final authed = await drive.getAuthedClient();
@@ -1334,30 +1363,17 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         */
 
         // Save linked products to task_products table
+        // Save linked products to task_products table
         try {
           final taskId = widget.initial!['id'] as String;
-
-
-          // Delete existing links for this task
-          await client.from('task_products').delete().eq('task_id', taskId);
-
-          // Insert new links
-          if (_linkedProducts.isNotEmpty) {
-            final inserts = _linkedProducts.map((p) => {
-              'task_id': taskId,
-              'product_id': p['productId'],
-              'package_id': p['packageId'],
-              'created_by': userId,
-            }).toList();
-
-
-            await client.from('task_products').insert(inserts);
-          }
+          await TaskProductsService.saveLinkedProducts(
+            taskId: taskId,
+            linkedProducts: _linkedProducts,
+          );
         } catch (e) {
           // Ignorar erro (operação não crítica)
         }
       }
-
 
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
@@ -1382,9 +1398,11 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
           label: 'Cancelar',
         ),
         PrimaryButton(
-          onPressed: _saving ? null : () {
-            _save();
-          },
+          onPressed: _saving
+              ? null
+              : () {
+                  _save();
+                },
           label: 'Salvar',
           isLoading: _saving,
         ),
@@ -1394,134 +1412,140 @@ class _QuickTaskFormState extends State<QuickTaskForm> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-                // 1. Título (largura fill)
-                MentionTextField(
-                  controller: _title,
-                  decoration: const InputDecoration(labelText: 'Título *'),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'Informe o título' : null,
-                  maxLines: 1,
-                  onMentionsChanged: (userIds) {
-                    // Menções serão salvas ao salvar a tarefa
-                  },
-                ),
-                const SizedBox(height: 12),
+            // 1. Título (largura fill)
+            MentionTextField(
+              controller: _title,
+              decoration: const InputDecoration(labelText: 'Título *'),
+              validator: (v) =>
+                  v == null || v.trim().isEmpty ? 'Informe o título' : null,
+              maxLines: 1,
+              onMentionsChanged: (userIds) {
+                // Menções serão salvas ao salvar a tarefa
+              },
+            ),
+            const SizedBox(height: 12),
 
-                // 2. Data de conclusão / Prioridade (wrap responsivo)
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final fieldWidth = constraints.maxWidth > 264
-                        ? (constraints.maxWidth - 12) / 2
-                        : constraints.maxWidth;
+            // 2. Data de conclusão / Prioridade (wrap responsivo)
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final fieldWidth = constraints.maxWidth > 264
+                    ? (constraints.maxWidth - 12) / 2
+                    : constraints.maxWidth;
 
-                    return Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        SizedBox(
-                          width: fieldWidth.clamp(120.0, double.infinity),
-                          child: TaskDateField(
-                            dueDate: _dueDate,
-                            onDateChanged: (date) {
-                              setState(() => _dueDate = date);
-                            },
-                            enabled: !_saving,
-                          ),
-                        ),
-                        SizedBox(
-                          width: fieldWidth.clamp(120.0, double.infinity),
-                          child: TaskPriorityField(
-                            priority: _priority,
-                            onPriorityChanged: (priority) {
-                              setState(() => _priority = priority);
-                            },
-                            enabled: !_saving,
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-
-                // 3. Responsáveis (largura fill - múltiplos)
-                TaskAssigneesField(
-                  assigneeUserIds: _assigneeUserIds,
-                  members: _members,
-                  onAssigneesChanged: (userIds) {
-                    setState(() => _assigneeUserIds = userIds);
-                  },
-                  enabled: !_saving,
-                ),
-                const SizedBox(height: 12),
-
-                // 4. Produtos (vínculo via diálogo + cards)
-                TaskProductLinkSelector(
-                  projectId: _projectId,
-                  currentTaskId: widget.initial != null ? (widget.initial!['id'] as String?) : null,
-                  selectedProducts: _linkedProducts,
-                  onChanged: (products) {
-                    setState(() => _linkedProducts = products);
-                  },
-                  enabled: !_saving,
-                  placeholderText: 'Vincular produto',
-                ),
-                const SizedBox(height: 12),
-
-                // 5. Briefing (largura fill)
-                TaskBriefingSection(
-                  initialJson: _briefingJson.isNotEmpty ? _briefingJson : null,
-                  initialText: _briefingJson.isEmpty ? _briefingText : null,
-                  onChanged: (text) {
-                    setState(() => _briefingText = text);
-                  },
-                  onJsonChanged: (json) {
-                    setState(() => _briefingJson = json);
-                  },
-                  enabled: !_saving,
-                  taskId: widget.initial?['id'] as String?,
-                  taskTitle: _title.text.isNotEmpty ? _title.text : 'Nova Tarefa',
-                  projectName: _projectName,
-                  clientName: _clientName,
-                ),
-                const SizedBox(height: 16),
-
-                // 6. Assets (largura fill)
-                TaskAssetsSection(
-                  taskId: widget.initial?['id'] as String? ?? _provisionalTaskId, // UUID provisório para tasks novas
-                  assetsImages: _assetsImages,
-                  assetsFiles: _assetsFiles,
-                  assetsVideos: _assetsVideos,
-                  onAssetsChanged: (images, files, videos) {
-                    setState(() {
-                      _assetsImages = images;
-                      _assetsFiles = files;
-                      _assetsVideos = videos;
-                    });
-                  },
-                  enabled: !_saving,
-                  companyId: _companyId, // Habilita Design Materials se disponível
-                  companyName: _companyName, // Nome para exibir no dialog
-                  designMaterialsRefs: _designMaterialsRefs, // Referências em memória
-                  onDesignMaterialsRefsChanged: (refs) {
-                    setState(() => _designMaterialsRefs = refs);
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // 7. Histórico (largura fill)
-                if (widget.initial != null && widget.initial!['id'] != null) ...[
-                  ExpansionTile(
-                    leading: const Icon(Icons.history),
-                    title: const Text('Histórico de Alterações'),
-                    initiallyExpanded: false,
-                    children: [
-                      Container(
-                        constraints: const BoxConstraints(maxHeight: 400),
-                        child: TaskHistoryWidget(taskId: widget.initial!['id'] as String),
+                return Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: [
+                    SizedBox(
+                      width: fieldWidth.clamp(120.0, double.infinity),
+                      child: TaskDateField(
+                        dueDate: _dueDate,
+                        onDateChanged: (date) {
+                          setState(() => _dueDate = date);
+                        },
+                        enabled: !_saving,
                       ),
-                    ],
+                    ),
+                    SizedBox(
+                      width: fieldWidth.clamp(120.0, double.infinity),
+                      child: TaskPriorityField(
+                        priority: _priority,
+                        onPriorityChanged: (priority) {
+                          setState(() => _priority = priority);
+                        },
+                        enabled: !_saving,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // 3. Responsáveis (largura fill - múltiplos)
+            TaskAssigneesField(
+              assigneeUserIds: _assigneeUserIds,
+              members: _members,
+              onAssigneesChanged: (userIds) {
+                setState(() => _assigneeUserIds = userIds);
+              },
+              enabled: !_saving,
+            ),
+            const SizedBox(height: 12),
+
+            // 4. Produtos (vínculo via diálogo + cards)
+            TaskProductLinkSelector(
+              projectId: _projectId,
+              currentTaskId: widget.initial != null
+                  ? (widget.initial!['id'] as String?)
+                  : null,
+              selectedProducts: _linkedProducts,
+              onChanged: (products) {
+                setState(() => _linkedProducts = products);
+              },
+              enabled: !_saving,
+              placeholderText: 'Vincular produto',
+            ),
+            const SizedBox(height: 12),
+
+            // 5. Briefing (largura fill)
+            TaskBriefingSection(
+              initialJson: _briefingJson.isNotEmpty ? _briefingJson : null,
+              initialText: _briefingJson.isEmpty ? _briefingText : null,
+              onChanged: (text) {
+                setState(() => _briefingText = text);
+              },
+              onJsonChanged: (json) {
+                setState(() => _briefingJson = json);
+              },
+              enabled: !_saving,
+              taskId: widget.initial?['id'] as String?,
+              taskTitle: _title.text.isNotEmpty ? _title.text : 'Nova Tarefa',
+              projectName: _projectName,
+              clientName: _clientName,
+            ),
+            const SizedBox(height: 16),
+
+            // 6. Assets (largura fill)
+            TaskAssetsSection(
+              taskId: widget.initial?['id'] as String? ??
+                  _provisionalTaskId, // UUID provisório para tasks novas
+              assetsImages: _assetsImages,
+              assetsFiles: _assetsFiles,
+              assetsVideos: _assetsVideos,
+              onAssetsChanged: (images, files, videos) {
+                setState(() {
+                  _assetsImages = images;
+                  _assetsFiles = files;
+                  _assetsVideos = videos;
+                });
+              },
+              enabled: !_saving,
+              companyId: _companyId, // Habilita Design Materials se disponível
+              companyName: _companyName, // Nome para exibir no dialog
+              designMaterialsRefs:
+                  _designMaterialsRefs, // Referências em memória
+              onDesignMaterialsRefsChanged: (refs) {
+                setState(() => _designMaterialsRefs = refs);
+              },
+            ),
+            const SizedBox(height: 16),
+
+            // 7. Histórico (largura fill)
+            if (widget.initial != null && widget.initial!['id'] != null) ...[
+              ExpansionTile(
+                leading: const Icon(Icons.history),
+                title: const Text('Histórico de Alterações'),
+                initiallyExpanded: false,
+                children: [
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 400),
+                    child: TaskHistoryWidget(
+                        taskId: widget.initial!['id'] as String),
                   ),
                 ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1599,7 +1623,9 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
     // Carregar produtos vinculados quando em modo de edi e7 e3o
     final initialId = widget.initial?['id'] as String?;
     if (initialId != null && initialId.isNotEmpty) {
-      TaskProductsService.loadLinkedProducts(initialId, projectId: widget.projectId).then((list) {
+      TaskProductsService.loadLinkedProducts(initialId,
+              projectId: widget.projectId)
+          .then((list) {
         if (mounted) setState(() => _linkedProducts = list);
       });
     }
@@ -1656,18 +1682,16 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
   Future<void> _loadMembers() async {
     setState(() => _loadingMembers = true);
     try {
-
       // Buscar membros do projeto primeiro
       final res = await Supabase.instance.client
           .from('project_members')
-          .select('user_id, profiles:user_id(full_name, email, role, avatar_url)')
+          .select(
+              'user_id, profiles:user_id(full_name, email, role, avatar_url)')
           .eq('project_id', widget.projectId);
       final all = List<Map<String, dynamic>>.from(res);
 
-
       // Não filtrar por roles - mostrar todos os membros do projeto
       var filtered = all;
-
 
       // Fallback: buscar membros da organização se o projeto não tem membros
       if (filtered.isEmpty) {
@@ -1679,7 +1703,6 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
               'get_organization_members_with_profiles',
               params: {'org_id': orgId},
             ) as List;
-
 
             filtered = orgMembers.map((m) {
               final member = m as Map<String, dynamic>;
@@ -1720,7 +1743,8 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
     try {
       final project = await Supabase.instance.client
           .from('projects')
-          .select('name, client_id, company_id, clients:client_id(name), companies:company_id(name)')
+          .select(
+              'name, client_id, company_id, clients:client_id(name), companies:company_id(name)')
           .eq('id', widget.projectId)
           .maybeSingle();
 
@@ -1729,7 +1753,8 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
           _projectName = project['name'] as String?;
           _clientName = (project['clients'] as Map?)?['name'] as String?;
           _companyName = (project['companies'] as Map?)?['name'] as String?;
-          _companyId = project['company_id'] as String?; // Para Design Materials
+          _companyId =
+              project['company_id'] as String?; // Para Design Materials
         });
       }
     } catch (e) {
@@ -1747,25 +1772,36 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
 
       // Validar prioridade
       final validPriorities = ['low', 'medium', 'high', 'urgent'];
-      final safePriority = validPriorities.contains(_priority) ? _priority : 'medium';
+      final safePriority =
+          validPriorities.contains(_priority) ? _priority : 'medium';
 
       // Validar status
-      final validStatuses = ['todo', 'in_progress', 'review', 'completed', 'cancelled'];
+      final validStatuses = [
+        'todo',
+        'in_progress',
+        'review',
+        'completed',
+        'cancelled'
+      ];
       final safeStatus = validStatuses.contains(_status) ? _status : 'todo';
 
       final data = {
         'title': _title.text.trim(),
-        'description': _briefingJson.isNotEmpty ? _briefingJson : (_briefingText.isNotEmpty ? _briefingText : null),
+        'description': _briefingJson.isNotEmpty
+            ? _briefingJson
+            : (_briefingText.isNotEmpty ? _briefingText : null),
         'project_id': widget.projectId,
         'parent_task_id': widget.parentTaskId,
-        'assigned_to': _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+        'assigned_to':
+            _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
         'assignee_user_ids': _assigneeUserIds,
         'status': safeStatus,
         'priority': safePriority,
-        'due_date': _dueDate == null ? null : DateUtils.dateOnly(_dueDate!).toIso8601String(),
+        'due_date': _dueDate == null
+            ? null
+            : DateUtils.dateOnly(_dueDate!).toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       };
-
 
       if (widget.initial == null) {
         // Criar nova sub task usando o módulo (isso vai criar a pasta no Google Drive)
@@ -1775,11 +1811,15 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
           title: data['title'] as String,
           description: data['description'] as String?,
           projectId: widget.projectId,
-          assignedTo: _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
-          assigneeUserIds: _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
+          assignedTo:
+              _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+          assigneeUserIds:
+              _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
           status: (data['status'] ?? 'todo') as String,
           priority: (data['priority'] ?? 'medium') as String,
-          dueDate: data['due_date'] != null ? DateTime.parse(data['due_date'] as String) : null,
+          dueDate: data['due_date'] != null
+              ? DateTime.parse(data['due_date'] as String)
+              : null,
           parentTaskId: widget.parentTaskId,
         );
 
@@ -1795,7 +1835,8 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
                 'drive_file_id': ref['drive_file_id'],
                 'drive_file_url': ref['drive_file_url'],
                 'mime_type': ref['mime_type'],
-                'size_bytes': ref['file_size_bytes'], // Coluna é 'size_bytes', não 'file_size_bytes'
+                'size_bytes': ref[
+                    'file_size_bytes'], // Coluna é 'size_bytes', não 'file_size_bytes'
                 'category': 'assets',
                 'created_by': userId,
               });
@@ -1806,13 +1847,17 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
         }
 
         // Upload de imagens do briefing em BACKGROUND (não bloqueia o salvamento)
-        if (_clientName != null && _projectName != null && widget.parentTaskTitle != null) {
+        if (_clientName != null &&
+            _projectName != null &&
+            widget.parentTaskTitle != null) {
           startBriefingImagesBackgroundUpload(
             taskId: taskId,
             briefingJson: _briefingJson,
             clientName: _clientName!,
             projectName: _projectName!,
-            taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Sub Tarefa',
+            taskTitle: _title.text.trim().isNotEmpty
+                ? _title.text.trim()
+                : 'Sub Tarefa',
             companyName: _companyName,
             isSubTask: true,
             parentTaskTitle: widget.parentTaskTitle,
@@ -1826,12 +1871,16 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
         );
 
         // Upload Assets em segundo plano (se houver) - SUBTASK
-        if (_clientName != null && _projectName != null && widget.parentTaskTitle != null) {
+        if (_clientName != null &&
+            _projectName != null &&
+            widget.parentTaskTitle != null) {
           await startAssetsBackgroundUpload(
             taskId: taskId,
             clientName: _clientName!,
             projectName: _projectName!,
-            taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Sub Tarefa',
+            taskTitle: _title.text.trim().isNotEmpty
+                ? _title.text.trim()
+                : 'Sub Tarefa',
             assetsImages: _assetsImages,
             assetsFiles: _assetsFiles,
             assetsVideos: _assetsVideos,
@@ -1842,18 +1891,21 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
             driveService: _drive,
           );
         }
-
       } else {
         // Atualizar sub task existente usando o módulo (isso vai renomear a pasta no Google Drive se necessário)
         await tasksModule.updateTask(
           taskId: widget.initial!['id'],
           title: data['title'] as String?,
           description: data['description'] as String?,
-          assignedTo: _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
-          assigneeUserIds: _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
+          assignedTo:
+              _assigneeUserIds.isNotEmpty ? _assigneeUserIds.first : null,
+          assigneeUserIds:
+              _assigneeUserIds.isNotEmpty ? _assigneeUserIds : null,
           status: data['status'] as String?,
           priority: data['priority'] as String?,
-          dueDate: data['due_date'] != null ? DateTime.parse(data['due_date'] as String) : null,
+          dueDate: data['due_date'] != null
+              ? DateTime.parse(data['due_date'] as String)
+              : null,
         );
 
         // Salvar vnculos de produtos da Subtarefa (edie7fo)
@@ -1863,12 +1915,16 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
         );
 
         // Upload Assets em segundo plano (se houver) - SUBTASK EDIT
-        if (_clientName != null && _projectName != null && widget.parentTaskTitle != null) {
+        if (_clientName != null &&
+            _projectName != null &&
+            widget.parentTaskTitle != null) {
           await startAssetsBackgroundUpload(
             taskId: widget.initial!['id'] as String,
             clientName: _clientName!,
             projectName: _projectName!,
-            taskTitle: _title.text.trim().isNotEmpty ? _title.text.trim() : 'Sub Tarefa',
+            taskTitle: _title.text.trim().isNotEmpty
+                ? _title.text.trim()
+                : 'Sub Tarefa',
             assetsImages: _assetsImages,
             assetsFiles: _assetsFiles,
             assetsVideos: _assetsVideos,
@@ -1940,155 +1996,158 @@ class _SubTaskFormDialogState extends State<SubTaskFormDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-                      // 1. Título (largura fill)
-                      MentionTextField(
-                        controller: _title,
-                        decoration: const InputDecoration(labelText: 'Título *'),
-                        validator: (v) => v == null || v.trim().isEmpty ? 'Informe o título' : null,
-                        maxLines: 1,
-                        onMentionsChanged: (userIds) {
-                          // Menções serão salvas ao salvar a tarefa
-                        },
-                      ),
-                      const SizedBox(height: 12),
+            // 1. Título (largura fill)
+            MentionTextField(
+              controller: _title,
+              decoration: const InputDecoration(labelText: 'Título *'),
+              validator: (v) =>
+                  v == null || v.trim().isEmpty ? 'Informe o título' : null,
+              maxLines: 1,
+              onMentionsChanged: (userIds) {
+                // Menções serão salvas ao salvar a tarefa
+              },
+            ),
+            const SizedBox(height: 12),
 
-                      // 2. Data de conclusão / Prioridade (wrap responsivo)
-                      if (_loadingMembers)
-                        const Center(child: CircularProgressIndicator())
-                      else
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final fieldWidth = constraints.maxWidth > 264
-                                ? (constraints.maxWidth - 12) / 2
-                                : constraints.maxWidth;
+            // 2. Data de conclusão / Prioridade (wrap responsivo)
+            if (_loadingMembers)
+              const Center(child: CircularProgressIndicator())
+            else
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final fieldWidth = constraints.maxWidth > 264
+                      ? (constraints.maxWidth - 12) / 2
+                      : constraints.maxWidth;
 
-                            return Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
-                              children: [
-                                SizedBox(
-                                  width: fieldWidth.clamp(120.0, double.infinity),
-                                  child: TaskDateField(
-                                    dueDate: _dueDate,
-                                    onDateChanged: (date) {
-                                      setState(() => _dueDate = date);
-                                    },
-                                    enabled: !_saving,
-                                  ),
-                                ),
-                                SizedBox(
-                                  width: fieldWidth.clamp(120.0, double.infinity),
-                                  child: TaskPriorityField(
-                                    priority: _priority,
-                                    onPriorityChanged: (priority) {
-                                      setState(() => _priority = priority);
-                                    },
-                                    enabled: !_saving,
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      const SizedBox(height: 12),
-
-                      // 3. Status (largura fill)
-                      if (!_loadingMembers)
-                        TaskStatusField(
-                          status: _status,
-                          taskId: widget.initial?['id'] as String?,
-                          onStatusChanged: (status) {
-                            setState(() => _status = status);
+                  return Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: [
+                      SizedBox(
+                        width: fieldWidth.clamp(120.0, double.infinity),
+                        child: TaskDateField(
+                          dueDate: _dueDate,
+                          onDateChanged: (date) {
+                            setState(() => _dueDate = date);
                           },
                           enabled: !_saving,
                         ),
-                      const SizedBox(height: 12),
-
-                      // 4. Responsáveis (largura fill - múltiplos)
-                      if (!_loadingMembers)
-                        TaskAssigneesField(
-                          assigneeUserIds: _assigneeUserIds,
-                          members: _members,
-                          onAssigneesChanged: (userIds) {
-                            setState(() => _assigneeUserIds = userIds);
+                      ),
+                      SizedBox(
+                        width: fieldWidth.clamp(120.0, double.infinity),
+                        child: TaskPriorityField(
+                          priority: _priority,
+                          onPriorityChanged: (priority) {
+                            setState(() => _priority = priority);
                           },
                           enabled: !_saving,
                         ),
-                      const SizedBox(height: 16),
-                      // 5. Produtos (vínculo)
-                      TaskProductLinkSelector(
-                        projectId: widget.projectId,
-                        currentTaskId: widget.initial != null ? (widget.initial!['id'] as String?) : null,
-                        selectedProducts: _linkedProducts,
-                        onChanged: (products) {
-                          setState(() => _linkedProducts = products);
-                        },
-                        enabled: !_saving,
-                        placeholderText: 'Vincular produto',
                       ),
-                      const SizedBox(height: 16),
+                    ],
+                  );
+                },
+              ),
+            const SizedBox(height: 12),
 
+            // 3. Status (largura fill)
+            if (!_loadingMembers)
+              TaskStatusField(
+                status: _status,
+                taskId: widget.initial?['id'] as String?,
+                onStatusChanged: (status) {
+                  setState(() => _status = status);
+                },
+                enabled: !_saving,
+              ),
+            const SizedBox(height: 12),
 
-                      // 5. Briefing (largura fill)
-                      TaskBriefingSection(
-                        initialJson: _briefingJson.isNotEmpty ? _briefingJson : null,
-                        initialText: _briefingJson.isEmpty ? _briefingText : null,
-                        onChanged: (text) {
-                          setState(() => _briefingText = text);
-                        },
-                        onJsonChanged: (json) {
-                          setState(() => _briefingJson = json);
-                        },
-                        enabled: !_saving,
-                        taskId: widget.initial?['id'] as String?,
-                        taskTitle: _title.text.isNotEmpty ? _title.text : 'Nova Tarefa',
-                        projectName: _projectName,
-                        clientName: _clientName,
-                      ),
-                      const SizedBox(height: 16),
+            // 4. Responsáveis (largura fill - múltiplos)
+            if (!_loadingMembers)
+              TaskAssigneesField(
+                assigneeUserIds: _assigneeUserIds,
+                members: _members,
+                onAssigneesChanged: (userIds) {
+                  setState(() => _assigneeUserIds = userIds);
+                },
+                enabled: !_saving,
+              ),
+            const SizedBox(height: 16),
+            // 5. Produtos (vínculo)
+            TaskProductLinkSelector(
+              projectId: widget.projectId,
+              currentTaskId: widget.initial != null
+                  ? (widget.initial!['id'] as String?)
+                  : null,
+              selectedProducts: _linkedProducts,
+              onChanged: (products) {
+                setState(() => _linkedProducts = products);
+              },
+              enabled: !_saving,
+              placeholderText: 'Vincular produto',
+            ),
+            const SizedBox(height: 16),
 
-                      // 6. Assets (largura fill)
-                      TaskAssetsSection(
-                        taskId: widget.initial?['id'] as String? ?? _provisionalTaskId, // UUID provisório para subtasks novas
-                        assetsImages: _assetsImages,
-                        assetsFiles: _assetsFiles,
-                        assetsVideos: _assetsVideos,
-                        onAssetsChanged: (images, files, videos) {
-                          setState(() {
-                            _assetsImages = images;
-                            _assetsFiles = files;
-                            _assetsVideos = videos;
-                          });
-                        },
-                        enabled: !_saving,
-                        companyId: _companyId, // Habilita Design Materials se disponível
-                        companyName: _companyName, // Nome para exibir no dialog
-                        designMaterialsRefs: _designMaterialsRefs, // Referências em memória
-                        onDesignMaterialsRefsChanged: (refs) {
-                          setState(() => _designMaterialsRefs = refs);
-                        },
-                      ),
-                      const SizedBox(height: 16),
+            // 5. Briefing (largura fill)
+            TaskBriefingSection(
+              initialJson: _briefingJson.isNotEmpty ? _briefingJson : null,
+              initialText: _briefingJson.isEmpty ? _briefingText : null,
+              onChanged: (text) {
+                setState(() => _briefingText = text);
+              },
+              onJsonChanged: (json) {
+                setState(() => _briefingJson = json);
+              },
+              enabled: !_saving,
+              taskId: widget.initial?['id'] as String?,
+              taskTitle: _title.text.isNotEmpty ? _title.text : 'Nova Tarefa',
+              projectName: _projectName,
+              clientName: _clientName,
+            ),
+            const SizedBox(height: 16),
 
-                      // 7. Histórico (largura fill)
-                      if (widget.initial != null && widget.initial!['id'] != null) ...[
-                        ExpansionTile(
-                          leading: const Icon(Icons.history),
-                          title: const Text('Histórico de Alterações'),
-                          initiallyExpanded: false,
-                          children: [
-                            Container(
-                              constraints: const BoxConstraints(maxHeight: 400),
-                              child: TaskHistoryWidget(taskId: widget.initial!['id'] as String),
-                            ),
-                          ],
-                        ),
-                      ],
+            // 6. Assets (largura fill)
+            TaskAssetsSection(
+              taskId: widget.initial?['id'] as String? ??
+                  _provisionalTaskId, // UUID provisório para subtasks novas
+              assetsImages: _assetsImages,
+              assetsFiles: _assetsFiles,
+              assetsVideos: _assetsVideos,
+              onAssetsChanged: (images, files, videos) {
+                setState(() {
+                  _assetsImages = images;
+                  _assetsFiles = files;
+                  _assetsVideos = videos;
+                });
+              },
+              enabled: !_saving,
+              companyId: _companyId, // Habilita Design Materials se disponível
+              companyName: _companyName, // Nome para exibir no dialog
+              designMaterialsRefs:
+                  _designMaterialsRefs, // Referências em memória
+              onDesignMaterialsRefsChanged: (refs) {
+                setState(() => _designMaterialsRefs = refs);
+              },
+            ),
+            const SizedBox(height: 16),
 
+            // 7. Histórico (largura fill)
+            if (widget.initial != null && widget.initial!['id'] != null) ...[
+              ExpansionTile(
+                leading: const Icon(Icons.history),
+                title: const Text('Histórico de Alterações'),
+                initiallyExpanded: false,
+                children: [
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 400),
+                    child: TaskHistoryWidget(
+                        taskId: widget.initial!['id'] as String),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 }
-

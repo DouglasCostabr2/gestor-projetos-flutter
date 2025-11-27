@@ -50,7 +50,8 @@ class MentionPlatformTextField extends StatefulWidget {
   final TextStyle? style;
   final InputDecoration? decoration;
   final double? height;
-  final bool renderMentionsAsText; // Se true, mostra markdown completo sem renderização customizada
+  final bool
+      renderMentionsAsText; // Se true, mostra markdown completo sem renderização customizada
 
   const MentionPlatformTextField({
     super.key,
@@ -67,12 +68,14 @@ class MentionPlatformTextField extends StatefulWidget {
   });
 
   @override
-  State<MentionPlatformTextField> createState() => _MentionPlatformTextFieldState();
+  State<MentionPlatformTextField> createState() =>
+      _MentionPlatformTextFieldState();
 }
 
 class _MentionPlatformTextFieldState extends State<MentionPlatformTextField> {
-  static const MethodChannel _channel = MethodChannel('com.mybusiness/mention_textfield');
-  
+  static const MethodChannel _channel =
+      MethodChannel('com.mybusiness/mention_textfield');
+
   int? _viewId;
   List<Map<String, dynamic>> _users = [];
   Timer? _debounceTimer;
@@ -102,7 +105,7 @@ class _MentionPlatformTextFieldState extends State<MentionPlatformTextField> {
           };
         }).toList();
       });
-      
+
       // Send users to native side
       if (_viewId != null) {
         await _channel.invokeMethod('setUsers', {
@@ -124,14 +127,14 @@ class _MentionPlatformTextFieldState extends State<MentionPlatformTextField> {
           widget.onChanged?.call(text);
         });
         break;
-      
+
       case 'onTap':
         widget.onTap?.call();
         break;
-      
+
       case 'requestUsers':
         return _users;
-      
+
       default:
     }
   }
@@ -193,9 +196,11 @@ class _MentionPlatformTextFieldState extends State<MentionPlatformTextField> {
       spans.add(TextSpan(text: text.substring(lastIndex)));
     }
 
-    return RichText(
-      text: TextSpan(
-        style: widget.style ?? const TextStyle(color: Color(0xFFEAEAEA), fontSize: 14, height: 1.5),
+    return Text.rich(
+      TextSpan(
+        style: widget.style ??
+            const TextStyle(
+                color: Color(0xFFEAEAEA), fontSize: 14, height: 1.5),
         children: spans,
       ),
     );
@@ -225,7 +230,7 @@ class _MentionPlatformTextFieldState extends State<MentionPlatformTextField> {
             _loadUsers(); // Reload users after view is created
           },
         );
-      
+
       case TargetPlatform.iOS:
         return UiKitView(
           viewType: 'com.mybusiness/mention_textfield',
@@ -236,7 +241,7 @@ class _MentionPlatformTextFieldState extends State<MentionPlatformTextField> {
             _loadUsers(); // Reload users after view is created
           },
         );
-      
+
       case TargetPlatform.windows:
       case TargetPlatform.linux:
       case TargetPlatform.macOS:
@@ -251,7 +256,7 @@ class _MentionPlatformTextFieldState extends State<MentionPlatformTextField> {
           decoration: widget.decoration,
           renderMentionsAsText: widget.renderMentionsAsText,
         );
-      
+
       default:
         return const Center(
           child: Text('Platform not supported'),
@@ -279,7 +284,8 @@ class _MentionBadgeController extends TextEditingController {
   // Mapa de menções: {nome: uuid}
   final Map<String, String> _mentions = {};
 
-  _MentionBadgeController({String? text, this.renderAsText = false}) : super(text: _convertMarkdownToClean(text ?? '')) {
+  _MentionBadgeController({String? text, this.renderAsText = false})
+      : super(text: _convertMarkdownToClean(text ?? '')) {
     // Extrair menções do texto markdown inicial
     if (text != null && text.isNotEmpty) {
       _extractMentions(text);
@@ -289,7 +295,8 @@ class _MentionBadgeController extends TextEditingController {
   /// Converte markdown "@[Nome](uuid)" para texto limpo "@Nome"
   static String _convertMarkdownToClean(String markdown) {
     if (markdown.isEmpty) return '';
-    return markdown.replaceAllMapped(_mentionMarkdownPattern, (match) => '@${match.group(1)!}');
+    return markdown.replaceAllMapped(
+        _mentionMarkdownPattern, (match) => '@${match.group(1)!}');
   }
 
   /// Extrai menções do texto markdown e armazena no mapa
@@ -310,7 +317,8 @@ class _MentionBadgeController extends TextEditingController {
   String getMarkdownText() {
     String result = text;
     for (final entry in _mentions.entries) {
-      result = result.replaceAll('@${entry.key}', '@[${entry.key}](${entry.value})');
+      result =
+          result.replaceAll('@${entry.key}', '@[${entry.key}](${entry.value})');
     }
     return result;
   }
@@ -402,7 +410,8 @@ class _FlutterMentionTextField extends StatefulWidget {
   });
 
   @override
-  State<_FlutterMentionTextField> createState() => _FlutterMentionTextFieldState();
+  State<_FlutterMentionTextField> createState() =>
+      _FlutterMentionTextFieldState();
 }
 
 class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
@@ -431,11 +440,9 @@ class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
       final selection = _controller.selection;
       if (selection.isCollapsed && _controller.text.isNotEmpty) {
         final pos = selection.baseOffset;
-        if (pos > 0 && pos <= _controller.text.length) {
-        }
+        if (pos > 0 && pos <= _controller.text.length) {}
       }
     });
-
   }
 
   @override
@@ -443,11 +450,13 @@ class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
     super.didUpdateWidget(oldWidget);
 
     // Converter o initialText (markdown) para texto limpo
-    final cleanInitialText = _MentionBadgeController._convertMarkdownToClean(widget.initialText);
+    final cleanInitialText =
+        _MentionBadgeController._convertMarkdownToClean(widget.initialText);
 
     // Só atualizar o controller se o initialText mudou E o controller está desatualizado
     // Comparar com o texto LIMPO, não com o markdown
-    if (oldWidget.initialText != widget.initialText && _controller.text != cleanInitialText) {
+    if (oldWidget.initialText != widget.initialText &&
+        _controller.text != cleanInitialText) {
       // Salvar a posição atual do cursor
       final cursorPos = _controller.selection.baseOffset;
 
@@ -459,9 +468,10 @@ class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
       _controller._extractMentions(widget.initialText);
 
       // Restaurar a posição do cursor (ou colocar no final se a posição não for mais válida)
-      final newCursorPos = cursorPos >= 0 && cursorPos <= cleanInitialText.length
-          ? cursorPos
-          : cleanInitialText.length;
+      final newCursorPos =
+          cursorPos >= 0 && cursorPos <= cleanInitialText.length
+              ? cursorPos
+              : cleanInitialText.length;
       _controller.selection = TextSelection.collapsed(offset: newCursorPos);
     }
   }
@@ -535,7 +545,8 @@ class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
   /// Protege menções de serem editadas
   /// Retorna null se não houver proteção necessária
   /// AGORA trabalha com texto limpo "@Nome" ao invés de markdown "@[Nome](uuid)"
-  TextEditingValue? _protectMentions(String newText, String oldText, int cursorPos) {
+  TextEditingValue? _protectMentions(
+      String newText, String oldText, int cursorPos) {
     // Se o texto não mudou, não há nada para proteger (apenas mudança de seleção)
     if (newText == oldText) {
       return null;
@@ -618,18 +629,20 @@ class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
       builder: (context) {
         // Calcular se deve aparecer acima ou abaixo
         final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
-        final overlay = Overlay.of(context).context.findRenderObject() as RenderBox?;
+        final overlay =
+            Overlay.of(context).context.findRenderObject() as RenderBox?;
 
         bool showAbove = false;
         if (renderBox != null && overlay != null) {
-          final position = renderBox.localToGlobal(Offset.zero, ancestor: overlay);
+          final position =
+              renderBox.localToGlobal(Offset.zero, ancestor: overlay);
           final screenHeight = MediaQuery.of(context).size.height;
           final spaceBelow = screenHeight - position.dy - renderBox.size.height;
           final spaceAbove = position.dy;
 
           // Se não houver espaço embaixo, mostrar acima
           showAbove = spaceBelow < _MentionDropdownConstants.minSpaceRequired &&
-                      spaceAbove > spaceBelow;
+              spaceAbove > spaceBelow;
         }
 
         return Positioned(
@@ -638,17 +651,22 @@ class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
             link: _layerLink,
             showWhenUnlinked: false,
             targetAnchor: showAbove ? Alignment.topLeft : Alignment.bottomLeft,
-            followerAnchor: showAbove ? Alignment.bottomLeft : Alignment.topLeft,
-            offset: Offset(0, showAbove
-                ? -_MentionDropdownConstants.offsetFromField
-                : _MentionDropdownConstants.offsetFromField),
+            followerAnchor:
+                showAbove ? Alignment.bottomLeft : Alignment.topLeft,
+            offset: Offset(
+                0,
+                showAbove
+                    ? -_MentionDropdownConstants.offsetFromField
+                    : _MentionDropdownConstants.offsetFromField),
             child: Material(
               elevation: 4,
-              borderRadius: BorderRadius.circular(_MentionDropdownConstants.borderRadius),
+              borderRadius:
+                  BorderRadius.circular(_MentionDropdownConstants.borderRadius),
               color: _MentionDropdownConstants.backgroundColor,
               child: Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(_MentionDropdownConstants.borderRadius),
+                  borderRadius: BorderRadius.circular(
+                      _MentionDropdownConstants.borderRadius),
                   border: Border.all(
                     color: _MentionDropdownConstants.borderColor,
                     width: _MentionDropdownConstants.borderWidth,
@@ -659,69 +677,80 @@ class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
                     maxHeight: _MentionDropdownConstants.maxHeight,
                   ),
                   child: ListView.builder(
-                padding: EdgeInsets.zero,
-                shrinkWrap: true,
-                itemCount: _filteredUsers.length,
-                itemBuilder: (context, index) {
-                  final user = _filteredUsers[index];
-                  final avatarUrl = user['avatar_url'] as String?;
-                  final userName = user['name'] ?? '';
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    itemCount: _filteredUsers.length,
+                    itemBuilder: (context, index) {
+                      final user = _filteredUsers[index];
+                      final avatarUrl = user['avatar_url'] as String?;
+                      final userName = user['name'] ?? '';
 
-                  return MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _insertMention(user),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: _MentionDropdownConstants.itemPaddingHorizontal,
-                          vertical: _MentionDropdownConstants.itemPaddingVertical,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            bottom: BorderSide(
-                              color: _MentionDropdownConstants.borderColor,
-                              width: index < _filteredUsers.length - 1
-                                  ? _MentionDropdownConstants.borderWidth
-                                  : 0,
+                      return MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => _insertMention(user),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: _MentionDropdownConstants
+                                  .itemPaddingHorizontal,
+                              vertical:
+                                  _MentionDropdownConstants.itemPaddingVertical,
                             ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            CircleAvatar(
-                              radius: _MentionDropdownConstants.avatarRadius,
-                              backgroundColor: _MentionDropdownConstants.borderColor,
-                              backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
-                                  ? NetworkImage(avatarUrl)
-                                  : null,
-                              child: avatarUrl == null || avatarUrl.isEmpty
-                                  ? Text(
-                                      userName.isNotEmpty ? userName[0].toUpperCase() : '?',
-                                      style: const TextStyle(
-                                        color: _MentionDropdownConstants.textColor,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: _MentionDropdownConstants.avatarSpacing),
-                            Expanded(
-                              child: Text(
-                                userName,
-                                style: const TextStyle(
-                                  color: _MentionDropdownConstants.textColor,
-                                  fontSize: 14,
+                            decoration: BoxDecoration(
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: _MentionDropdownConstants.borderColor,
+                                  width: index < _filteredUsers.length - 1
+                                      ? _MentionDropdownConstants.borderWidth
+                                      : 0,
                                 ),
                               ),
                             ),
-                          ],
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  radius:
+                                      _MentionDropdownConstants.avatarRadius,
+                                  backgroundColor:
+                                      _MentionDropdownConstants.borderColor,
+                                  backgroundImage:
+                                      avatarUrl != null && avatarUrl.isNotEmpty
+                                          ? NetworkImage(avatarUrl)
+                                          : null,
+                                  child: avatarUrl == null || avatarUrl.isEmpty
+                                      ? Text(
+                                          userName.isNotEmpty
+                                              ? userName[0].toUpperCase()
+                                              : '?',
+                                          style: const TextStyle(
+                                            color: _MentionDropdownConstants
+                                                .textColor,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                                const SizedBox(
+                                    width: _MentionDropdownConstants
+                                        .avatarSpacing),
+                                Expanded(
+                                  child: Text(
+                                    userName,
+                                    style: const TextStyle(
+                                      color:
+                                          _MentionDropdownConstants.textColor,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  );
-                },
+                      );
+                    },
                   ),
                 ),
               ),
@@ -748,26 +777,25 @@ class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
     final userName = user['name'] as String;
     final userId = user['id'] as String;
 
-
     // Adicionar menção ao mapa do controller
     _controller.addMention(userName, userId);
 
     // Calculate positions
     final beforeMention = text.substring(0, _queryStartPos - 1);
-    final afterMention = cursorPos < text.length ? text.substring(cursorPos) : '';
+    final afterMention =
+        cursorPos < text.length ? text.substring(cursorPos) : '';
 
     // Inserir apenas o nome limpo (sem UUID)
     final mention = '@$userName';
 
-
     // Adicionar espaço após a menção se não houver
-    final mentionWithSpace = afterMention.startsWith(' ') || afterMention.isEmpty
-        ? '$mention '
-        : '$mention ';
+    final mentionWithSpace =
+        afterMention.startsWith(' ') || afterMention.isEmpty
+            ? '$mention '
+            : '$mention ';
 
     final newText = beforeMention + mentionWithSpace + afterMention;
     final newCursorPos = beforeMention.length + mentionWithSpace.length;
-
 
     // Fechar dropdown primeiro
     _hideDropdown();
@@ -806,4 +834,3 @@ class _FlutterMentionTextFieldState extends State<_FlutterMentionTextField> {
     );
   }
 }
-

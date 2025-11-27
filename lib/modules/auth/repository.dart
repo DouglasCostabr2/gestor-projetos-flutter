@@ -8,7 +8,7 @@ import '../../config/google_oauth_config.dart';
 import 'contract.dart';
 
 /// Implementação do contrato de autenticação
-/// 
+///
 /// IMPORTANTE: Esta classe é INTERNA ao módulo.
 /// O mundo externo deve usar apenas o contrato AuthContract.
 class AuthRepository implements AuthContract {
@@ -81,7 +81,6 @@ class AuthRepository implements AuthContract {
   Future<bool> signInWithGoogle() async {
     HttpServer? server;
     try {
-
       // Criar servidor HTTP local para capturar o callback
       // Tentar porta 3000, se falhar, usar porta 0 (aleatória)
       try {
@@ -161,7 +160,6 @@ class AuthRepository implements AuthContract {
           return false;
         }
 
-
         // Trocar código por access token do Google
         try {
           final tokenResponse = await http.post(
@@ -186,7 +184,6 @@ class AuthRepository implements AuthContract {
           if (idToken == null) {
             return false;
           }
-
 
           // Fazer login no Supabase com o ID token do Google
           await _client.auth.signInWithIdToken(
@@ -216,7 +213,6 @@ class AuthRepository implements AuthContract {
   Future<bool> linkGoogleAccount() async {
     HttpServer? server;
     try {
-
       // Forçar atualização do usuário antes de verificar
       await _client.auth.refreshSession();
 
@@ -238,10 +234,8 @@ class AuthRepository implements AuthContract {
         try {
           server = await HttpServer.bind('localhost', 0);
         } catch (e2) {
-          throw Exception(
-            'Não foi possível iniciar o servidor local.\n\n'
-            'Tente fechar e reabrir o aplicativo.'
-          );
+          throw Exception('Não foi possível iniciar o servidor local.\n\n'
+              'Tente fechar e reabrir o aplicativo.');
         }
       }
 
@@ -311,7 +305,6 @@ class AuthRepository implements AuthContract {
           return false;
         }
 
-
         // Trocar código por ID token
         try {
           final tokenResponse = await http.post(
@@ -336,7 +329,6 @@ class AuthRepository implements AuthContract {
           if (idToken == null) {
             return false;
           }
-
 
           // Salvar o ID do usuário atual antes de vincular
           final userIdBeforeLink = currentUser.id;
@@ -363,29 +355,27 @@ class AuthRepository implements AuthContract {
 
             // Verificar se a identidade Google foi realmente adicionada
             final hasGoogleIdentity = updatedUser?.identities?.any(
-              (identity) => identity.provider == 'google',
-            ) ?? false;
+                  (identity) => identity.provider == 'google',
+                ) ??
+                false;
 
             if (hasGoogleIdentity) {
               return true;
             } else {
-              throw Exception(
-                'Não foi possível vincular a conta Google.\n\n'
-                'Possíveis causas:\n'
-                '• Esta conta Google já está vinculada a outro usuário\n'
-                '• "Manual Linking" está desabilitado no Supabase Dashboard'
-              );
+              throw Exception('Não foi possível vincular a conta Google.\n\n'
+                  'Possíveis causas:\n'
+                  '• Esta conta Google já está vinculada a outro usuário\n'
+                  '• "Manual Linking" está desabilitado no Supabase Dashboard');
             }
           } on AuthApiException catch (e) {
-
             if (e.code == 'identity_already_exists') {
-              throw Exception('Esta conta Google já está vinculada a outro usuário');
+              throw Exception(
+                  'Esta conta Google já está vinculada a outro usuário');
             } else if (e.message.contains('Manual linking is disabled')) {
               throw Exception(
-                'Vinculação manual está desabilitada no Supabase.\n\n'
-                'Habilite "Manual Linking" no Dashboard:\n'
-                'Auth → Providers → Security Settings'
-              );
+                  'Vinculação manual está desabilitada no Supabase.\n\n'
+                  'Habilite "Manual Linking" no Dashboard:\n'
+                  'Auth → Providers → Security Settings');
             }
             throw Exception('Erro ao vincular conta Google: ${e.message}');
           }
@@ -406,22 +396,12 @@ class AuthRepository implements AuthContract {
   @override
   Future<bool> unlinkGoogleAccount() async {
     try {
-
       // Forçar atualização do usuário antes de desvincular
       await _client.auth.refreshSession();
 
       final user = _client.auth.currentUser;
       if (user == null) {
         throw Exception('Usuário não autenticado');
-      }
-
-      // Verificar quantas identidades o usuário tem
-      final identitiesCount = user.identities?.length ?? 0;
-
-      if (identitiesCount <= 1) {
-        throw Exception(
-          'única forma de login'  // Palavra-chave para o dialog
-        );
       }
 
       // Verificar se o usuário tem identidade Google
@@ -444,22 +424,104 @@ class AuthRepository implements AuthContract {
 
         // Verificar se a identidade Google foi realmente removida
         final stillHasGoogle = updatedUser?.identities?.any(
-          (identity) => identity.provider == 'google',
-        ) ?? false;
+              (identity) => identity.provider == 'google',
+            ) ??
+            false;
 
         if (!stillHasGoogle) {
           return true;
         } else {
           throw Exception('Erro ao desvincular conta Google');
         }
-      } on AuthApiException catch (e) {
+      } on AuthException catch (e) {
         if (e.code == 'single_identity_not_deletable') {
-          throw Exception(
-            'Você precisa definir uma senha antes de desvincular sua conta Google.\n\n'
-            'Vá até a seção "Alterar Senha" acima e defina uma senha para sua conta.'
-          );
+          // O Supabase não permite desvincular se for a única identidade
+          // Isso significa que o usuário precisa fazer login com senha primeiro
+          // para criar uma sessão autenticada por senha
+          // Sempre solicitar confirmação de senha, independente de ter identidade de email
+          throw Exception('NEEDS_PASSWORD_CONFIRMATION');
         }
         rethrow;
+      } catch (e) {
+        rethrow;
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  @override
+  Future<bool> confirmPasswordAndUnlink(String password) async {
+    try {
+      final email = _client.auth.currentUser?.email;
+      if (email == null) {
+        throw Exception('Email não encontrado');
+      }
+
+      // 1. Fazer login com a senha para confirmar e atualizar a sessão
+      // Isso evita o erro "same_password" do updateUser e garante uma sessão autenticada por senha
+      try {
+        await _client.auth.signInWithPassword(
+          email: email,
+          password: password,
+        );
+      } on AuthException catch (e) {
+        // Se der erro de credenciais inválidas, pode ser:
+        // 1. Senha incorreta
+        // 2. Usuário não tem senha definida (só tem Google)
+        if (e.message.contains('Invalid login credentials') ||
+            e.message.contains('Invalid') ||
+            e.code == 'invalid_credentials') {
+          // Verificar se o usuário tem identidade de email
+          final user = _client.auth.currentUser;
+          final hasEmailIdentity = user?.identities?.any(
+                (identity) => identity.provider == 'email',
+              ) ??
+              false;
+
+          if (!hasEmailIdentity) {
+            // Usuário não tem senha definida
+            throw Exception('NEEDS_PASSWORD_CREATION');
+          } else {
+            // Senha incorreta
+            throw Exception('Senha incorreta');
+          }
+        }
+        rethrow;
+      }
+
+      // 2. Tentar desvincular novamente agora que estamos logados via senha
+      // Desta vez não deve dar erro de single_identity_not_deletable
+      final user = _client.auth.currentUser;
+      if (user == null) {
+        throw Exception('Usuário não autenticado');
+      }
+
+      final googleIdentity = user.identities?.firstWhere(
+        (identity) => identity.provider == 'google',
+        orElse: () => throw Exception('Conta Google não vinculada'),
+      );
+
+      if (googleIdentity == null) {
+        throw Exception('Conta Google não vinculada');
+      }
+
+      await _client.auth.unlinkIdentity(googleIdentity);
+
+      // Forçar atualização do usuário
+      await _client.auth.refreshSession();
+      final updatedUser = _client.auth.currentUser;
+
+      // Verificar se a identidade Google foi realmente removida
+      final stillHasGoogle = updatedUser?.identities?.any(
+            (identity) => identity.provider == 'google',
+          ) ??
+          false;
+
+      if (!stillHasGoogle) {
+        return true;
+      } else {
+        throw Exception('Erro ao desvincular conta Google');
       }
     } catch (e) {
       rethrow;
@@ -473,12 +535,12 @@ class AuthRepository implements AuthContract {
     if (user == null) return false;
 
     return user.identities?.any(
-      (identity) => identity.provider == 'google',
-    ) ?? false;
+          (identity) => identity.provider == 'google',
+        ) ??
+        false;
   }
 }
 
 /// Instância singleton do repositório de autenticação
 /// Esta é a ÚNICA instância que deve ser usada em todo o aplicativo
 final AuthContract authModule = AuthRepository();
-

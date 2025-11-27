@@ -43,8 +43,7 @@ class BriefingImageService implements IBriefingImageService {
     String? subfolderName,
     String? filePrefix,
   }) async {
-    if (companyName != null && companyName.isNotEmpty) {
-    }
+    if (companyName != null && companyName.isNotEmpty) {}
 
     try {
       final data = jsonDecode(briefingJson) as Map<String, dynamic>;
@@ -53,7 +52,6 @@ class BriefingImageService implements IBriefingImageService {
       if (blocks == null) {
         return briefingJson;
       }
-
 
       // Contador para numeração sequencial das imagens
       int imageCounter = 1;
@@ -64,7 +62,8 @@ class BriefingImageService implements IBriefingImageService {
         if (block is Map && block['type'] == 'image') {
           dynamic rawContent = block['content'];
           String? url;
-          Map<String, dynamic>? contentObj; // quando o editor salva {url, caption}
+          Map<String, dynamic>?
+              contentObj; // quando o editor salva {url, caption}
 
           if (rawContent is String) {
             // Pode ser uma URL simples ou um JSON string com {url, caption}
@@ -88,11 +87,9 @@ class BriefingImageService implements IBriefingImageService {
             }
           }
 
-
           // Verificar se é uma URL local (cache)
           if (url != null && url.startsWith('file://')) {
-
-            final uploadedUrl = await _uploadSingleImage(
+            final result = await _uploadSingleImage(
               localUrl: url,
               clientName: clientName,
               projectName: projectName,
@@ -104,13 +101,21 @@ class BriefingImageService implements IBriefingImageService {
               filePrefix: filePrefix ?? 'Briefing',
             );
 
-            if (uploadedUrl != null) {
+            if (result != null) {
+              final uploadedUrl = result['url'] ?? '';
+              final filename = result['filename'];
+
               // Atualiza o bloco preservando o formato original
               if (contentObj != null) {
                 contentObj['url'] = uploadedUrl;
+                contentObj['filename'] = filename;
                 block['content'] = jsonEncode(contentObj);
               } else {
-                block['content'] = uploadedUrl;
+                block['content'] = jsonEncode({
+                  'url': uploadedUrl,
+                  'caption': '',
+                  'filename': filename,
+                });
               }
               imageCounter++;
             }
@@ -132,7 +137,7 @@ class BriefingImageService implements IBriefingImageService {
   }
 
   /// Fazer upload de uma única imagem
-  Future<String?> _uploadSingleImage({
+  Future<Map<String, String>?> _uploadSingleImage({
     required String localUrl,
     required String clientName,
     required String projectName,
@@ -144,7 +149,6 @@ class BriefingImageService implements IBriefingImageService {
     required String filePrefix,
   }) async {
     try {
-
       final localPath = localUrl.substring(7); // Remove 'file://'
 
       final file = File(localPath);
@@ -166,8 +170,8 @@ class BriefingImageService implements IBriefingImageService {
       // Criar nome no formato: <filePrefix>-Task_Cliente-Projeto-01.ext
       final sequenceStr = sequenceNumber.toString().padLeft(2, '0');
       final titleForFilename = isSubTask ? subTaskTitle : taskTitle;
-      final newFileName = '$filePrefix-${titleForFilename}_$clientName-$projectName-$sequenceStr$extension';
-
+      final newFileName =
+          '$filePrefix-${titleForFilename}_$clientName-$projectName-$sequenceStr$extension';
 
       // Upload para pasta correta (task ou subtask)
       final uploadedFile = isSubTask
@@ -195,11 +199,11 @@ class BriefingImageService implements IBriefingImageService {
               companyName: companyName,
             );
 
-      final publicUrl = uploadedFile.publicViewUrl;
+      final publicUrl = uploadedFile.publicViewUrl ?? '';
 
       // Remover apenas arquivos que estejam no cache dedicado da aplicação
       await CacheFileService.deleteIfInAppCache(localPath);
-      return publicUrl;
+      return {'url': publicUrl, 'filename': newFileName};
     } on ConsentRequired catch (e) {
       // Erro específico quando não há conta do Google Drive conectada
       throw DriveException(
@@ -237,13 +241,11 @@ class BriefingImageService implements IBriefingImageService {
         return;
       }
 
-
       final driveClient = await _driveService.getAuthedClient();
       await _driveService.deleteFile(
         client: driveClient,
         driveFileId: fileId,
       );
-
     } catch (e) {
       ErrorHandler.logError(
         e,
@@ -256,4 +258,3 @@ class BriefingImageService implements IBriefingImageService {
     }
   }
 }
-

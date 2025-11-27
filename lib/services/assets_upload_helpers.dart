@@ -49,7 +49,7 @@ Future<void> startAssetsBackgroundUpload({
 
   try {
     final drive = driveService ?? GoogleDriveOAuthService();
-    
+
     // Função helper para obter cliente autenticado
     Future<auth.AuthClient?> ensureClient() async {
       try {
@@ -60,7 +60,8 @@ Future<void> startAssetsBackgroundUpload({
             context: context,
             builder: (ctx) => AlertDialog(
               title: const Text('Conectar ao Google Drive'),
-              content: const Text('É necessário conectar ao Google Drive para fazer upload dos arquivos.'),
+              content: const Text(
+                  'É necessário conectar ao Google Drive para fazer upload dos arquivos.'),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
@@ -92,7 +93,7 @@ Future<void> startAssetsBackgroundUpload({
 
     // Criar lista de items para upload
     final items = <legacy_upload.MemoryUploadItem>[];
-    
+
     void addList(List<PlatformFile> list, String category) {
       for (final f in list.where((f) => f.bytes != null)) {
         items.add(legacy_upload.MemoryUploadItem(
@@ -104,7 +105,7 @@ Future<void> startAssetsBackgroundUpload({
         ));
       }
     }
-    
+
     addList(assetsImages, 'assets');
     addList(assetsFiles, 'assets');
     addList(assetsVideos, 'assets');
@@ -113,8 +114,10 @@ Future<void> startAssetsBackgroundUpload({
       return;
     }
 
-    // Dispara upload em background e não aguarda
-    unawaited(legacy_upload.UploadManager.instance.startAssetsUploadWithClient(
+    // Dispara upload em background com cache local
+    // Os arquivos aparecem imediatamente na UI antes do upload terminar
+    unawaited(
+        legacy_upload.UploadManager.instance.startAssetsUploadWithLocalCache(
       client: authed,
       taskId: taskId,
       clientName: clientName,
@@ -125,16 +128,15 @@ Future<void> startAssetsBackgroundUpload({
       isSubTask: isSubTask,
       parentTaskTitle: parentTaskTitle,
     ));
-    
+
     // Mostrar feedback visual
     if (context != null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enviando arquivos em segundo plano...')),
+        const SnackBar(
+            content: Text('Arquivos salvos! Upload em segundo plano...')),
       );
     }
-    
   } catch (e) {
     // Ignorar erro (operação não crítica)
   }
 }
-

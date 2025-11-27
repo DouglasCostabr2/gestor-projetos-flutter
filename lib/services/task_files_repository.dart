@@ -7,7 +7,7 @@ class TaskFilesRepository {
   final SupabaseClient _client = Supabase.instance.client;
   final GoogleDriveOAuthService _driveService = GoogleDriveOAuthService();
 
-  Future<void> saveFile({
+  Future<String> saveFile({
     required String taskId,
     required String filename,
     required int sizeBytes,
@@ -16,6 +16,9 @@ class TaskFilesRepository {
     required String? driveFileUrl,
     String? category, // e.g., 'final', 'briefing', 'assets', 'comment'
     String? commentId,
+    String? localPath, // Path to local file (temporary, before upload)
+    bool isLocal =
+        false, // True if file is still local (not uploaded to Drive yet)
   }) async {
     final user = Supabase.instance.client.auth.currentUser;
 
@@ -29,25 +32,72 @@ class TaskFilesRepository {
       'created_by': user?.id,
       if (category != null) 'category': category,
       if (commentId != null) 'comment_id': commentId,
+      if (localPath != null) 'local_path': localPath,
+      if (isLocal) 'is_local': isLocal,
     };
 
     try {
-      await _client.from('task_files').insert(data);
+      final result =
+          await _client.from('task_files').insert(data).select('id').single();
+      return result['id'] as String;
     } catch (e) {
       final msg = e.toString();
       final looksLikeMissingCols = msg.contains("PGRST204") ||
           msg.contains("'category' column") ||
           msg.contains('category') ||
-          msg.contains('comment_id');
+          msg.contains('comment_id') ||
+          msg.contains('local_path') ||
+          msg.contains('is_local');
       if (looksLikeMissingCols) {
         final fallback = Map<String, dynamic>.from(data)
           ..remove('category')
-          ..remove('comment_id');
-        await _client.from('task_files').insert(fallback);
+          ..remove('comment_id')
+          ..remove('local_path')
+          ..remove('is_local');
+        final result = await _client
+            .from('task_files')
+            .insert(fallback)
+            .select('id')
+            .single();
+        return result['id'] as String;
       } else {
         rethrow;
       }
     }
+  }
+
+  /// Atualiza um arquivo de local para Drive após upload
+  Future<void> updateFileUrls({
+    required String fileId,
+    required String driveFileId,
+    required String driveFileUrl,
+  }) async {
+    try {
+      await _client.from('task_files').update({
+        'drive_file_id': driveFileId,
+        'drive_file_url': driveFileUrl,
+        'is_local': false,
+        'local_path': null,
+      }).eq('id', fileId);
+    } catch (e) {
+      // Fallback para ambientes sem as colunas is_local/local_path
+      final msg = e.toString();
+      if (msg.contains('is_local') || msg.contains('local_path')) {
+        await _client.from('task_files').update({
+          'drive_file_id': driveFileId,
+          'drive_file_url': driveFileUrl,
+        }).eq('id', fileId);
+      } else {
+        rethrow;
+      }
+    }
+  }
+
+  Future<void> updateCommentId(String fileId, String commentId) async {
+    await _client.from('task_files').update({
+      'comment_id': commentId,
+      'category': 'comment',
+    }).eq('id', fileId);
   }
 
   Future<List<Map<String, dynamic>>> listByTask(String taskId) async {
@@ -55,7 +105,7 @@ class TaskFilesRepository {
       final res = await _client
           .from('task_files')
           .select(
-              'id, filename, mime_type, size_bytes, drive_file_id, drive_file_url, category, comment_id, created_by, created_at')
+              'id, filename, mime_type, size_bytes, drive_file_id, drive_file_url, category, comment_id, created_by, created_at, local_path, is_local')
           .eq('task_id', taskId)
           .order('created_at', ascending: false);
       return List<Map<String, dynamic>>.from(res);
@@ -102,7 +152,7 @@ class TaskFilesRepository {
       final res = await _client
           .from('task_files')
           .select(
-              'id, filename, mime_type, size_bytes, drive_file_id, drive_file_url, category, comment_id, created_by, created_at')
+              'id, filename, mime_type, size_bytes, drive_file_id, drive_file_url, category, comment_id, created_by, created_at, local_path, is_local')
           .eq('task_id', taskId)
           .or('category.is.null,category.eq.assets')
           .order('created_at', ascending: false);
@@ -142,7 +192,27 @@ class TaskFilesRepository {
 
       return files;
     } catch (e) {
-      // Fallback for environments without the category column
+      // Fallback for environments without the category/local columns
+      final msg = e.toString();
+      if (msg.contains('local_path') || msg.contains('is_local')) {
+        // Tenta sem as colunas novas, mas mantendo a lógica de assets
+        try {
+          final res = await _client
+              .from('task_files')
+              .select(
+                  'id, filename, mime_type, size_bytes, drive_file_id, drive_file_url, category, comment_id, created_by, created_at')
+              .eq('task_id', taskId)
+              .or('category.is.null,category.eq.assets')
+              .order('created_at', ascending: false);
+
+          final files = List<Map<String, dynamic>>.from(res);
+          // ... lógica de design materials ...
+          // (Simplificado para fallback)
+          return files;
+        } catch (_) {
+          return await listByTask(taskId);
+        }
+      }
       return await listByTask(taskId);
     }
   }

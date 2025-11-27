@@ -51,5 +51,8 @@ abstract class AuthContract {
 
   /// Verifica se o usuário tem conta Google vinculada
   bool get hasGoogleAccount;
-}
 
+  /// Confirma a senha e desvincula a conta Google
+  /// Usado quando o sistema exige confirmação de senha para permitir a desvinculação
+  Future<bool> confirmPasswordAndUnlink(String password);
+}

@@ -17,22 +17,24 @@ class TaskProductsService {
       // 1) Buscar vínculos task_products
       final rows = await client
           .from('task_products')
-          .select('product_id, package_id')
+          .select('product_id, package_id, package_item_position')
           .eq('task_id', taskId);
       if (rows.isEmpty) return [];
 
       // Coletar ids
       final productIds = <String>{};
       final packageIds = <String>{};
-      final prodPkgPairs = <String>{}; // key: productId:packageId
+      final prodPkgPairs = <String>{}; // key: productId:packageId:position
       for (final row in rows) {
         final pid = (row['product_id'] ?? '').toString();
         final pkg = (row['package_id'] ?? '').toString();
+        final pos = row['package_item_position'] as int?;
+
         if (pid.isEmpty) continue;
         productIds.add(pid);
         if (pkg.isNotEmpty) {
           packageIds.add(pkg);
-          prodPkgPairs.add('$pid:$pkg');
+          prodPkgPairs.add('$pid:$pkg:${pos ?? ''}');
         }
       }
 
@@ -48,7 +50,8 @@ class TaskProductsService {
         for (final p in (prods as List)) {
           final id = (p['id'] ?? '').toString();
           nameByProduct[id] = (p['name'] ?? '-') as String;
-          thumbByProduct[id] = (p['image_thumb_url'] as String?) ?? (p['image_url'] as String?);
+          thumbByProduct[id] =
+              (p['image_thumb_url'] as String?) ?? (p['image_url'] as String?);
         }
       }
 
@@ -56,7 +59,8 @@ class TaskProductsService {
       // 3a) Produtos diretos do catálogo
       final commentByProduct = <String, String?>{}; // productId -> comment
       final directProductIds = rows
-          .where((r) => (r['package_id'] == null || (r['package_id'] as String).isEmpty))
+          .where((r) =>
+              (r['package_id'] == null || (r['package_id'] as String).isEmpty))
           .map((r) => (r['product_id'] ?? '').toString())
           .where((id) => id.isNotEmpty)
           .toSet();
@@ -75,20 +79,55 @@ class TaskProductsService {
       }
 
       // 3b) Produtos vindos de pacotes (comentário está em package_items)
-      final commentByProdPkg = <String, String?>{}; // productId:packageId -> comment
+      final commentByProdPkg =
+          <String, String?>{}; // productId:packageId:position -> comment
       if (packageIds.isNotEmpty) {
         final inPkg = packageIds.map((e) => '"$e"').join(',');
+
+        // Fetch package items with position
         final pkgItems = await client
             .from('package_items')
-            .select('package_id, product_id, comment')
+            .select('package_id, product_id, comment, position')
+            .filter('package_id', 'in', '($inPkg)')
+            .order('position', ascending: true, nullsFirst: true);
+
+        // Fetch overrides
+        final overridesRows = await client
+            .from('project_package_item_comments')
+            .select('package_id, product_id, position, comment')
+            .eq('project_id', projectId)
             .filter('package_id', 'in', '($inPkg)');
+        final overrides = List<Map<String, dynamic>>.from(overridesRows);
+
         for (final r in (pkgItems as List)) {
           final pkgId = (r['package_id'] ?? '').toString();
           final pid = (r['product_id'] ?? '').toString();
+          final pos = (r['position'] as int?) ?? 0;
+
           if (pid.isEmpty || pkgId.isEmpty) continue;
-          final key = '$pid:$pkgId';
-          if (prodPkgPairs.contains(key)) {
-            commentByProdPkg[key] = r['comment'] as String?;
+
+          String? comment = r['comment'] as String?;
+
+          // Check for override
+          final override = overrides.firstWhere(
+            (o) =>
+                (o['package_id'] ?? '').toString() == pkgId &&
+                (o['product_id'] ?? '').toString() == pid &&
+                ((o['position'] as int?) ?? 0) == pos,
+            orElse: () => {},
+          );
+
+          if (override.isNotEmpty && override['comment'] != null) {
+            comment = override['comment'] as String;
+          }
+
+          final key = '$pid:$pkgId:$pos';
+          if (prodPkgPairs.contains(key) ||
+              prodPkgPairs.contains('$pid:$pkgId:')) {
+            commentByProdPkg[key] = comment;
+            if (prodPkgPairs.contains('$pid:$pkgId:')) {
+              commentByProdPkg['$pid:$pkgId:'] = comment;
+            }
           }
         }
       }
@@ -102,7 +141,8 @@ class TaskProductsService {
             .select('id, name')
             .filter('id', 'in', '($inList)');
         for (final r in (rowsPkg as List)) {
-          packageNameById[(r['id'] ?? '').toString()] = (r['name'] ?? '-') as String;
+          packageNameById[(r['id'] ?? '').toString()] =
+              (r['name'] ?? '-') as String;
         }
       }
 
@@ -112,17 +152,25 @@ class TaskProductsService {
         final productId = (row['product_id'] ?? '').toString();
         if (productId.isEmpty) continue;
         final packageId = (row['package_id'] ?? '').toString();
+        final position = row['package_item_position'] as int?;
         final isPkg = packageId.isNotEmpty;
         final label = nameByProduct[productId] ?? '-';
-        final comment = isPkg
-            ? (commentByProdPkg['$productId:$packageId'] ?? '')
-            : (commentByProduct[productId] ?? '');
+
+        String? comment;
+        if (isPkg) {
+          comment = commentByProdPkg['$productId:$packageId:$position'];
+          comment ??= commentByProdPkg['$productId:$packageId:'];
+        } else {
+          comment = commentByProduct[productId];
+        }
+
         out.add({
           'productId': productId,
           'packageId': isPkg ? packageId : null,
+          'position': position,
           'label': label,
           'packageName': isPkg ? (packageNameById[packageId] ?? '-') : null,
-          'comment': comment,
+          'comment': comment ?? '',
           'thumbUrl': thumbByProduct[productId],
         });
       }
@@ -144,19 +192,21 @@ class TaskProductsService {
       // Buscar produtos vinculados anteriormente para comparar
       final oldProducts = await client
           .from('task_products')
-          .select('product_id, package_id')
+          .select('product_id, package_id, package_item_position')
           .eq('task_id', taskId);
 
       final oldProductKeys = (oldProducts as List).map((p) {
         final productId = p['product_id'] as String;
         final packageId = p['package_id'] as String?;
-        return '$productId:${packageId ?? ""}';
+        final pos = p['package_item_position'] as int?;
+        return '$productId:${packageId ?? ""}:${pos ?? ""}';
       }).toSet();
 
       final newProductKeys = linkedProducts.map((p) {
         final productId = p['productId'] as String;
         final packageId = p['packageId'] as String?;
-        return '$productId:${packageId ?? ""}';
+        final pos = p['position'] as int?;
+        return '$productId:${packageId ?? ""}:${pos ?? ""}';
       }).toSet();
 
       // Remover vínculos atuais
@@ -164,12 +214,15 @@ class TaskProductsService {
 
       // Inserir novos
       if (linkedProducts.isNotEmpty) {
-        final inserts = linkedProducts.map((p) => {
-              'task_id': taskId,
-              'product_id': p['productId'],
-              'package_id': p['packageId'],
-              if (userId != null) 'created_by': userId,
-            }).toList();
+        final inserts = linkedProducts
+            .map((p) => {
+                  'task_id': taskId,
+                  'product_id': p['productId'],
+                  'package_id': p['packageId'],
+                  'package_item_position': p['position'],
+                  if (userId != null) 'created_by': userId,
+                })
+            .toList();
         await client.from('task_products').insert(inserts);
       }
 
@@ -178,7 +231,8 @@ class TaskProductsService {
         final addedProducts = linkedProducts.where((p) {
           final productId = p['productId'] as String;
           final packageId = p['packageId'] as String?;
-          final key = '$productId:${packageId ?? ""}';
+          final pos = p['position'] as int?;
+          final key = '$productId:${packageId ?? ""}:${pos ?? ""}';
           return !oldProductKeys.contains(key);
         }).toList();
 
@@ -210,7 +264,8 @@ class TaskProductsService {
           final oldProductsList = (oldProducts as List).where((p) {
             final productId = p['product_id'] as String;
             final packageId = p['package_id'] as String?;
-            final key = '$productId:${packageId ?? ""}';
+            final pos = p['package_item_position'] as int?;
+            final key = '$productId:${packageId ?? ""}:${pos ?? ""}';
             return removedProductKeys.contains(key);
           }).toList();
 
@@ -226,7 +281,8 @@ class TaskProductsService {
                   .eq('id', productId)
                   .maybeSingle();
 
-              String productLabel = productData?['name'] as String? ?? 'Produto';
+              String productLabel =
+                  productData?['name'] as String? ?? 'Produto';
 
               if (packageId != null && packageId.isNotEmpty) {
                 final packageData = await client
@@ -259,4 +315,3 @@ class TaskProductsService {
     }
   }
 }
-

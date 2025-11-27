@@ -27,7 +27,8 @@ class TaskProductLinkSelector extends StatefulWidget {
   });
 
   @override
-  State<TaskProductLinkSelector> createState() => _TaskProductLinkSelectorState();
+  State<TaskProductLinkSelector> createState() =>
+      _TaskProductLinkSelectorState();
 }
 
 class _TaskProductLinkSelectorState extends State<TaskProductLinkSelector> {
@@ -37,7 +38,8 @@ class _TaskProductLinkSelectorState extends State<TaskProductLinkSelector> {
     if (!widget.enabled) return;
     if (widget.projectId == null || widget.projectId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecione um projeto antes de vincular produtos.')),
+        const SnackBar(
+            content: Text('Selecione um projeto antes de vincular produtos.')),
       );
       return;
     }
@@ -61,6 +63,7 @@ class _TaskProductLinkSelectorState extends State<TaskProductLinkSelector> {
     final newItem = {
       'productId': result['productId'],
       'packageId': result['packageId'],
+      'position': result['position'],
       'label': result['label'],
       'packageName': result['packageName'],
       'comment': result['comment'],
@@ -76,11 +79,13 @@ class _TaskProductLinkSelectorState extends State<TaskProductLinkSelector> {
       return;
     }
 
-    final updated = List<Map<String, dynamic>>.from(widget.selectedProducts)..add(newItem);
+    final updated = List<Map<String, dynamic>>.from(widget.selectedProducts)
+      ..add(newItem);
     widget.onChanged(updated);
   }
 
-  String _keyOf(Map<String, dynamic> p) => '${p['productId']}:${p['packageId'] ?? ''}';
+  String _keyOf(Map<String, dynamic> p) =>
+      '${p['productId']}:${p['packageId'] ?? ''}:${p['position'] ?? ''}';
 
   @override
   Widget build(BuildContext context) {
@@ -102,13 +107,15 @@ class _TaskProductLinkSelectorState extends State<TaskProductLinkSelector> {
                 Icon(
                   Icons.inventory_2_outlined,
                   size: 20,
-                  color: colorScheme.onSurface.withValues(alpha: _isAddHover ? 0.8 : 0.5),
+                  color: colorScheme.onSurface
+                      .withValues(alpha: _isAddHover ? 0.8 : 0.5),
                 ),
                 const SizedBox(width: 12),
                 Text(
                   widget.placeholderText ?? 'Vincular produto',
                   style: textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurface.withValues(alpha: _isAddHover ? 0.8 : 0.5),
+                    color: colorScheme.onSurface
+                        .withValues(alpha: _isAddHover ? 0.8 : 0.5),
                   ),
                 ),
               ],
@@ -123,6 +130,7 @@ class _TaskProductLinkSelectorState extends State<TaskProductLinkSelector> {
               return _ProductCard(
                 label: (p['label'] ?? '-') as String,
                 comment: (p['comment'] ?? '') as String,
+                packageName: p['packageName'] as String?,
                 thumbUrl: p['thumbUrl'] as String?,
                 margin: EdgeInsets.only(bottom: isLast ? 0 : 8),
                 onRemove: widget.enabled
@@ -145,6 +153,7 @@ class _TaskProductLinkSelectorState extends State<TaskProductLinkSelector> {
 class _ProductCard extends StatelessWidget {
   final String label;
   final String comment;
+  final String? packageName;
   final String? thumbUrl;
   final EdgeInsetsGeometry margin;
   final VoidCallback? onRemove;
@@ -152,6 +161,7 @@ class _ProductCard extends StatelessWidget {
   const _ProductCard({
     required this.label,
     required this.comment,
+    this.packageName,
     required this.thumbUrl,
     this.onRemove,
     this.margin = const EdgeInsets.only(bottom: 8),
@@ -168,7 +178,9 @@ class _ProductCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(UIConst.radiusSmall),
-        border: Border.all(color: colorScheme.outlineVariant.withValues(alpha: colorScheme.outlineVariant.a * 0.2)),
+        border: Border.all(
+            color: colorScheme.outlineVariant
+                .withValues(alpha: colorScheme.outlineVariant.a * 0.2)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -210,7 +222,12 @@ class _ProductCard extends StatelessWidget {
               children: [
                 Text(label, style: textTheme.bodyMedium),
                 if (comment.isNotEmpty)
-                  Text(comment, style: textTheme.bodySmall?.copyWith(color: Colors.amber)),
+                  Text(comment,
+                      style: textTheme.bodySmall?.copyWith(color: Colors.amber))
+                else if (packageName != null && packageName!.isNotEmpty)
+                  Text(packageName!,
+                      style: textTheme.bodySmall
+                          ?.copyWith(color: colorScheme.onSurfaceVariant)),
               ],
             ),
           ),
@@ -247,7 +264,9 @@ class _DashedActionBoxState extends State<_DashedActionBox> {
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = Theme.of(context).colorScheme.onSurface
+    final borderColor = Theme.of(context)
+        .colorScheme
+        .onSurface
         .withValues(alpha: _isHover ? 0.8 : 0.5);
 
     final overlay = _isHover
@@ -286,5 +305,3 @@ class _DashedActionBoxState extends State<_DashedActionBox> {
     );
   }
 }
-
-

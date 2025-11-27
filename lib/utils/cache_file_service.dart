@@ -21,8 +21,8 @@ class CacheFileService {
   ///
   /// OTIMIZAÇÃO: Usa streams para copiar arquivos grandes sem bloquear a UI
   /// e sem carregar o arquivo inteiro na memória.
-  static Future<File> copyToEditorCache(String sourcePath, {String prefix = 'Editor'}) async {
-
+  static Future<File> copyToEditorCache(String sourcePath,
+      {String prefix = 'Editor'}) async {
     final dir = await getEditorCacheDir();
 
     final ext = p.extension(sourcePath);
@@ -55,11 +55,28 @@ class CacheFileService {
     }
   }
 
+  /// Salva bytes diretamente no cache do editor com um nome único
+  /// Retorna o arquivo criado
+  static Future<File> saveBytesToCache(List<int> bytes, String filename,
+      {String prefix = 'Asset'}) async {
+    final dir = await getEditorCacheDir();
+
+    final ext = p.extension(filename);
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final uniqueFilename = '${prefix}_$ts$ext';
+    final destPath = p.join(dir.path, uniqueFilename);
+
+    final file = File(destPath);
+    await file.writeAsBytes(bytes);
+    return file;
+  }
+
   /// Verifica se um caminho pertence ao cache da aplicação
   /// Compatível com caches antigos do briefing (briefing_images)
   static bool isInAppCachePath(String anyPath) {
     final norm = anyPath.replaceAll('\\', '/').toLowerCase();
-    return norm.contains('/editor_images/') || norm.contains('/briefing_images/');
+    return norm.contains('/editor_images/') ||
+        norm.contains('/briefing_images/');
   }
 
   /// Deleta o arquivo se (e somente se) ele estiver no cache da aplicação
@@ -75,4 +92,3 @@ class CacheFileService {
     }
   }
 }
-

@@ -2,19 +2,22 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:googleapis_auth/auth_io.dart' as auth;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mime/mime.dart' as mime;
+import 'package:http/http.dart' as http;
 
 // UI Components
-import '../../atoms/atoms.dart'; // SkeletonLoader, IconOnlyButton
-import '../../atoms/image_viewer/image_viewer.dart';
+
 import '../dialogs/dialogs.dart'; // DriveConnectDialog
+import '../../molecules/tiles/asset_tile.dart';
 
 // Services
 import '../../../services/google_drive_oauth_service.dart';
 import '../../../services/task_files_repository.dart';
+import '../../../services/upload_manager.dart';
 
 class FinalProjectSection extends StatefulWidget {
   final Map<String, dynamic> task;
@@ -35,13 +38,58 @@ class _FinalProjectSectionState extends State<FinalProjectSection> {
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _files = [];
-  // Temporary uploading files list (shown with loading indicator)
-  List<Map<String, dynamic>> _uploadingFiles = [];
+
+  // Background uploads
+  ValueListenable<double?>? _bgProgress;
+  VoidCallback? _bgListener;
+
+  // Realtime subscription
+  RealtimeChannel? _subscription;
 
   @override
   void initState() {
     super.initState();
     _loadFiles();
+
+    final taskId = widget.task['id'] as String;
+
+    // Subscribe to realtime changes
+    _subscription = Supabase.instance.client
+        .channel('task_files_final:$taskId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'task_files',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'task_id',
+            value: taskId,
+          ),
+          callback: (payload) {
+            if (mounted) {
+              _loadFiles();
+            }
+          },
+        )
+        .subscribe();
+
+    // Listen to background uploads for this task
+    _bgProgress = UploadManager.instance.progressOf(taskId);
+    _bgListener = () {
+      if (!mounted) return;
+      setState(() {}); // Atualiza a barra de progresso (se houver)
+
+      final v = _bgProgress!.value;
+      if (v != null && v >= 1.0) {
+        // Fallback: Se o Realtime falhar, recarrega após o upload completar
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) {
+            _loadFiles();
+          }
+        });
+      }
+    };
+    _bgProgress!.addListener(_bgListener!);
   }
 
   Future<void> _loadFiles() async {
@@ -106,22 +154,7 @@ class _FinalProjectSectionState extends State<FinalProjectSection> {
     if (res == null || res.files.isEmpty) return;
 
     final filesToUpload = res.files.where((f) => f.bytes != null).toList();
-    if (!mounted) return;
-
-    final newUploadingFiles = filesToUpload
-        .map((f) => {
-              'filename': f.name,
-              'mime_type': mime.lookupMimeType(f.name),
-              'size_bytes': f.bytes!.length,
-              'uploading': true,
-              'upload_id': '${DateTime.now().millisecondsSinceEpoch}${f.name}',
-            })
-        .toList();
-
-    setState(() {
-      _error = null;
-      _uploadingFiles = [..._uploadingFiles, ...newUploadingFiles];
-    });
+    if (filesToUpload.isEmpty) return;
 
     try {
       final client = await _ensureClient();
@@ -138,82 +171,104 @@ class _FinalProjectSectionState extends State<FinalProjectSection> {
       final companyName =
           await _fetchCompanyNameForTask(widget.task['id'] as String);
 
-      for (final f in filesToUpload) {
-        final name = f.name;
-        final bytes = f.bytes!;
-        final mt = mime.lookupMimeType(name);
-        final uploaded = await _drive.uploadToTaskSubfolderResumable(
-          client: client,
-          clientName: clientName,
-          projectName: projectName,
-          taskName: taskTitle,
-          subfolderName: 'Projeto Final',
-          filename: name,
-          bytes: bytes,
-          mimeType: mt,
-          companyName: companyName,
-          onProgress: (_) {},
-        );
-        await _filesRepo.saveFile(
-          taskId: widget.task['id'] as String,
-          filename: name,
-          sizeBytes: bytes.length,
-          mimeType: mt,
-          driveFileId: uploaded.id,
-          driveFileUrl: uploaded.publicViewUrl,
-          category: 'final',
-        );
-      }
+      final items = filesToUpload
+          .map((f) => MemoryUploadItem(
+                name: f.name,
+                bytes: f.bytes!,
+                mimeType:
+                    mime.lookupMimeType(f.name) ?? 'application/octet-stream',
+                subfolderName: 'Projeto Final',
+                category: 'final',
+              ))
+          .toList();
+
+      // Inicia o upload usando o UploadManager com cache local para feedback instantâneo
+      await UploadManager.instance.startAssetsUploadWithLocalCache(
+        client: client,
+        taskId: widget.task['id'] as String,
+        items: items,
+        clientName: clientName,
+        projectName: projectName,
+        taskTitle: taskTitle,
+        companyName: companyName,
+      );
+
+      // O Realtime e o Listener cuidarão de atualizar a UI
     } catch (e) {
       if (mounted) setState(() => _error = 'Falha ao enviar: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _uploadingFiles.removeWhere((uploadingFile) => newUploadingFiles.any(
-              (newFile) => newFile['upload_id'] == uploadingFile['upload_id']));
-        });
-      }
     }
-    if (mounted) await _loadFiles();
   }
 
   Future<void> _downloadFile(Map<String, dynamic> f) async {
     try {
-      final driveFileId = f['drive_file_id'] as String?;
-      if (driveFileId == null || driveFileId.isEmpty) {
-        throw Exception('ID do arquivo não encontrado');
+      // Extrai a URL de download do Google Drive
+      String? url;
+      final id = f['drive_file_id'] as String?;
+      if (id != null && id.isNotEmpty) {
+        url = Uri.https(
+                'drive.google.com', '/uc', {'export': 'download', 'id': id})
+            .toString();
+      } else {
+        final view = f['drive_file_url'] as String?;
+        if (view != null) {
+          try {
+            final u = Uri.parse(view);
+            final fileId = u.queryParameters['id'];
+            if (fileId != null && fileId.isNotEmpty) {
+              url = Uri.https('drive.google.com', '/uc',
+                  {'export': 'download', 'id': fileId}).toString();
+            } else {
+              url = view;
+            }
+          } catch (_) {
+            url = view;
+          }
+        }
       }
+
+      if (url == null) return;
+
+      // Obtém o nome original do arquivo
       final filename = f['filename'] as String? ??
           'download_${DateTime.now().millisecondsSinceEpoch}';
-      final outputPath = await FilePicker.platform.saveFile(
+
+      // Abre diálogo para escolher onde salvar
+      final String? outputPath = await FilePicker.platform.saveFile(
         dialogTitle: 'Salvar arquivo',
         fileName: filename,
       );
-      if (outputPath == null) return;
-      final client = await _ensureClient();
-      if (client == null) {
-        throw Exception('Conecte o Google Drive para baixar arquivos');
-      }
-      final response = await client.get(Uri.parse(
-          'https://www.googleapis.com/drive/v3/files/$driveFileId?alt=media'));
+
+      if (outputPath == null) return; // Usuário cancelou
+
+      // Baixa o arquivo
+      final response = await http.get(Uri.parse(url));
+
       if (response.statusCode == 200) {
+        // Salva o arquivo
         final file = File(outputPath);
         await file.writeAsBytes(response.bodyBytes);
+
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
               content: Text('Arquivo baixado com sucesso!'),
               backgroundColor: Colors.green,
-              duration: Duration(seconds: 2)));
+              duration: Duration(seconds: 2),
+            ),
+          );
         }
       } else {
         throw Exception('Erro ao baixar arquivo: ${response.statusCode}');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content: Text('Erro ao baixar arquivo: $e'),
             backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3)));
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     }
   }
@@ -246,6 +301,7 @@ class _FinalProjectSectionState extends State<FinalProjectSection> {
         } catch (_) {}
       }
       await _filesRepo.delete(f['id'] as String);
+      // O Realtime deve atualizar a lista, mas podemos forçar também
       await _loadFiles();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -260,12 +316,22 @@ class _FinalProjectSectionState extends State<FinalProjectSection> {
   }
 
   @override
+  void dispose() {
+    _subscription?.unsubscribe();
+    if (_bgProgress != null && _bgListener != null) {
+      _bgProgress!.removeListener(_bgListener!);
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final taskStatus = widget.task['status'] as String?;
     final isCompleted = taskStatus == 'completed';
     if (!isCompleted) return const SizedBox.shrink();
 
-    final allFiles = [..._files, ..._uploadingFiles];
+    final allFiles = _files; // Não precisa mais de _uploadingFiles
+
     bool isImage(Map<String, dynamic> f) {
       final mimeType = f['mime_type'] as String?;
       final filename = (f['filename'] as String? ?? '').toLowerCase();
@@ -462,159 +528,16 @@ class _FinalProjectTabViewState extends State<_FinalProjectTabView>
             alignment: WrapAlignment.start,
             spacing: 12,
             runSpacing: 12,
-            children: files.map((f) => _buildFileTile(context, f)).toList(),
+            children: files
+                .map((f) => AssetTile(
+                      fileData: f,
+                      onDownload: widget.onDownload,
+                      onDelete: widget.onDelete,
+                    ))
+                .toList(),
           ),
         );
       },
-    );
-  }
-
-  Widget _buildFileTile(BuildContext context, Map<String, dynamic> f) {
-    final isUploading = f['uploading'] == true;
-    final driveFileId = f['drive_file_id'] as String?;
-    final mimeType = f['mime_type'] as String? ?? '';
-    final filename = f['filename'] as String? ?? 'Sem nome';
-    final thumbnailUrl = driveFileId != null && mimeType.startsWith('image/')
-        ? 'https://drive.google.com/thumbnail?id=$driveFileId&sz=w800'
-        : null;
-    final isImage = mimeType.startsWith('image/');
-    final isVideo = mimeType.startsWith('video/');
-
-    Widget contentWidget;
-    if (isImage && thumbnailUrl != null) {
-      contentWidget = SizedBox(
-        height: 150,
-        width: 150,
-        child: isUploading
-            ? SkeletonLoader.box(
-                width: double.infinity,
-                height: double.infinity,
-                borderRadius: 0)
-            : Image.network(
-                thumbnailUrl,
-                fit: BoxFit.cover,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Container(
-                      height: 150,
-                      width: 150,
-                      color:
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
-                      child: const Center(child: CircularProgressIndicator()));
-                },
-                errorBuilder: (_, __, ___) => Container(
-                    height: 150,
-                    width: 150,
-                    color:
-                        Theme.of(context).colorScheme.surfaceContainerHighest,
-                    child: Icon(Icons.broken_image,
-                        size: 32,
-                        color: Theme.of(context).colorScheme.primary)),
-              ),
-      );
-    } else {
-      contentWidget = Container(
-        height: 150,
-        width: 150,
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: isUploading
-            ? SkeletonLoader.box(
-                width: double.infinity,
-                height: double.infinity,
-                borderRadius: 0)
-            : Icon(isVideo ? Icons.video_file : Icons.insert_drive_file,
-                size: 32, color: Theme.of(context).colorScheme.primary),
-      );
-    }
-
-    return SizedBox(
-      width: 150,
-      height: 150,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Stack(
-          children: [
-            contentWidget,
-            // File name overlay
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: const BorderRadius.only(
-                        bottomLeft: Radius.circular(8),
-                        bottomRight: Radius.circular(8))),
-                child: Text(filename,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: Colors.white, fontSize: 10)),
-              ),
-            ),
-            if (!isUploading)
-              Positioned(
-                top: 4,
-                right: 4,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // View image (if image)
-                    if (isImage)
-                      Material(
-                        color: Colors.black.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(12),
-                        child: InkWell(
-                          onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                  builder: (_) =>
-                                      ImageViewer(imageUrl: thumbnailUrl!))),
-                          borderRadius: BorderRadius.circular(12),
-                          child: const Padding(
-                              padding: EdgeInsets.all(4),
-                              child: Icon(Icons.zoom_in,
-                                  size: 14, color: Colors.white)),
-                        ),
-                      ),
-                    const SizedBox(width: 4),
-                    // Download button
-                    Material(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        onTap: () => widget.onDownload(f),
-                        borderRadius: BorderRadius.circular(12),
-                        child: const Padding(
-                            padding: EdgeInsets.all(4),
-                            child: Icon(Icons.download_rounded,
-                                size: 14, color: Colors.white)),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    // Delete button
-                    Material(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(12),
-                      child: InkWell(
-                        onTap: () => widget.onDelete(f),
-                        borderRadius: BorderRadius.circular(12),
-                        child: const Padding(
-                            padding: EdgeInsets.all(4),
-                            child: Icon(Icons.close,
-                                size: 14, color: Colors.white)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
     );
   }
 }

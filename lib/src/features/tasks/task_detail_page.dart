@@ -8,6 +8,7 @@ import 'package:my_business/ui/organisms/editors/generic_block_editor.dart';
 import 'package:my_business/ui/organisms/cards/cards.dart';
 import 'package:my_business/ui/atoms/buttons/buttons.dart';
 import 'package:my_business/ui/atoms/loaders/loaders.dart';
+import 'package:my_business/ui/molecules/containers/containers.dart';
 import '../shared/quick_forms.dart';
 import 'widgets/subtasks_section.dart';
 import 'widgets/task_info_card_items.dart';
@@ -16,6 +17,7 @@ import 'widgets/task_time_history_widget.dart';
 import '../../../modules/modules.dart';
 import '../projects/project_detail_page.dart';
 import 'package:my_business/ui/organisms/dialogs/dialogs.dart';
+import '../../services/task_products_service.dart';
 
 class TaskDetailPage extends StatefulWidget {
   final String taskId;
@@ -32,7 +34,8 @@ class TaskDetailPage extends StatefulWidget {
 
 class _TaskDetailPageState extends State<TaskDetailPage> {
   late Future<Map<String, dynamic>?> _taskFuture;
-  bool _showTimerCard = false; // Estado para controlar visibilidade do card de Timer
+  bool _showTimerCard =
+      false; // Estado para controlar visibilidade do card de Timer
   bool _isFavorite = false;
   bool _favoriteLoading = false;
 
@@ -86,7 +89,9 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
         final itemName = isSubTask ? 'Subtarefa' : 'Tarefa';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(wasAdded ? '$itemName adicionada aos favoritos' : '$itemName removida dos favoritos'),
+            content: Text(wasAdded
+                ? '$itemName adicionada aos favoritos'
+                : '$itemName removida dos favoritos'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -241,7 +246,8 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
             child: TaskTimerWidget(
               taskId: widget.taskId,
               assignedTo: task['assigned_to'] as String?,
-              assigneeUserIds: (task['assignee_user_ids'] as List<dynamic>?)?.cast<String>(),
+              assigneeUserIds:
+                  (task['assignee_user_ids'] as List<dynamic>?)?.cast<String>(),
             ),
           ),
 
@@ -262,7 +268,8 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     );
   }
 
-  Widget _buildBriefingSection(BuildContext context, Map<String, dynamic> task) {
+  Widget _buildBriefingSection(
+      BuildContext context, Map<String, dynamic> task) {
     final description = task['description'] as String?;
     final projectId = task['project_id'] as String?;
 
@@ -272,33 +279,36 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Produtos vinculados
-            if (projectId != null) ...[
-              _buildLinkedProductsSection(context, widget.taskId, projectId),
-              const SizedBox(height: 16),
+        child: SelectableContainer(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Produtos vinculados
+              if (projectId != null) ...[
+                _buildLinkedProductsSection(context, widget.taskId, projectId),
+                const SizedBox(height: 16),
+              ],
+
+              // Título Briefing
+              Text('Briefing', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 12),
+
+              // Descrição/Briefing
+              if (hasDescription)
+                GenericBlockEditor(
+                  initialJson: description,
+                  enabled: false, // Read-only
+                  showToolbar: false,
+                ),
             ],
-
-            // Título Briefing
-            Text('Briefing', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-
-            // Descrição/Briefing
-            if (hasDescription)
-              GenericBlockEditor(
-                initialJson: description,
-                enabled: false, // Read-only
-                showToolbar: false,
-              ),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildLinkedProductsSection(BuildContext context, String taskId, String projectId) {
+  Widget _buildLinkedProductsSection(
+      BuildContext context, String taskId, String projectId) {
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _loadLinkedProducts(taskId, projectId),
       builder: (context, snapshot) {
@@ -338,8 +348,8 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                 Text(
                   'Produtos Vinculados',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                 ),
               ],
             ),
@@ -348,6 +358,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
               children: products.map((product) {
                 final label = product['label'] as String? ?? 'Produto';
                 final packageName = product['packageName'] as String?;
+                final comment = product['comment'] as String?;
                 final thumbUrl = product['thumbUrl'] as String?;
 
                 return Padding(
@@ -356,6 +367,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                     context,
                     label: label,
                     packageName: packageName,
+                    comment: comment,
                     thumbUrl: thumbUrl,
                   ),
                 );
@@ -371,6 +383,7 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     BuildContext context, {
     required String label,
     String? packageName,
+    String? comment,
     String? thumbUrl,
   }) {
     return Container(
@@ -419,16 +432,24 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
                 Text(
                   label,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
+                        fontWeight: FontWeight.w500,
+                      ),
                 ),
-                if (packageName != null && packageName.isNotEmpty) ...[
+                if (comment != null && comment.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    comment,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.amber,
+                        ),
+                  ),
+                ] else if (packageName != null && packageName.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   Text(
                     packageName,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                   ),
                 ],
               ],
@@ -439,55 +460,10 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     );
   }
 
-  Future<List<Map<String, dynamic>>> _loadLinkedProducts(String taskId, String projectId) async {
-    try {
-      // Importar o serviço dinamicamente
-      final client = Supabase.instance.client;
-
-      // Buscar vínculos task_products
-      final rows = await client
-          .from('task_products')
-          .select('product_id, package_id')
-          .eq('task_id', taskId);
-
-      final products = <Map<String, dynamic>>[];
-
-      for (final row in (rows as List)) {
-        final productId = row['product_id'] as String;
-        final packageId = row['package_id'] as String?;
-
-        // Buscar detalhes do produto
-        final prod = await client
-            .from('products')
-            .select('id, name, image_thumb_url, image_url')
-            .eq('id', productId)
-            .maybeSingle();
-
-        if (prod == null) continue;
-
-        String? packageName;
-        if (packageId != null && packageId.isNotEmpty) {
-          final pkg = await client
-              .from('packages')
-              .select('name')
-              .eq('id', packageId)
-              .maybeSingle();
-          packageName = pkg?['name'] as String?;
-        }
-
-        products.add({
-          'productId': productId,
-          'packageId': packageId,
-          'label': prod['name'] as String? ?? 'Produto',
-          'packageName': packageName,
-          'thumbUrl': (prod['image_thumb_url'] as String?) ?? (prod['image_url'] as String?),
-        });
-      }
-
-      return products;
-    } catch (e) {
-      return [];
-    }
+  Future<List<Map<String, dynamic>>> _loadLinkedProducts(
+      String taskId, String projectId) async {
+    return await TaskProductsService.loadLinkedProducts(taskId,
+        projectId: projectId);
   }
 
   /// Constrói skeleton loading para a página de detalhes da task
@@ -516,9 +492,11 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
           const SizedBox(height: 24),
 
           // Seções skeleton
-          SkeletonLoader.box(width: double.infinity, height: 200, borderRadius: 12),
+          SkeletonLoader.box(
+              width: double.infinity, height: 200, borderRadius: 12),
           const SizedBox(height: 12),
-          SkeletonLoader.box(width: double.infinity, height: 150, borderRadius: 12),
+          SkeletonLoader.box(
+              width: double.infinity, height: 150, borderRadius: 12),
         ],
       ),
     );
@@ -531,227 +509,243 @@ class _TaskDetailPageState extends State<TaskDetailPage> {
     final widgetContext = context;
 
     return FutureBuilder<Map<String, dynamic>?>(
-              future: _taskFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return _buildTaskDetailSkeleton();
-                }
-                if (snapshot.hasError) {
-                  return Center(child: Text('Erro ao carregar tarefa: ${snapshot.error}'));
-                }
-                final task = snapshot.data;
-                if (task == null) {
-                  return const Center(child: Text('Tarefa não encontrada'));
-                }
+      future: _taskFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return _buildTaskDetailSkeleton();
+        }
+        if (snapshot.hasError) {
+          return Center(
+              child: Text('Erro ao carregar tarefa: ${snapshot.error}'));
+        }
+        final task = snapshot.data;
+        if (task == null) {
+          return const Center(child: Text('Tarefa não encontrada'));
+        }
 
-                final projectData = task['projects'] as Map<String, dynamic>?;
-                final projectId = projectData?['id'] as String?;
-                final projectName = projectData?['name'] ?? 'Projeto desconhecido';
-                final clientData = projectData?['clients'] as Map<String, dynamic>?;
-                final clientId = clientData?['id'] as String?;
-                final clientName = clientData?['name'] ?? 'Cliente desconhecido';
-                final clientAvatarUrl = clientData?['avatar_url'] as String?;
+        final projectData = task['projects'] as Map<String, dynamic>?;
+        final projectId = projectData?['id'] as String?;
+        final projectName = projectData?['name'] ?? 'Projeto desconhecido';
+        final clientData = projectData?['clients'] as Map<String, dynamic>?;
+        final clientId = clientData?['id'] as String?;
+        final clientName = clientData?['name'] ?? 'Cliente desconhecido';
+        final clientAvatarUrl = clientData?['avatar_url'] as String?;
 
-                // Envolve o conteúdo em Material para widgets que precisam dele
-                return Material(
-                  type: MaterialType.transparency,
-                  child: CustomScrollView(
-                    slivers: [
-                      SliverPadding(
-                        padding: const EdgeInsets.all(16),
-                        sliver: SliverList(
-                          delegate: SliverChildListDelegate([
-                              // Header
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  IconOnlyButton(
-                                    icon: Icons.arrow_back,
-                                    tooltip: 'Voltar',
-                                    onPressed: () {
-                                      final tabManager = TabManagerScope.maybeOf(widgetContext);
-                                      if (tabManager != null) {
-                                        if (tabManager.canGoBack()) {
-                                          // Se há histórico na aba, volta no histórico
-                                          tabManager.goBack();
-                                        } else {
-                                          // Se não há histórico, volta para a página do Projeto
-                                          final projectId = task['project_id'] as String?;
-                                          if (projectId != null) {
-                                            final projectTab = TabItem(
-                                              id: 'project_$projectId',
-                                              title: 'Projeto',
-                                              icon: Icons.folder,
-                                              page: ProjectDetailPage(projectId: projectId),
-                                              canClose: true,
-                                              selectedMenuIndex: 2, // Índice do menu de Projetos
-                                            );
-                                            tabManager.updateTab(tabManager.currentIndex, projectTab, saveToHistory: false);
-                                          }
-                                        }
-                                      } else {
-                                        // Fallback para navegação tradicional
-                                        Navigator.of(context).pop();
-                                      }
-                                    },
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      task['parent_task_id'] != null ? 'Subtarefa' : 'Tarefa',
-                                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
-                                    ),
-                                  ),
-                                  // Botões de ação
-                                  if (_canEdit(task)) ...[
-                                    IconOnlyButton(
-                                      icon: Icons.edit,
-                                      tooltip: 'Editar',
-                                      onPressed: () async {
-
-                                        final changed = await DialogHelper.show<bool>(
-                                          context: context,
-                                          builder: (_) => QuickTaskForm(
-                                            projectId: task['project_id'] as String,
-                                            initial: task,
-                                          ),
-                                        );
-
-
-                                        if (changed == true) {
-                                          setState(() {
-                                            _taskFuture = _loadTask();
-                                          });
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                  if (_canDelete(task)) ...[
-                                    IconOnlyButton(
-                                      icon: Icons.delete,
-                                      tooltip: 'Excluir',
-                                      onPressed: () async {
-                                        final navigator = Navigator.of(context);
-                                        final confirmed = await DialogHelper.show<bool>(
-                                          context: context,
-                                          builder: (_) => AlertDialog(
-                                            title: const Text('Excluir tarefa'),
-                                            content: const Text('Tem certeza que deseja excluir esta tarefa?'),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () => Navigator.pop(context, false),
-                                                child: const Text('Cancelar'),
-                                              ),
-                                              FilledButton(
-                                                onPressed: () => Navigator.pop(context, true),
-                                                child: const Text('Excluir'),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                        if (confirmed == true) {
-                                          await tasksModule.deleteTask(widget.taskId);
-                                          if (!mounted) return;
-                                          navigator.pop(true);
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                  // Botão de Favorito (disponível para todos os usuários)
-                                  IconOnlyButton(
-                                    icon: _isFavorite ? Icons.star : Icons.star_border,
-                                    tooltip: _isFavorite ? 'Remover dos favoritos' : 'Adicionar aos favoritos',
-                                    iconColor: _isFavorite ? const Color(0xFFFFD700) : null,
-                                    isLoading: _favoriteLoading,
-                                    onPressed: () => _toggleFavorite(task['parent_task_id'] != null),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-
-                              // 2 Cards com informações da Task
-                              _buildTaskInfoCards(
-                                context: context,
-                                task: task,
-                                projectId: projectId,
-                                projectName: projectName,
-                                clientId: clientId,
-                                clientName: clientName,
-                                clientAvatarUrl: clientAvatarUrl,
-                              ),
-                              const SizedBox(height: 12),
-
-                              // Card de Timer (exibido condicionalmente)
-                              if (_showTimerCard) ...[
-                                _buildTimerCard(context, task),
-                                const SizedBox(height: 12),
-                              ],
-
-                              // Projeto Final
-                              FinalProjectSection(
-                                task: task,
-                              ),
-                              const SizedBox(height: 12),
-
-                              // Briefing
-                              _buildBriefingSection(context, task),
-                              const SizedBox(height: 12),
-
-                              // Arquivos da Task
-                              TaskFilesSection(
-                                task: task,
-                                canUpload: appState.isAdmin || appState.isDesigner,
-                                canDeleteOwn: appState.isAdmin || (Supabase.instance.client.auth.currentUser?.id == task['created_by']),
-                              ),
-                              const SizedBox(height: 12),
-
-                              // Sub Tasks section
-                              SubTasksSection(
-                                taskId: widget.taskId,
-                                taskTitle: task['title'] as String? ?? 'Tarefa',
-                                projectId: task['project_id'] as String,
-                                onSubTaskChanged: () {
-                                  setState(() {
-                                    _taskFuture = _loadTask();
-                                  });
-                                },
-                                onSubTaskTap: (subTaskId, subTaskTitle) {
-
-                                  // Navegar para a subtask usando TabManager com o contexto correto
-                                  final tabManager = TabManagerScope.maybeOf(widgetContext);
-
-                                  if (tabManager != null) {
-                                    final tabId = 'task_$subTaskId';
-                                    final currentIndex = tabManager.currentIndex;
-
-                                    final updatedTab = TabItem(
-                                      id: tabId,
-                                      title: subTaskTitle,
-                                      icon: Icons.task,
-                                      page: TaskDetailPage(
-                                        key: ValueKey('task_$subTaskId'),
-                                        taskId: subTaskId,
-                                      ),
-                                      canClose: true,
-                                    );
-                                    tabManager.updateTab(currentIndex, updatedTab);
-                                  } else {
-                                  }
-                                },
-                              ),
-                              const SizedBox(height: 12),
-                          ]),
+        // Envolve o conteúdo em Material para widgets que precisam dele
+        return Material(
+          type: MaterialType.transparency,
+          child: CustomScrollView(
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.all(16),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    // Header
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        IconOnlyButton(
+                          icon: Icons.arrow_back,
+                          tooltip: 'Voltar',
+                          onPressed: () {
+                            final tabManager =
+                                TabManagerScope.maybeOf(widgetContext);
+                            if (tabManager != null) {
+                              if (tabManager.canGoBack()) {
+                                // Se há histórico na aba, volta no histórico
+                                tabManager.goBack();
+                              } else {
+                                // Se não há histórico, volta para a página do Projeto
+                                final projectId = task['project_id'] as String?;
+                                if (projectId != null) {
+                                  final projectTab = TabItem(
+                                    id: 'project_$projectId',
+                                    title: 'Projeto',
+                                    icon: Icons.folder,
+                                    page:
+                                        ProjectDetailPage(projectId: projectId),
+                                    canClose: true,
+                                    selectedMenuIndex:
+                                        2, // Índice do menu de Projetos
+                                  );
+                                  tabManager.updateTab(
+                                      tabManager.currentIndex, projectTab,
+                                      saveToHistory: false);
+                                }
+                              }
+                            } else {
+                              // Fallback para navegação tradicional
+                              Navigator.of(context).pop();
+                            }
+                          },
                         ),
-                      ),
-                      // Comentários (Sliver)
-                      SliverPadding(
-                        padding: const EdgeInsets.all(16),
-                        sliver: CommentsSection(task: task),
-                      ),
+                        Expanded(
+                          child: Text(
+                            task['parent_task_id'] != null
+                                ? 'Subtarefa'
+                                : 'Tarefa',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        // Botões de ação
+                        if (_canEdit(task)) ...[
+                          IconOnlyButton(
+                            icon: Icons.edit,
+                            tooltip: 'Editar',
+                            onPressed: () async {
+                              final changed = await DialogHelper.show<bool>(
+                                context: context,
+                                builder: (_) => QuickTaskForm(
+                                  projectId: task['project_id'] as String,
+                                  initial: task,
+                                ),
+                              );
+
+                              if (changed == true) {
+                                setState(() {
+                                  _taskFuture = _loadTask();
+                                });
+                              }
+                            },
+                          ),
+                        ],
+                        if (_canDelete(task)) ...[
+                          IconOnlyButton(
+                            icon: Icons.delete,
+                            tooltip: 'Excluir',
+                            onPressed: () async {
+                              final navigator = Navigator.of(context);
+                              final confirmed = await DialogHelper.show<bool>(
+                                context: context,
+                                builder: (_) => AlertDialog(
+                                  title: const Text('Excluir tarefa'),
+                                  content: const Text(
+                                      'Tem certeza que deseja excluir esta tarefa?'),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(context, false),
+                                      child: const Text('Cancelar'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () =>
+                                          Navigator.pop(context, true),
+                                      child: const Text('Excluir'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirmed == true) {
+                                await tasksModule.deleteTask(widget.taskId);
+                                if (!mounted) return;
+                                navigator.pop(true);
+                              }
+                            },
+                          ),
+                        ],
+                        // Botão de Favorito (disponível para todos os usuários)
+                        IconOnlyButton(
+                          icon: _isFavorite ? Icons.star : Icons.star_border,
+                          tooltip: _isFavorite
+                              ? 'Remover dos favoritos'
+                              : 'Adicionar aos favoritos',
+                          iconColor:
+                              _isFavorite ? const Color(0xFFFFD700) : null,
+                          isLoading: _favoriteLoading,
+                          onPressed: () =>
+                              _toggleFavorite(task['parent_task_id'] != null),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // 2 Cards com informações da Task
+                    _buildTaskInfoCards(
+                      context: context,
+                      task: task,
+                      projectId: projectId,
+                      projectName: projectName,
+                      clientId: clientId,
+                      clientName: clientName,
+                      clientAvatarUrl: clientAvatarUrl,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Card de Timer (exibido condicionalmente)
+                    if (_showTimerCard) ...[
+                      _buildTimerCard(context, task),
+                      const SizedBox(height: 12),
                     ],
-                  ),
-                );
-              },
-            );
+
+                    // Projeto Final
+                    FinalProjectSection(
+                      task: task,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Briefing
+                    _buildBriefingSection(context, task),
+                    const SizedBox(height: 12),
+
+                    // Arquivos da Task
+                    TaskFilesSection(
+                      task: task,
+                      canUpload: appState.isAdmin || appState.isDesigner,
+                      canDeleteOwn: appState.isAdmin ||
+                          (Supabase.instance.client.auth.currentUser?.id ==
+                              task['created_by']),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Sub Tasks section
+                    SubTasksSection(
+                      taskId: widget.taskId,
+                      taskTitle: task['title'] as String? ?? 'Tarefa',
+                      projectId: task['project_id'] as String,
+                      onSubTaskChanged: () {
+                        setState(() {
+                          _taskFuture = _loadTask();
+                        });
+                      },
+                      onSubTaskTap: (subTaskId, subTaskTitle) {
+                        // Navegar para a subtask usando TabManager com o contexto correto
+                        final tabManager =
+                            TabManagerScope.maybeOf(widgetContext);
+
+                        if (tabManager != null) {
+                          final tabId = 'task_$subTaskId';
+                          final currentIndex = tabManager.currentIndex;
+
+                          final updatedTab = TabItem(
+                            id: tabId,
+                            title: subTaskTitle,
+                            icon: Icons.task,
+                            page: TaskDetailPage(
+                              key: ValueKey('task_$subTaskId'),
+                              taskId: subTaskId,
+                            ),
+                            canClose: true,
+                          );
+                          tabManager.updateTab(currentIndex, updatedTab);
+                        } else {}
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ]),
+                ),
+              ),
+              // Comentários (Sliver)
+              SliverPadding(
+                padding: const EdgeInsets.all(16),
+                sliver: CommentsSection(task: task),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
-

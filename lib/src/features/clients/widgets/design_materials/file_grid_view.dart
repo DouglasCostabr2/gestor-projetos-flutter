@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../../ui/atoms/badges/simple_badge.dart';
+import '../../../../../ui/atoms/image_viewer/image_viewer.dart';
 
 /// Widget for displaying files in a grid layout
 class FileGridView extends StatelessWidget {
@@ -31,7 +32,10 @@ class FileGridView extends StatelessWidget {
               Icon(
                 Icons.folder_open,
                 size: 64,
-                color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant
+                    .withValues(alpha: 0.5),
               ),
               const SizedBox(height: 16),
               Text(
@@ -61,7 +65,8 @@ class FileGridView extends StatelessWidget {
           file: file,
           onRename: onFileRename != null ? () => onFileRename!(file) : null,
           onDelete: onFileDelete != null ? () => onFileDelete!(file) : null,
-          onDownload: onFileDownload != null ? () => onFileDownload!(file) : null,
+          onDownload:
+              onFileDownload != null ? () => onFileDownload!(file) : null,
           onManageTags: onManageTags != null ? () => onManageTags!(file) : null,
         );
       },
@@ -85,37 +90,69 @@ class _FileCard extends StatelessWidget {
   });
 
   bool _isImage(String? mimeType) {
-    if (mimeType == null) return false;
+    if (mimeType == null) {
+      return false;
+    }
     return mimeType.startsWith('image/');
   }
 
   IconData _getFileIcon(String? mimeType) {
-    if (mimeType == null) return Icons.insert_drive_file;
-    
-    if (mimeType.startsWith('image/')) return Icons.image;
-    if (mimeType.startsWith('video/')) return Icons.video_file;
-    if (mimeType.startsWith('audio/')) return Icons.audio_file;
-    if (mimeType.contains('pdf')) return Icons.picture_as_pdf;
-    if (mimeType.contains('word') || mimeType.contains('document')) return Icons.description;
-    if (mimeType.contains('sheet') || mimeType.contains('excel')) return Icons.table_chart;
-    if (mimeType.contains('presentation') || mimeType.contains('powerpoint')) return Icons.slideshow;
-    if (mimeType.contains('zip') || mimeType.contains('rar') || mimeType.contains('7z')) return Icons.folder_zip;
-    
+    if (mimeType == null) {
+      return Icons.insert_drive_file;
+    }
+
+    if (mimeType.startsWith('image/')) {
+      return Icons.image;
+    }
+    if (mimeType.startsWith('video/')) {
+      return Icons.video_file;
+    }
+    if (mimeType.startsWith('audio/')) {
+      return Icons.audio_file;
+    }
+    if (mimeType.contains('pdf')) {
+      return Icons.picture_as_pdf;
+    }
+    if (mimeType.contains('word') || mimeType.contains('document')) {
+      return Icons.description;
+    }
+    if (mimeType.contains('sheet') || mimeType.contains('excel')) {
+      return Icons.table_chart;
+    }
+    if (mimeType.contains('presentation') || mimeType.contains('powerpoint')) {
+      return Icons.slideshow;
+    }
+    if (mimeType.contains('zip') ||
+        mimeType.contains('rar') ||
+        mimeType.contains('7z')) {
+      return Icons.folder_zip;
+    }
+
     return Icons.insert_drive_file;
   }
 
   String _formatFileSize(int? bytes) {
-    if (bytes == null) return '';
-    
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (bytes == null) {
+      return '';
+    }
+
+    if (bytes < 1024) {
+      return '$bytes B';
+    }
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
   List<Map<String, dynamic>> _extractTags() {
     final fileTags = file['file_tags'] as List<dynamic>?;
-    if (fileTags == null || fileTags.isEmpty) return [];
+    if (fileTags == null || fileTags.isEmpty) {
+      return [];
+    }
 
     return fileTags
         .map((ft) {
@@ -149,13 +186,10 @@ class _FileCard extends StatelessWidget {
     final isVideo = mimeType?.startsWith('video/') ?? false;
     final tags = _extractTags();
 
-    // DEBUG: Verificar dados do arquivo
-
     // Gerar URL de thumbnail do Google Drive (mesmo sistema usado em assets)
     final thumbnailUrl = driveFileId != null && (isImage || isVideo)
         ? 'https://drive.google.com/thumbnail?id=$driveFileId&sz=w800'
         : null;
-
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -171,20 +205,37 @@ class _FileCard extends StatelessWidget {
                   // Background image or icon
                   Positioned.fill(
                     child: Container(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      color:
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
                       child: (isImage || isVideo) && thumbnailUrl != null
-                          ? Image.network(
-                              thumbnailUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Center(
-                                  child: Icon(
-                                    _getFileIcon(mimeType),
-                                    size: 48,
-                                    color: Theme.of(context).colorScheme.primary,
-                                  ),
-                                );
-                              },
+                          ? GestureDetector(
+                              onTap: isImage
+                                  ? () => ImageViewer.show(
+                                        context,
+                                        imageUrl: thumbnailUrl,
+                                        downloadFileName: filename,
+                                      )
+                                  : null,
+                              child: MouseRegion(
+                                cursor: isImage
+                                    ? SystemMouseCursors.click
+                                    : SystemMouseCursors.basic,
+                                child: Image.network(
+                                  thumbnailUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Center(
+                                      child: Icon(
+                                        _getFileIcon(mimeType),
+                                        size: 48,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
                             )
                           : Center(
                               child: Icon(
@@ -208,7 +259,8 @@ class _FileCard extends StatelessWidget {
                             padding: const EdgeInsets.only(bottom: 4),
                             child: SimpleBadge(
                               label: tag['name'] as String,
-                              backgroundColor: const Color(0x80000000), // Black 50% opacity
+                              backgroundColor:
+                                  const Color(0x80000000), // Black 50% opacity
                               textColor: const Color(0xFFE0E0E0), // Light grey
                             ),
                           );
@@ -315,7 +367,8 @@ class _FileCard extends StatelessWidget {
                     Text(
                       _formatFileSize(fileSize),
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
                           ),
                     ),
                   ],
@@ -328,4 +381,3 @@ class _FileCard extends StatelessWidget {
     );
   }
 }
-

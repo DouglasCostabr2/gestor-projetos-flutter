@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../utils/cache_file_service.dart';
 
 import '../../../services/briefing_image_service.dart';
@@ -99,7 +100,12 @@ class GenericBlockEditor extends StatefulWidget {
     this.onOpenEmojiPicker,
     this.controller,
     this.isUploading = false,
+    this.onImageAdded,
   });
+
+  /// Callback para upload imediato de imagem (retorna URL remota)
+  final Future<String?> Function(String localPath, List<int> bytes)?
+      onImageAdded;
 
   @override
   State<GenericBlockEditor> createState() => GenericBlockEditorState();
@@ -237,7 +243,9 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
     final localUrl =
         filePath.startsWith('file://') ? filePath : 'file://$filePath';
     final blockId = UniqueKey().toString();
-    final content = jsonEncode({'url': localUrl, 'caption': ''});
+    final name = filePath.split(Platform.pathSeparator).last;
+    final content =
+        jsonEncode({'url': localUrl, 'caption': '', 'filename': name});
     setState(() {
       _blocks.add(
           EditorBlock(id: blockId, type: BlockType.image, content: content));
@@ -246,7 +254,7 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
 
     // Copiar para cache em background
     CacheFileService.copyToEditorCache(filePath, prefix: 'Editor')
-        .then((cached) {
+        .then((cached) async {
       if (!mounted) return;
       final cachedUrl = 'file://${cached.path}';
       final cachedContent = jsonEncode({'url': cachedUrl, 'caption': ''});
@@ -257,6 +265,42 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
               id: blockId, type: BlockType.image, content: cachedContent);
         });
         _notifyChange();
+      }
+
+      // Se houver callback de upload, iniciar imediatamente
+      if (widget.onImageAdded != null) {
+        try {
+          final bytes = await File(cached.path).readAsBytes();
+          final remoteUrl = await widget.onImageAdded!(cached.path, bytes);
+          if (remoteUrl != null && mounted) {
+            // Atualizar bloco com URL remota
+            final idx = _blocks.indexWhere((b) => b.id == blockId);
+            if (idx != -1) {
+              final currentContent = _blocks[idx].content;
+              String currentCaption = '';
+              String? currentFilename;
+              try {
+                final d = jsonDecode(currentContent);
+                currentCaption = d['caption'] ?? '';
+                currentFilename = d['filename'];
+              } catch (_) {}
+
+              setState(() {
+                _blocks[idx] = EditorBlock(
+                    id: blockId,
+                    type: BlockType.image,
+                    content: jsonEncode({
+                      'url': remoteUrl,
+                      'caption': currentCaption,
+                      'filename': currentFilename
+                    }));
+              });
+              _notifyChange();
+            }
+          }
+        } catch (e) {
+          // Erro no upload silencioso, mantém local
+        }
       }
     }).catchError((_) {
       // Ignora erros - imagem já está visível
@@ -344,13 +388,16 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
       final contentStr = (b['content'] ?? '').toString();
       String? url;
       String? caption;
+      String? filename;
       try {
         final data = jsonDecode(contentStr) as Map<String, dynamic>;
         url = (data['url'] as String?)?.trim();
         caption = (data['caption'] as String?)?.trim();
+        filename = data['filename'] as String?;
       } catch (_) {
         url = contentStr.trim();
         caption = null;
+        filename = null;
       }
       if (url == null || url.isEmpty) continue;
       final isHttp = url.startsWith('http://') || url.startsWith('https://');
@@ -362,9 +409,11 @@ class GenericBlockEditorState extends State<GenericBlockEditor> {
               prefix: 'Editor');
           final newUrl = 'file://${cached.path}';
           if (caption != null) {
-            b['content'] = jsonEncode({'url': newUrl, 'caption': caption});
+            b['content'] = jsonEncode(
+                {'url': newUrl, 'caption': caption, 'filename': filename});
           } else {
-            b['content'] = newUrl;
+            b['content'] = jsonEncode(
+                {'url': newUrl, 'caption': '', 'filename': filename});
           }
         } catch (_) {
           // Se a cópia falhar, mantém a URL original e segue
@@ -732,10 +781,12 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
   Widget _buildImageBlock() {
     String url = widget.block.content;
     String caption = '';
+    String? filename;
     try {
       final data = jsonDecode(widget.block.content) as Map<String, dynamic>;
       url = (data['url'] as String? ?? '').trim();
       caption = (data['caption'] as String? ?? '').trim();
+      filename = data['filename'] as String?;
     } catch (_) {}
 
     return Row(
@@ -750,7 +801,12 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
               : const BoxConstraints(maxHeight: 300, maxWidth: 300),
           child: GestureDetector(
             onTap: !widget.enabled && url.isNotEmpty
-                ? () => ImageViewer.show(context, imageUrl: url)
+                ? () => ImageViewer.show(
+                      context,
+                      imageUrl: url,
+                      downloadFileName: filename ??
+                          'comentario_${DateTime.now().millisecondsSinceEpoch}.jpg',
+                    )
                 : null,
             child: MouseRegion(
               cursor: !widget.enabled && url.isNotEmpty
@@ -764,30 +820,33 @@ class _GBBlockWidgetState extends State<_GBBlockWidget> {
                       final isHttp = url.startsWith('http://') ||
                           url.startsWith('https://');
                       if (isHttp) {
-                        return Image.network(
-                          url,
+                        // Se for URL do Google Drive, usar thumbnail para exibição (mais confiável)
+                        String displayUrl = url;
+                        if (url.contains('drive.google.com')) {
+                          try {
+                            final uri = Uri.parse(url);
+                            final id = uri.queryParameters['id'];
+                            if (id != null && id.isNotEmpty) {
+                              displayUrl =
+                                  'https://drive.google.com/thumbnail?id=$id&sz=w800';
+                            }
+                          } catch (_) {}
+                        }
+
+                        return CachedNetworkImage(
+                          imageUrl: displayUrl,
                           fit: widget.enabled ? BoxFit.cover : BoxFit.contain,
                           alignment: Alignment.centerLeft,
-                          cacheWidth: ((widget.enabled ? 150 : 300) *
+                          memCacheWidth: ((widget.enabled ? 150 : 300) *
                                   MediaQuery.of(context).devicePixelRatio)
                               .round(),
-                          loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) {
-                              return AnimatedOpacity(
-                                opacity: 1,
-                                duration: const Duration(milliseconds: 200),
-                                curve: Curves.easeOut,
-                                child: child,
-                              );
-                            }
-                            return const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(20),
-                                child: CircularProgressIndicator(),
-                              ),
-                            );
-                          },
-                          errorBuilder: (context, error, stackTrace) {
+                          placeholder: (context, url) => const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(20),
+                              child: CircularProgressIndicator(),
+                            ),
+                          ),
+                          errorWidget: (context, url, error) {
                             return const Padding(
                               padding: EdgeInsets.all(20),
                               child: Text('Erro ao carregar imagem',
@@ -1336,7 +1395,7 @@ class _GBTableCellFieldState extends State<_GBTableCellField> {
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
         child: Align(
           alignment: Alignment.topLeft,
-          child: SelectableText(
+          child: Text(
             _controller.text.isEmpty ? '' : _controller.text,
             style: const TextStyle(
                 color: Color(0xFFEAEAEA), fontSize: 13, height: 1.5),

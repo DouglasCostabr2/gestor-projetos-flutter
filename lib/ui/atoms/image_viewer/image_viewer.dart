@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:photo_view/photo_view.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:cached_network_image/cached_network_image.dart';
 
 import '../buttons/buttons.dart';
 
@@ -19,11 +20,13 @@ import '../buttons/buttons.dart';
 class ImageViewer extends StatefulWidget {
   final String imageUrl;
   final String? heroTag;
+  final String? downloadFileName;
 
   const ImageViewer({
     super.key,
     required this.imageUrl,
     this.heroTag,
+    this.downloadFileName,
   });
 
   /// Abre o visualizador de imagens em tela cheia
@@ -31,6 +34,7 @@ class ImageViewer extends StatefulWidget {
     BuildContext context, {
     required String imageUrl,
     String? heroTag,
+    String? downloadFileName,
   }) {
     return Navigator.of(context).push(
       MaterialPageRoute(
@@ -38,6 +42,7 @@ class ImageViewer extends StatefulWidget {
         builder: (context) => ImageViewer(
           imageUrl: imageUrl,
           heroTag: heroTag,
+          downloadFileName: downloadFileName,
         ),
       ),
     );
@@ -202,25 +207,28 @@ class _ImageViewerState extends State<ImageViewer> {
                   widget.imageUrl.contains('/')));
 
       // Sugerir nome com extensão adequada
-      String suggestedName =
+      String suggestedName = widget.downloadFileName ??
           'image_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      if (isHttp) {
-        final uri = Uri.tryParse(widget.imageUrl);
-        final last = (uri?.pathSegments.isNotEmpty ?? false)
-            ? uri!.pathSegments.last
-            : '';
-        if (last.isNotEmpty && last.contains('.')) {
-          final ext = last.split('.').last;
-          suggestedName =
-              'image_${DateTime.now().millisecondsSinceEpoch}.${ext.isEmpty ? 'jpg' : ext}';
+
+      if (widget.downloadFileName == null) {
+        if (isHttp) {
+          final uri = Uri.tryParse(widget.imageUrl);
+          final last = (uri?.pathSegments.isNotEmpty ?? false)
+              ? uri!.pathSegments.last
+              : '';
+          if (last.isNotEmpty && last.contains('.')) {
+            final ext = last.split('.').last;
+            suggestedName =
+                'image_${DateTime.now().millisecondsSinceEpoch}.${ext.isEmpty ? 'jpg' : ext}';
+          }
+        } else if (isFile) {
+          final srcPath = widget.imageUrl.startsWith('file://')
+              ? widget.imageUrl.substring(7)
+              : widget.imageUrl;
+          final base = srcPath.split(RegExp(r'[\\/]')).last;
+          final ext = base.contains('.') ? base.split('.').last : 'jpg';
+          suggestedName = 'image_${DateTime.now().millisecondsSinceEpoch}.$ext';
         }
-      } else if (isFile) {
-        final srcPath = widget.imageUrl.startsWith('file://')
-            ? widget.imageUrl.substring(7)
-            : widget.imageUrl;
-        final base = srcPath.split(RegExp(r'[\\/]')).last;
-        final ext = base.contains('.') ? base.split('.').last : 'jpg';
-        suggestedName = 'image_${DateTime.now().millisecondsSinceEpoch}.$ext';
       }
 
       final String? outputPath = await FilePicker.platform.saveFile(
@@ -312,7 +320,7 @@ class _ImageViewerState extends State<ImageViewer> {
     if (isHttp) {
       return PhotoView(
         controller: _photoViewController,
-        imageProvider: NetworkImage(widget.imageUrl),
+        imageProvider: CachedNetworkImageProvider(widget.imageUrl),
         minScale: PhotoViewComputedScale.contained,
         maxScale: PhotoViewComputedScale.covered *
             4, // Permite zoom maior para ver detalhes

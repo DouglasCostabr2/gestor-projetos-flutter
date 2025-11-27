@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'mention_hover_card.dart';
+import '../../atoms/badges/link_badge.dart';
 
 /// Widget para exibir texto com menções destacadas
 ///
@@ -86,10 +87,11 @@ class _MentionTextState extends State<MentionText> {
   @override
   Widget build(BuildContext context) {
     final defaultStyle = widget.style ?? DefaultTextStyle.of(context).style;
-    final defaultMentionStyle = widget.mentionStyle ?? TextStyle(
-      color: Theme.of(context).colorScheme.primary,
-      fontWeight: FontWeight.w600,
-    );
+    final defaultMentionStyle = widget.mentionStyle ??
+        TextStyle(
+          color: Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.w600,
+        );
 
     final spans = _buildTextSpans(
       widget.text,
@@ -100,8 +102,8 @@ class _MentionTextState extends State<MentionText> {
 
     return CompositedTransformTarget(
       link: _layerLink,
-      child: RichText(
-        text: TextSpan(children: spans),
+      child: Text.rich(
+        TextSpan(children: spans),
         maxLines: widget.maxLines,
         overflow: widget.overflow ?? TextOverflow.clip,
         textAlign: widget.textAlign ?? TextAlign.start,
@@ -117,22 +119,37 @@ class _MentionTextState extends State<MentionText> {
   ) {
     final spans = <InlineSpan>[];
 
-    // Suporta dois formatos:
+    // Regex para detectar URLs
+    final urlRegex = RegExp(
+      r'https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)',
+      caseSensitive: false,
+    );
+
+    // Suporta dois formatos de menções:
     // 1. @[Nome](id) - formato antigo com ID
     // 2. @Nome - formato novo sem ID
     final regexWithId = RegExp(r'@\[([^\]]+)\]\(([^)]+)\)');
     final regexSimple = RegExp(r'@([A-Za-zÀ-ÿ\s]+)(?=\s|$|[.,!?;:])');
 
-    int lastMatchEnd = 0;
-    final allMatches = <({int start, int end, String userName, String? userId})>[];
+    // Coletar todas as correspondências (menções e URLs)
+    final allMatches = <({
+      int start,
+      int end,
+      String type, // 'mention' ou 'url'
+      String? userName,
+      String? userId,
+      String? url,
+    })>[];
 
     // Encontrar menções com ID
     for (final match in regexWithId.allMatches(text)) {
       allMatches.add((
         start: match.start,
         end: match.end,
+        type: 'mention',
         userName: match.group(1)!,
         userId: match.group(2)!,
+        url: null,
       ));
     }
 
@@ -140,7 +157,7 @@ class _MentionTextState extends State<MentionText> {
     for (final match in regexSimple.allMatches(text)) {
       // Verificar se não está dentro de uma menção com ID
       bool isInsideIdMention = false;
-      for (final idMatch in allMatches) {
+      for (final idMatch in allMatches.where((m) => m.type == 'mention')) {
         if (match.start >= idMatch.start && match.end <= idMatch.end) {
           isInsideIdMention = true;
           break;
@@ -151,8 +168,34 @@ class _MentionTextState extends State<MentionText> {
         allMatches.add((
           start: match.start,
           end: match.end,
+          type: 'mention',
           userName: match.group(1)!,
           userId: null,
+          url: null,
+        ));
+      }
+    }
+
+    // Encontrar URLs
+    for (final match in urlRegex.allMatches(text)) {
+      // Verificar se não está dentro de uma menção
+      bool isInsideMention = false;
+      for (final mentionMatch in allMatches.where((m) => m.type == 'mention')) {
+        if (match.start >= mentionMatch.start &&
+            match.end <= mentionMatch.end) {
+          isInsideMention = true;
+          break;
+        }
+      }
+
+      if (!isInsideMention) {
+        allMatches.add((
+          start: match.start,
+          end: match.end,
+          type: 'url',
+          userName: null,
+          userId: null,
+          url: match.group(0)!,
         ));
       }
     }
@@ -160,8 +203,10 @@ class _MentionTextState extends State<MentionText> {
     // Ordenar por posição
     allMatches.sort((a, b) => a.start.compareTo(b.start));
 
+    int lastMatchEnd = 0;
+
     for (final match in allMatches) {
-      // Adicionar texto antes da menção
+      // Adicionar texto antes da correspondência
       if (match.start > lastMatchEnd) {
         spans.add(TextSpan(
           text: text.substring(lastMatchEnd, match.start),
@@ -169,57 +214,69 @@ class _MentionTextState extends State<MentionText> {
         ));
       }
 
-      // Adicionar menção com hover e clique
-      final userName = match.userName;
-      final userId = match.userId;
+      if (match.type == 'mention') {
+        // Adicionar menção com hover e clique
+        final userName = match.userName!;
+        final userId = match.userId;
 
-      if (userId != null) {
-        // Menção com ID - mostrar hover card
-        spans.add(WidgetSpan(
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            onEnter: (event) {
-              // Calcular posição do hover card
-              final RenderBox? box = context.findRenderObject() as RenderBox?;
-              if (box != null) {
-                final position = box.localToGlobal(Offset.zero);
-                _showHoverCard(
-                  userId,
-                  Offset(
-                    position.dx + event.localPosition.dx,
-                    position.dy + event.localPosition.dy + 20,
-                  ),
-                );
-              }
-            },
-            onExit: (_) {
-              // Pequeno delay antes de remover para permitir mover o mouse para o card
-              Future.delayed(const Duration(milliseconds: 200), () {
-                if (_hoveredUserId == userId) {
-                  _removeOverlay();
+        if (userId != null) {
+          // Menção com ID - mostrar hover card
+          spans.add(WidgetSpan(
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              onEnter: (event) {
+                // Calcular posição do hover card
+                final RenderBox? box = context.findRenderObject() as RenderBox?;
+                if (box != null) {
+                  final position = box.localToGlobal(Offset.zero);
+                  _showHoverCard(
+                    userId,
+                    Offset(
+                      position.dx + event.localPosition.dx,
+                      position.dy + event.localPosition.dy + 20,
+                    ),
+                  );
                 }
-              });
-            },
-            child: GestureDetector(
-              onTap: widget.onMentionTap != null
-                  ? () => widget.onMentionTap!(userId, userName)
-                  : null,
-              child: Text(
-                '@$userName',
-                style: mentionStyle.copyWith(
-                  decoration: widget.onMentionTap != null
-                      ? TextDecoration.underline
-                      : null,
+              },
+              onExit: (_) {
+                // Pequeno delay antes de remover para permitir mover o mouse para o card
+                Future.delayed(const Duration(milliseconds: 200), () {
+                  if (_hoveredUserId == userId) {
+                    _removeOverlay();
+                  }
+                });
+              },
+              child: GestureDetector(
+                onTap: widget.onMentionTap != null
+                    ? () => widget.onMentionTap!(userId, userName)
+                    : null,
+                child: Text(
+                  '@$userName',
+                  style: mentionStyle.copyWith(
+                    decoration: widget.onMentionTap != null
+                        ? TextDecoration.underline
+                        : null,
+                  ),
                 ),
               ),
             ),
+          ));
+        } else {
+          // Menção sem ID - apenas destacar em negrito
+          spans.add(TextSpan(
+            text: '@$userName',
+            style: mentionStyle,
+          ));
+        }
+      } else if (match.type == 'url') {
+        // Adicionar URL clicável usando o componente LinkBadge
+        final url = match.url!;
+        spans.add(WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: LinkBadge(
+            url: url,
+            textStyle: defaultStyle,
           ),
-        ));
-      } else {
-        // Menção sem ID - apenas destacar em negrito
-        spans.add(TextSpan(
-          text: '@$userName',
-          style: mentionStyle,
         ));
       }
 
@@ -261,4 +318,3 @@ class MentionFormFieldText extends StatelessWidget {
     );
   }
 }
-
