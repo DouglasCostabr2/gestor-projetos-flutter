@@ -16,7 +16,11 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.1.25+28
+#
+# VERSIONING PARA GOOGLE PLAY:
+# - versionName (1.2.0): versão visível para usuários
+# - versionCode (29): número incremental para cada upload na Play Store (DEVE ser incrementado a cada release)
+version: 1.2.1+30
 
 environment:
   sdk: '>=3.5.3 <4.0.0'
@@ -79,6 +83,7 @@ dependencies:
   uuid: ^4.5.1
   photo_view: ^0.15.0
   crop_your_image: ^2.0.0
+  local_notifier: ^0.1.6
 
 dev_dependencies:
   flutter_test:
