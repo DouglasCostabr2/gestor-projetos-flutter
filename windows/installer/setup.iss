@@ -6,7 +6,7 @@
 ; Ou use o script: .\scripts\build_installer.ps1
 
 #define MyAppName "My Business"
-#define MyAppVersion "1.1.19"
+#define MyAppVersion "1.1.20"
 #define MyAppPublisher "Douglas Costa"
 #define MyAppURL "https://github.com/DouglasCostabr2"
 #define MyAppExeName "gestor_projetos_flutter.exe"
